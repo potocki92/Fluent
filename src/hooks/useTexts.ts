@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
@@ -69,11 +70,14 @@ export function useQuestions(textId: number) {
  */
 export function useAdaptiveTextSuggestion(ability: number): Text | null {
   const { data: texts } = useTexts();
-  if (!texts || texts.length === 0) return null;
 
-  return texts.reduce((best, text) =>
-    Math.abs(text.difficulty - ability) < Math.abs(best.difficulty - ability)
-      ? text
-      : best,
-  );
+  return useMemo(() => {
+    if (!texts || texts.length === 0) return null;
+
+    return texts.reduce((best, text) =>
+      Math.abs(text.difficulty - ability) < Math.abs(best.difficulty - ability)
+        ? text
+        : best,
+    );
+  }, [texts, ability]);
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
@@ -34,14 +34,19 @@ export function useProfile() {
 
   const profile = query.data ?? null;
 
+  // Hydrate once on initial load. A background refetch must not clobber newer
+  // local state (e.g. from applyResult after answering) with stale DB values.
+  const hydratedRef = useRef(false);
+
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || hydratedRef.current) return;
     // cefrEstimate is derived from ability inside setAbility.
     setAbility({
       ability: profile.ability,
       rd: profile.rd,
       answered: profile.answered,
     });
+    hydratedRef.current = true;
   }, [profile, setAbility]);
 
   return { profile, isLoading: query.isLoading };
