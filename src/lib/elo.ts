@@ -56,6 +56,20 @@ export function updateAbility(
   return { ability: round(ability), rd: round(rd) };
 }
 
+/** How trustworthy the ability estimate is, derived from answer volume. */
+export type ConfidenceLevel = "calibrating" | "low" | "medium" | "high";
+
+/**
+ * Classify how confident we are in a learner's ability estimate based on how
+ * many questions they have answered. Used to label the level ring.
+ */
+export function confidenceLevel(answered: number): ConfidenceLevel {
+  if (answered < 5) return "calibrating";
+  if (answered < 15) return "low";
+  if (answered < 40) return "medium";
+  return "high";
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

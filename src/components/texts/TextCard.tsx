@@ -1,25 +1,49 @@
 import Link from "next/link";
-import { ChevronRight, FileText } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import type { Text } from "@/types";
 
+/** Max difficulty used to scale the 5-dot indicator. */
+const MAX_DIFFICULTY = 1800;
+
 export function TextCard({ text }: { text: Text }) {
+  const filled = Math.max(
+    0,
+    Math.min(5, Math.round((text.difficulty / MAX_DIFFICULTY) * 5)),
+  );
+
   return (
     <Link href={`/learn/${text.id}`} className="block">
-      <Card className="flex-row items-center gap-3 bg-[#2d3748] p-4 transition-colors hover:bg-[#374151]">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-[#374151] text-gold">
-          <FileText className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{text.title}</p>
-          <p className="text-xs text-muted2">
-            {text.word_count ?? "—"} słów
-          </p>
+      <Card className="gap-3 bg-[#2d3748] p-4 transition-colors hover:bg-[#374151]">
+        <div className="flex items-center justify-between gap-3">
+          <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
+          <div className="flex items-center gap-1" aria-label="Poziom trudności">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "size-1.5 rounded-full",
+                  i < filled ? "bg-gold" : "bg-[#1a202c]",
+                )}
+              />
+            ))}
+          </div>
         </div>
-        <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
-        <ChevronRight className="size-4 text-muted2" />
+
+        <p className="font-medium">{text.title}</p>
+
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted2">
+            {text.word_count ?? "—"} słów · trudność {text.difficulty}
+          </p>
+          <span className="flex items-center gap-1 text-sm font-medium text-gold">
+            Czytaj
+            <ArrowRight className="size-4" />
+          </span>
+        </div>
       </Card>
     </Link>
   );

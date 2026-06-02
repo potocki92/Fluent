@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { expectedScore, kFactor, updateAbility } from "./elo";
+import { confidenceLevel, expectedScore, kFactor, updateAbility } from "./elo";
 
 describe("expectedScore", () => {
   it("is 0.5 when ability equals difficulty", () => {
@@ -48,5 +48,21 @@ describe("updateAbility", () => {
     const input = { ability: 1200, rd: 350 };
     updateAbility(input, 1200, true);
     expect(input).toEqual({ ability: 1200, rd: 350 });
+  });
+});
+
+describe("confidenceLevel", () => {
+  it("is calibrating below 5 answers", () => {
+    expect(confidenceLevel(0)).toBe("calibrating");
+    expect(confidenceLevel(4)).toBe("calibrating");
+  });
+
+  it("steps up through the bands at the boundaries", () => {
+    expect(confidenceLevel(5)).toBe("low");
+    expect(confidenceLevel(14)).toBe("low");
+    expect(confidenceLevel(15)).toBe("medium");
+    expect(confidenceLevel(39)).toBe("medium");
+    expect(confidenceLevel(40)).toBe("high");
+    expect(confidenceLevel(1000)).toBe("high");
   });
 });

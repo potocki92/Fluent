@@ -26,11 +26,18 @@ export function BottomNav() {
               <Link
                 href={href}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-2.5 text-xs transition-colors",
+                  "flex flex-col items-center gap-1 py-2 text-xs transition-colors",
                   active ? "text-gold" : "text-muted2 hover:text-main",
                 )}
               >
-                <Icon className="size-5" />
+                <span
+                  className={cn(
+                    "flex items-center justify-center rounded-lg px-4 py-1 transition-colors",
+                    active && "bg-[#374151]",
+                  )}
+                >
+                  <Icon className="size-5" />
+                </span>
                 <span>{label}</span>
               </Link>
             </li>

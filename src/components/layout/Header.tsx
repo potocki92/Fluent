@@ -1,18 +1,22 @@
 import Link from "next/link";
 
 import { AuthButton } from "@/components/auth/AuthButton";
+import { CurrentLevelRing } from "@/components/level/CurrentLevelRing";
 
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-[#374151] bg-[#1a202c]/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-2xl items-center justify-between px-4">
         <Link href="/learn" className="flex items-center gap-2">
-          <span className="text-lg font-bold tracking-tight text-gold">
+          <span className="bg-gradient-to-r from-gold to-blue bg-clip-text text-lg font-bold tracking-tight text-transparent">
             Fluent
           </span>
           <span className="text-xs text-muted2">DE · PL</span>
         </Link>
-        <AuthButton />
+        <div className="flex items-center gap-3">
+          <CurrentLevelRing />
+          <AuthButton />
+        </div>
       </div>
     </header>
   );
