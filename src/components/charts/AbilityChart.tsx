@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import {
   CartesianGrid,
   Line,
@@ -37,12 +38,28 @@ const dateFmt = new Intl.DateTimeFormat("pl-PL", {
   month: "short",
 });
 
+/** Returns false on the server and during hydration, true once mounted. */
+const emptySubscribe = () => () => {};
+function useHydrated() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 /**
  * Ability-over-time line chart, styled fully for the dark theme. Plots the
  * learner's Elo `ability_after` for the last N attempts against the CEFR band
  * boundaries.
  */
 export function AbilityChart({ attempts }: { attempts: AbilityChartAttempt[] }) {
+  // Recharts' ResponsiveContainer measures the DOM, so defer rendering until
+  // mounted on the client to avoid SSR hydration mismatches.
+  if (!useHydrated()) {
+    return <div className="h-[180px]" />;
+  }
+
   if (attempts.length === 0) {
     return (
       <div className="flex h-[180px] items-center justify-center text-sm text-muted2">

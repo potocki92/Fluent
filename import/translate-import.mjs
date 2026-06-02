@@ -176,6 +176,11 @@ async function main() {
       });
     }
 
+    if (rows.length === 0) {
+      console.log(`· no matching rows for batch [${chunk[0].id}…] — skipping`);
+      continue;
+    }
+
     const { error: upErr } = await supabase
       .from("words")
       .upsert(rows, { onConflict: "id" });

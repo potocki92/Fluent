@@ -39,7 +39,11 @@ export default async function ReviewPage() {
       .lte("due_at", now)
       .order("due_at", { ascending: true })
       .limit(20);
-    dueCards = (data ?? []) as unknown as SavedWordWithWord[];
+    // The joined `word` can come back null under RLS / data gaps — drop those
+    // so ReviewSession never dereferences a missing dictionary entry.
+    dueCards = ((data ?? []) as unknown as SavedWordWithWord[]).filter(
+      (c) => c.word != null,
+    );
 
     if (dueCards.length === 0) {
       const { data: next } = await supabase

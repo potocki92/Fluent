@@ -85,9 +85,13 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
         ...r,
         { wordId: current.word_id, grade, mastered: isMastered },
       ]);
-    } finally {
+      // Only advance once the schedule is persisted — otherwise the card stays
+      // so the user can retry instead of silently losing progress.
       setFlipped(false);
       setIndex((i) => i + 1);
+    } catch (err) {
+      console.error("Failed to update SRS:", err);
+    } finally {
       setBusy(false);
     }
   }
