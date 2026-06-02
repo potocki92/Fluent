@@ -1,0 +1,22 @@
+[
+  { "id": 1, "lemma": "Auto", "display": "das Auto", "article": "das", "word_type": "noun", "gender": "n" },
+  { "id": 2, "lemma": "Haus", "display": "das Haus", "article": "das", "word_type": "noun", "gender": "n" },
+  { "id": 3, "lemma": "Frau", "display": "die Frau", "article": "die", "word_type": "noun", "gender": "f" },
+  { "id": 4, "lemma": "Mann", "display": "der Mann", "article": "der", "word_type": "noun", "gender": "m" },
+  { "id": 5, "lemma": "Kind", "display": "das Kind", "article": "das", "word_type": "noun", "gender": "n" },
+  { "id": 6, "lemma": "Wasser", "display": "das Wasser", "article": "das", "word_type": "noun", "gender": "n" },
+  { "id": 7, "lemma": "Brot", "display": "das Brot", "article": "das", "word_type": "noun", "gender": "n" },
+  { "id": 8, "lemma": "Apfel", "display": "der Apfel", "article": "der", "word_type": "noun", "gender": "m" },
+  { "id": 9, "lemma": "Schule", "display": "die Schule", "article": "die", "word_type": "noun", "gender": "f" },
+  { "id": 10, "lemma": "Arbeit", "display": "die Arbeit", "article": "die", "word_type": "noun", "gender": "f" },
+  { "id": 11, "lemma": "Stadt", "display": "die Stadt", "article": "die", "word_type": "noun", "gender": "f" },
+  { "id": 12, "lemma": "Straße", "display": "die Straße", "article": "die", "word_type": "noun", "gender": "f" },
+  { "id": 13, "lemma": "arbeiten", "display": "arbeiten", "article": null, "word_type": "verb", "gender": null },
+  { "id": 14, "lemma": "wohnen", "display": "wohnen", "article": null, "word_type": "verb", "gender": null },
+  { "id": 15, "lemma": "essen", "display": "essen", "article": null, "word_type": "verb", "gender": null },
+  { "id": 16, "lemma": "trinken", "display": "trinken", "article": null, "word_type": "verb", "gender": null },
+  { "id": 17, "lemma": "kaufen", "display": "kaufen", "article": null, "word_type": "verb", "gender": null },
+  { "id": 18, "lemma": "sprechen", "display": "sprechen", "article": null, "word_type": "verb", "gender": null },
+  { "id": 19, "lemma": "gut", "display": "gut", "article": null, "word_type": "other", "gender": null },
+  { "id": 20, "lemma": "schnell", "display": "schnell", "article": null, "word_type": "other", "gender": null }
+]

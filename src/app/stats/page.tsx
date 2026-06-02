@@ -1,9 +1,25 @@
-import { Flame, Target, CheckCircle2 } from "lucide-react";
+import { Flame, MessageSquare, BookmarkCheck, CheckCircle2 } from "lucide-react";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { abilityToCefr } from "@/lib/cefr";
+import { confidenceLevel, type ConfidenceLevel } from "@/lib/elo";
 import { LevelRing } from "@/components/level/LevelRing";
-import { AbilityChart, type AbilityPoint } from "@/components/charts/AbilityChart";
+import { CefrMilestones } from "@/components/level/CefrMilestones";
+import {
+  AbilityChart,
+  type AbilityChartAttempt,
+} from "@/components/charts/AbilityChart";
 import { Card } from "@/components/ui/card";
+
+export const metadata = { title: "Statystyki · Fluent" };
+
+/** Polish labels for the estimate-confidence levels. */
+const CONFIDENCE_PL: Record<ConfidenceLevel, string> = {
+  calibrating: "kalibracja",
+  low: "niska",
+  medium: "średnia",
+  high: "wysoka",
+};
 
 export default async function StatsPage() {
   const supabase = await createServerSupabaseClient();
@@ -18,57 +34,100 @@ export default async function StatsPage() {
   const attemptsPromise = user
     ? supabase
         .from("attempts")
-        .select("ability_after, is_correct, created_at")
+        .select("ability_after, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: true })
         .limit(50)
-    : Promise.resolve({ data: [] as { ability_after: number; is_correct: boolean }[] });
+    : Promise.resolve({ data: [] as AbilityChartAttempt[] });
 
-  const [{ data: profile }, { data: attempts }] = await Promise.all([
+  const savedCountPromise = user
+    ? supabase
+        .from("saved_words")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+    : Promise.resolve({ count: 0 });
+
+  const masteredCountPromise = user
+    ? supabase
+        .from("saved_words")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_mastered", true)
+    : Promise.resolve({ count: 0 });
+
+  const [
+    { data: profile },
+    { data: attempts },
+    { count: savedCount },
+    { count: masteredCount },
+  ] = await Promise.all([
     profilePromise,
     attemptsPromise,
+    savedCountPromise,
+    masteredCountPromise,
   ]);
 
   const ability = Number(profile?.ability ?? 1200);
-  const streak = profile?.streak_days ?? 0;
   const answered = profile?.answered ?? 0;
-  const correct = (attempts ?? []).filter((a) => a.is_correct).length;
-  const accuracy =
-    (attempts?.length ?? 0) > 0
-      ? Math.round((correct / attempts!.length) * 100)
-      : 0;
-
-  const chartData: AbilityPoint[] = (attempts ?? []).map((a, i) => ({
-    label: String(i + 1),
-    ability: Number(a.ability_after),
-  }));
+  const streak = profile?.streak_days ?? 0;
+  const cefr = abilityToCefr(ability);
+  const confidence = CONFIDENCE_PL[confidenceLevel(answered)];
+  const chartAttempts = (attempts ?? []) as AbilityChartAttempt[];
 
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-bold">Statystyki</h1>
 
-      <Card className="items-center gap-3 bg-[#2d3748] p-6">
+      {/* A) Level banner */}
+      <Card className="flex-row items-center gap-4 bg-[#2d3748] p-6">
         <LevelRing ability={ability} answered={answered} size="lg" />
-        <p className="text-sm text-muted2">Twój poziom umiejętności</p>
+        <div className="space-y-1">
+          <p className="text-lg font-bold">
+            Twój poziom: <span className="text-gold">{cefr}</span>
+          </p>
+          <p className="text-sm text-muted2">
+            Elo: {Math.round(ability)} · Pewność: {confidence}
+          </p>
+          <p className="text-xs text-muted2">
+            Na podstawie {answered} odpowiedzi
+          </p>
+        </div>
       </Card>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Stat icon={<Flame className="size-5 text-gold" />} value={streak} label="dni z rzędu" />
+      {/* B) Stat tiles */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
-          icon={<CheckCircle2 className="size-5 text-green" />}
-          value={`${accuracy}%`}
-          label="skuteczność"
+          icon={<Flame className="size-5 text-gold" />}
+          value={`${streak} dni`}
+          label="Passa"
         />
         <Stat
-          icon={<Target className="size-5 text-blue" />}
+          icon={<MessageSquare className="size-5 text-blue" />}
           value={answered}
-          label="odpowiedzi"
+          label="Odpowiedzi"
+        />
+        <Stat
+          icon={<BookmarkCheck className="size-5 text-gold" />}
+          value={savedCount ?? 0}
+          label="Słów zapisanych"
+        />
+        <Stat
+          icon={<CheckCircle2 className="size-5 text-green" />}
+          value={masteredCount ?? 0}
+          label="Opanowanych"
         />
       </div>
 
+      {/* C) Ability chart */}
       <Card className="gap-3 bg-[#2d3748] p-5">
         <h2 className="text-sm font-semibold text-muted2">Postęp umiejętności</h2>
-        <AbilityChart data={chartData} />
+        <AbilityChart attempts={chartAttempts} />
+      </Card>
+
+      {/* D) CEFR milestones */}
+      <Card className="gap-4 bg-[#2d3748] p-5">
+        <h2 className="text-sm font-semibold text-muted2">Kamienie milowe CEFR</h2>
+        <CefrMilestones ability={ability} />
       </Card>
     </div>
   );
