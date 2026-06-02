@@ -23,6 +23,14 @@ export const CEFR_DIFFICULTY: Record<"A1" | "A2" | "B1" | "B2", number> = {
   B2: 1700,
 };
 
+/** Tailwind class pairs used to colour the CEFR badge per stored level. */
+export const CEFR_COLORS: Record<"A1" | "A2" | "B1" | "B2", string> = {
+  A1: "bg-green-900/40 text-green-300",
+  A2: "bg-blue-900/40 text-blue-300",
+  B1: "bg-yellow-900/40 text-yellow-300",
+  B2: "bg-red-900/40 text-red-300",
+};
+
 /** Convert an Elo ability score into the matching CEFR level. */
 export function abilityToCefr(ability: number): CefrLevel {
   for (const band of CEFR_BANDS) {

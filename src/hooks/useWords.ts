@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { CefrLevel, Word, WordType } from "@/types";
@@ -9,16 +9,41 @@ export interface WordFilters {
   type?: WordType;
 }
 
-/** Fetch dictionary words, optionally filtered by search/CEFR/type. */
+/** Number of words fetched per page when scrolling the dictionary. */
+const PAGE_SIZE = 30;
+
+export interface WordsPage {
+  words: Word[];
+  /** Total number of words matching the current filters. */
+  count: number;
+  /** Next page index, or null when there are no more results. */
+  nextPage: number | null;
+}
+
+/**
+ * Fetch dictionary words page-by-page, optionally filtered by search/CEFR/type.
+ * Search matches the German lemma/display or the Polish translation.
+ */
 export function useWords(filters: WordFilters = {}) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["words", filters],
-    queryFn: async (): Promise<Word[]> => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }): Promise<WordsPage> => {
       const supabase = createClientSupabaseClient();
-      let query = supabase.from("words").select("*").order("lemma").limit(100);
+      const from = pageParam * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      let query = supabase
+        .from("words")
+        .select("*", { count: "exact" })
+        .order("lemma")
+        .range(from, to);
 
       if (filters.search) {
-        query = query.ilike("lemma", `%${filters.search}%`);
+        const term = `%${filters.search}%`;
+        query = query.or(
+          `lemma.ilike.${term},display.ilike.${term},translation_pl.ilike.${term}`,
+        );
       }
       if (filters.cefr) {
         query = query.eq("cefr", filters.cefr);
@@ -27,9 +52,14 @@ export function useWords(filters: WordFilters = {}) {
         query = query.eq("word_type", filters.type);
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
       if (error) throw error;
-      return data ?? [];
+
+      const words = data ?? [];
+      const total = count ?? 0;
+      const nextPage = from + words.length < total ? pageParam + 1 : null;
+      return { words, count: total, nextPage };
     },
+    getNextPageParam: (lastPage) => lastPage.nextPage,
   });
 }

@@ -1,67 +1,35 @@
-"use client";
+import type { Metadata } from "next";
+import { Suspense } from "react";
 
-import { useState } from "react";
-import { Search } from "lucide-react";
+import { BrowseFilters } from "@/components/words/BrowseFilters";
+import { WordGrid } from "@/components/words/WordGrid";
 
-import { useWords, type WordFilters } from "@/hooks/useWords";
-import { WordCard } from "@/components/words/WordCard";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { WordType } from "@/types";
+export const metadata: Metadata = {
+  title: "Słownik DTZ — Fluent",
+};
 
-export default function BrowsePage() {
-  const [search, setSearch] = useState("");
-  const [type, setType] = useState<WordType | "all">("all");
-
-  const filters: WordFilters = {
-    search: search.trim() || undefined,
-    type: type === "all" ? undefined : type,
-  };
-  const { data: words, isLoading } = useWords(filters);
+export default async function BrowsePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cefr?: string; type?: string; q?: string }>;
+}) {
+  const { cefr, type, q } = await searchParams;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">Słownik</h1>
-        <p className="text-sm text-muted2">2588 słów ze słownika DTZ.</p>
-      </div>
+    <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
+      <div className="mx-auto max-w-screen-xl space-y-6 px-4">
+        <header>
+          <h1 className="text-2xl font-bold text-[#e2e8f0]">Słownik DTZ</h1>
+          <p className="text-sm text-[#a0aec0]">
+            2 588 słów · lista DTZ (Goethe-Institut / telc)
+          </p>
+        </header>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted2" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Szukaj słowa…"
-          className="pl-9"
-        />
-      </div>
+        <BrowseFilters cefr={cefr} type={type} q={q} />
 
-      <Tabs value={type} onValueChange={(v) => setType(v as WordType | "all")}>
-        <TabsList className="w-full">
-          <TabsTrigger value="all" className="flex-1">
-            Wszystkie
-          </TabsTrigger>
-          <TabsTrigger value="noun" className="flex-1">
-            Rzeczowniki
-          </TabsTrigger>
-          <TabsTrigger value="verb" className="flex-1">
-            Czasowniki
-          </TabsTrigger>
-          <TabsTrigger value="other" className="flex-1">
-            Inne
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {isLoading && <p className="text-sm text-muted2">Ładowanie…</p>}
-
-      <div className="space-y-3">
-        {words?.map((word) => (
-          <WordCard key={word.id} word={word} />
-        ))}
-        {words?.length === 0 && !isLoading && (
-          <p className="text-sm text-muted2">Brak wyników.</p>
-        )}
+        <Suspense fallback={<p className="text-sm text-[#a0aec0]">Ładowanie…</p>}>
+          <WordGrid cefr={cefr} type={type} q={q} />
+        </Suspense>
       </div>
     </div>
   );

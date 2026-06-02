@@ -1,89 +1,124 @@
 "use client";
 
 import { useState } from "react";
-import { Bookmark, BookmarkCheck } from "lucide-react";
+import { motion } from "framer-motion";
+import { Check, Plus, Volume2 } from "lucide-react";
 
-import { saveWord, unsaveWord } from "@/actions/save-word";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
-import type { Word } from "@/types";
+import type { Word, WordType } from "@/types";
 
-/** Article colour mnemonic: der → blue, die → red, das → green. */
-const ARTICLE_COLOR: Record<string, string> = {
-  der: "text-blue",
-  die: "text-red",
-  das: "text-green",
+/** Background/text tokens for the article (rodzaj) chip. */
+const ARTICLE_CHIP: Record<"der" | "die" | "das", string> = {
+  der: "bg-blue-900/40 text-blue-300",
+  die: "bg-pink-900/40 text-pink-300",
+  das: "bg-purple-900/40 text-purple-300",
+};
+
+/** Polish labels for each grammatical word type. */
+const TYPE_LABEL: Record<WordType, string> = {
+  noun: "rzeczownik",
+  verb: "czasownik",
+  other: "inne",
 };
 
 export function WordCard({
   word,
-  saved = false,
+  isSaved,
+  onSave,
 }: {
   word: Word;
-  saved?: boolean;
+  isSaved: boolean;
+  onSave: () => void;
 }) {
-  const [isSaved, setIsSaved] = useState(saved);
-  const [pending, setPending] = useState(false);
+  const [bounce, setBounce] = useState(false);
 
-  async function toggle() {
-    setPending(true);
-    try {
-      if (isSaved) await unsaveWord(word.id);
-      else await saveWord(word.id);
-      setIsSaved((s) => !s);
-    } finally {
-      setPending(false);
-    }
+  function speak() {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const utterance = new SpeechSynthesisUtterance(word.display);
+    utterance.lang = "de-DE";
+    utterance.rate = 0.8;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function handleSave() {
+    setBounce(true);
+    onSave();
   }
 
   return (
-    <Card className="gap-3 bg-[#2d3748] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-lg font-semibold">
-            {word.article && (
-              <span className={cn("mr-1", ARTICLE_COLOR[word.article])}>
-                {word.article}
-              </span>
+    <article className="flex flex-col gap-3 rounded-xl bg-[#2d3748] p-4 transition-colors hover:bg-[#374151]">
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={cn(
+            "rounded-lg px-2 py-0.5 text-sm font-semibold",
+            word.article
+              ? ARTICLE_CHIP[word.article]
+              : "bg-[#374151] text-[#a0aec0]",
+          )}
+        >
+          {word.article ?? TYPE_LABEL[word.word_type]}
+        </span>
+        {word.cefr && (
+          <span
+            className={cn(
+              "rounded-lg px-2 py-0.5 text-xs font-semibold",
+              CEFR_COLORS[word.cefr],
             )}
-            {word.lemma}
-          </p>
-          {word.translation_pl && (
-            <p className="text-sm text-muted2">{word.translation_pl}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {word.cefr && (
-            <Badge variant="outline" className="border-[#374151] text-muted2">
-              {word.cefr}
-            </Badge>
-          )}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={toggle}
-            disabled={pending}
-            aria-label={isSaved ? "Usuń z powtórek" : "Zapisz do powtórek"}
           >
-            {isSaved ? (
-              <BookmarkCheck className="size-4 text-gold" />
-            ) : (
-              <Bookmark className="size-4" />
-            )}
-          </Button>
-        </div>
+            {word.cefr}
+          </span>
+        )}
       </div>
 
-      {word.example_de && (
-        <div className="rounded-md bg-[#374151] p-2 text-sm">
-          <p className="text-main">{word.example_de}</p>
-          {word.example_pl && (
-            <p className="mt-1 text-muted2">{word.example_pl}</p>
-          )}
-        </div>
+      <div>
+        <h3 className="text-2xl font-bold text-[#e2e8f0]">{word.display}</h3>
+        <p className="text-xs uppercase tracking-wide text-[#a0aec0]">
+          {TYPE_LABEL[word.word_type]}
+        </p>
+      </div>
+
+      {word.translation_pl && (
+        <p className="text-base text-[#e2e8f0]">{word.translation_pl}</p>
       )}
-    </Card>
+
+      <div className="mt-auto flex gap-2 pt-1">
+        <button
+          type="button"
+          onClick={speak}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#374151] px-3 py-2 text-sm text-[#e2e8f0] transition-colors hover:bg-[#4a5568]"
+        >
+          <Volume2 className="size-4" />
+          Wymowa
+        </button>
+        <motion.button
+          type="button"
+          onClick={handleSave}
+          animate={{ scale: bounce ? 1.1 : 1 }}
+          transition={{ type: "spring", stiffness: 500, damping: 15 }}
+          onAnimationComplete={() => bounce && setBounce(false)}
+          aria-pressed={isSaved}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+            isSaved
+              ? "bg-[#d4a574] text-[#1a202c]"
+              : "bg-[#374151] text-[#e2e8f0] hover:bg-[#4a5568]",
+          )}
+        >
+          {isSaved ? (
+            <>
+              <Check className="size-4" />
+              Zapisano
+            </>
+          ) : (
+            <>
+              <Plus className="size-4" />
+              Dodaj
+            </>
+          )}
+        </motion.button>
+      </div>
+    </article>
   );
 }
