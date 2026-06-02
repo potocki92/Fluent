@@ -59,17 +59,20 @@ MARKERS = {
 }
 
 
-def is_continuation(line: str) -> bool:
-    """A verb's second line carries the auxiliary (hat/ist/war/wurde)."""
+def has_aux(line: str) -> bool:
+    """A verb's conjugation line carries an auxiliary (hat/ist/war/wurde)."""
     return re.search(r"\b(hat|ist|war|wurde)\b", line) is not None
 
 
 def normalize(tok: str) -> str:
-    """Strip parens, variant slashes and trailing punctuation to a bare lemma."""
+    """Strip parens, variant slashes and punctuation to a bare lemma."""
     tok = tok.replace("(", "").replace(")", "")        # (he)runterladen → herunterladen
     tok = re.split(r"[/,]", tok)[0]                     # gern/gerne → gern
-    tok = tok.strip().strip("-_„\"").strip()       # leading/trailing dashes, quotes
-    return re.sub(rf"[^{LET}].*$", "", tok)             # cut at first non-letter
+    tok = tok.strip().strip("„\"").strip()           # surrounding quotes
+    tok = re.sub(rf"[^{LET}\-].*$", "", tok)            # keep letters + internal hyphen
+    if tok.startswith("-"):                             # suffix marker (-en, -zeug, …)
+        return ""
+    return tok.strip("-")                               # all- → all, but keep E-Mail
 
 
 def head_lemma(tokens: list[str]) -> str:
@@ -79,6 +82,21 @@ def head_lemma(tokens: list[str]) -> str:
         if c and c.lower() not in MARKERS:
             return c
     return ""
+
+
+def is_infinitive(word: str) -> bool:
+    """A lowercase headword ending in -n is an infinitive candidate."""
+    return len(word) >= 3 and word[:1].islower() and word.endswith("n")
+
+
+def is_conjugation_row(line: str) -> bool:
+    """A finite-form row that continues a verb's conjugation, e.g. 'druckt aus,'
+    or 'druckte aus,' — lowercase, comma-terminated, not a new infinitive and
+    not an article-led noun headword."""
+    toks = line.split()
+    if not toks or toks[0].strip("()") in ART:
+        return False
+    return line[:1].islower() and line.endswith(",") and not is_infinitive(head_lemma(toks))
 
 
 def headword_lines(doc: "fitz.Document") -> list[str]:
@@ -132,35 +150,47 @@ def parse(lines: list[str]) -> list[dict]:
                 })
             continue
 
-        # Orphan conjugation line with no preceding infinitive → ignore.
-        if is_continuation(line):
+        lemma = head_lemma(tokens)
+
+        # VERB: an infinitive headword whose conjugation table follows (it ends
+        # with a comma, or already carries the auxiliary on the same line). The
+        # table may wrap over several rows but always ends on the auxiliary
+        # (hat/ist/…) line, so consume rows up to and including that line.
+        if is_infinitive(lemma) and (line.rstrip().endswith(",") or has_aux(line)):
+            entries.append({
+                "lemma": lemma, "display": lemma,
+                "article": None, "word_type": "verb", "gender": None,
+            })
+            for _ in range(4):  # cap: longest table is infinitive + 3 rows
+                if i >= n:
+                    break
+                row = lines[i].strip()
+                if has_aux(row):       # auxiliary line closes the table
+                    i += 1
+                    break
+                if is_conjugation_row(row):
+                    i += 1
+                else:
+                    break             # next headword (incl. 'gut, besser,')
             continue
 
-        # VERB: the next line is the conjugation continuation.
-        nxt = lines[i].strip() if i < n else ""
-        if nxt and is_continuation(nxt) and nxt.split()[0].strip("()") not in ART:
-            i += 1
-            lemma = head_lemma(tokens)
-            if lemma.endswith("n") and len(lemma) >= 3:
-                entries.append({
-                    "lemma": lemma, "display": lemma,
-                    "article": None, "word_type": "verb", "gender": None,
-                })
+        # Stray auxiliary line that never attached to an infinitive → ignore.
+        if has_aux(line):
             continue
 
         # OTHER: adjectives, adverbs, particles, …
-        lemma = head_lemma(tokens)
         if len(lemma) >= 2:
             entries.append({
                 "lemma": lemma, "display": lemma,
                 "article": None, "word_type": "other", "gender": None,
             })
 
-    # Deduplicate on (lemma, word_type); assign stable 1-based ids.
-    seen: set[tuple[str, str]] = set()
+    # Deduplicate on (lemma, word_type, article); the article keeps gender
+    # homographs apart (der Leiter vs die Leiter, der Teil vs das Teil).
+    seen: set[tuple[str, str, str | None]] = set()
     unique: list[dict] = []
     for e in entries:
-        key = (e["lemma"].lower(), e["word_type"])
+        key = (e["lemma"].lower(), e["word_type"], e["article"])
         if key in seen:
             continue
         seen.add(key)
