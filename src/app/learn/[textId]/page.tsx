@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { Button } from "@/components/ui/button";
+import { ReadingText } from "@/components/texts/ReadingText";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 
 export default async function ReadingPage({
   params,
@@ -25,28 +27,28 @@ export default async function ReadingPage({
 
   return (
     <article className="space-y-6">
-      <header className="space-y-2">
-        <div className="flex items-center gap-2">
+      <header className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/learn"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[#374151] text-muted2 transition-colors hover:text-main"
+            aria-label="Powrót do listy tekstów"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+          <h1 className="min-w-0 flex-1 truncate text-2xl font-bold">
+            {text.title}
+          </h1>
           <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
-          <span className="text-xs text-muted2">{text.word_count ?? "—"} słów</span>
         </div>
-        <h1 className="text-2xl font-bold">{text.title}</h1>
+
+        <div className="space-y-1.5">
+          <Progress value={50} />
+          <p className="text-xs text-muted2">Krok 1 z 2 — Czytanie</p>
+        </div>
       </header>
 
-      {/* Body is trusted HTML with <mark data-lemma="…"> annotations. */}
-      <div
-        className="prose-reading space-y-4 text-[15px] leading-7 text-main [&_mark]:rounded [&_mark]:bg-gold/15 [&_mark]:px-0.5 [&_mark]:text-gold"
-        dangerouslySetInnerHTML={{ __html: text.body }}
-      />
-
-      <div className="sticky bottom-20 pt-4">
-        <Button
-          asChild
-          className="w-full bg-gold text-[#1a202c] hover:bg-gold-dark"
-        >
-          <Link href={`/learn/${text.id}/test`}>Rozpocznij test ze zrozumienia</Link>
-        </Button>
-      </div>
+      <ReadingText text={text} />
     </article>
   );
 }

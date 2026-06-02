@@ -48,7 +48,7 @@ export default async function StatsPage() {
       <h1 className="text-xl font-bold">Statystyki</h1>
 
       <Card className="items-center gap-3 bg-[#2d3748] p-6">
-        <LevelRing ability={ability} size={140} />
+        <LevelRing ability={ability} answered={answered} size="lg" />
         <p className="text-sm text-muted2">Twój poziom umiejętności</p>
       </Card>
 
