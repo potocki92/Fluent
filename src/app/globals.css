@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* The Fluent design system maps the shadcn semantic tokens onto the
+   custom palette so every shadcn component renders in the app theme.
+   The app is always dark — the `dark` class is applied on <html>. */
+
+:root {
+  --radius: 0.625rem;
+
+  /* Light fallbacks (the app forces dark, these are only a safety net). */
+  --background: #ffffff;
+  --foreground: #1a202c;
+  --card: #ffffff;
+  --card-foreground: #1a202c;
+  --popover: #ffffff;
+  --popover-foreground: #1a202c;
+  --primary: #d4a574;
+  --primary-foreground: #1a202c;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1a202c;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #1a202c;
+  --destructive: #f56565;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #d4a574;
+}
+
+.dark {
+  --background: #1a202c;
+  --foreground: #e2e8f0;
+  --card: #2d3748;
+  --card-foreground: #e2e8f0;
+  --popover: #2d3748;
+  --popover-foreground: #e2e8f0;
+  --primary: #d4a574;
+  --primary-foreground: #1a202c;
+  --secondary: #374151;
+  --secondary-foreground: #e2e8f0;
+  --muted: #374151;
+  --muted-foreground: #a0aec0;
+  --accent: #374151;
+  --accent-foreground: #e2e8f0;
+  --destructive: #f56565;
+  --border: #374151;
+  --input: #374151;
+  --ring: #d4a574;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* shadcn semantic tokens */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Fluent design tokens (used directly throughout the app) */
+  --color-dark: #1a202c;
+  --color-card2: #374151;
+  --color-main: #e2e8f0;
+  --color-muted2: #a0aec0;
+  --color-gold: #d4a574;
+  --color-gold-dark: #b8935f;
+  --color-blue: #4299e1;
+  --color-green: #48bb78;
+  --color-red: #f56565;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
