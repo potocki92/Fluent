@@ -14,5 +14,5 @@ export function CurrentLevelRing() {
   const ability = useAbility((s) => s.ability);
   const answered = useAbility((s) => s.answered);
 
-  return <LevelRing size="sm" ability={ability} answered={answered} />;
+  return <LevelRing size="header" ability={ability} answered={answered} />;
 }

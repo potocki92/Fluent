@@ -11,7 +11,11 @@ const STROKE = 8;
 const CIRCUMFERENCE = 251.2; // 2 * Math.PI * 40, rounded as per spec
 const VIEWBOX = 100; // 2 * (R + STROKE/2) leaves a little padding
 
-const SIZE_PX: Record<"sm" | "lg", number> = { sm: 48, lg: 120 };
+const SIZE_PX: Record<"sm" | "header" | "lg", number> = {
+  sm: 48,
+  header: 52,
+  lg: 120,
+};
 
 /**
  * Circular progress ring showing the learner's CEFR level and progress towards
@@ -26,7 +30,7 @@ export function LevelRing({
 }: {
   ability: number;
   answered: number;
-  size?: "sm" | "lg";
+  size?: "sm" | "header" | "lg";
   className?: string;
 }) {
   const level = abilityToCefr(ability);
@@ -69,7 +73,12 @@ export function LevelRing({
               </span>
             </>
           ) : (
-            <span className="text-xs font-bold text-gold">{level}</span>
+            <span
+              className="text-xs font-bold text-gold data-[size=header]:text-sm"
+              data-size={size}
+            >
+              {level}
+            </span>
           )}
         </div>
       </div>
