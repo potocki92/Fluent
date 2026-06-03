@@ -41,9 +41,9 @@ function Results() {
         transition={{ type: "spring", stiffness: 220, damping: 18 }}
         className="w-full"
       >
-        <Card className="items-center gap-5 bg-[#2d3748] p-6 text-center">
-          <span className="text-5xl">{emojiFor(pct)}</span>
-          <p className="text-2xl font-bold">
+        <Card className="items-center gap-4 bg-[#2d3748] p-5 text-center">
+          <span className="text-4xl">{emojiFor(pct)}</span>
+          <p className="text-xl font-bold">
             {correct} / {total} poprawnych
           </p>
 

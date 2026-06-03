@@ -75,11 +75,11 @@ export default async function StatsPage() {
   const chartAttempts = (attempts ?? []) as AbilityChartAttempt[];
 
   return (
-    <div className="space-y-5">
-      <h1 className="text-xl font-bold">Statystyki</h1>
+    <div className="space-y-4">
+      <h1 className="text-lg font-bold">Statystyki</h1>
 
       {/* A) Level banner */}
-      <Card className="flex-row items-center gap-4 bg-[#2d3748] p-6">
+      <Card className="flex-row items-center gap-3 bg-[#2d3748] p-4">
         <LevelRing ability={ability} answered={answered} size="lg" />
         <div className="space-y-1">
           <p className="text-lg font-bold">
@@ -119,13 +119,13 @@ export default async function StatsPage() {
       </div>
 
       {/* C) Ability chart */}
-      <Card className="gap-3 bg-[#2d3748] p-5">
+      <Card className="gap-3 bg-[#2d3748] p-4">
         <h2 className="text-sm font-semibold text-muted2">Postęp umiejętności</h2>
         <AbilityChart attempts={chartAttempts} />
       </Card>
 
       {/* D) CEFR milestones */}
-      <Card className="gap-4 bg-[#2d3748] p-5">
+      <Card className="gap-4 bg-[#2d3748] p-4">
         <h2 className="text-sm font-semibold text-muted2">Kamienie milowe CEFR</h2>
         <CefrMilestones ability={ability} />
       </Card>
@@ -143,9 +143,9 @@ function Stat({
   label: string;
 }) {
   return (
-    <Card className="items-center gap-1 bg-[#2d3748] p-4 text-center">
+    <Card className="items-center gap-1 bg-[#2d3748] p-3 text-center">
       {icon}
-      <span className="text-xl font-bold">{value}</span>
+      <span className="text-lg font-bold">{value}</span>
       <span className="text-xs text-muted2">{label}</span>
     </Card>
   );

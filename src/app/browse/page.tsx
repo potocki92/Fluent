@@ -17,12 +17,12 @@ export default async function BrowsePage({
 
   return (
     <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
-      <div className="mx-auto max-w-screen-md space-y-7 px-6 sm:space-y-5 sm:px-4">
+      <div className="mx-auto max-w-screen-md space-y-5 px-4">
         <header>
-          <h1 className="text-4xl font-bold text-foreground sm:text-2xl">
+          <h1 className="text-2xl font-bold text-foreground">
             Słownik DTZ
           </h1>
-          <p className="mt-1 text-xl text-muted-foreground sm:text-sm">
+          <p className="mt-1 text-sm text-muted-foreground">
             2 588 słów · lista DTZ (Goethe-Institut / telc)
           </p>
         </header>
@@ -31,7 +31,7 @@ export default async function BrowsePage({
 
         <Suspense
           fallback={
-            <p className="text-xl text-muted-foreground sm:text-sm">
+            <p className="text-sm text-muted-foreground">
               Ładowanie…
             </p>
           }

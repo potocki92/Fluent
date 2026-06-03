@@ -79,7 +79,7 @@ export function WordDetailSheet({
                   {TYPE_LABEL[word.word_type]}
                 </span>
               </div>
-              <SheetTitle className="text-2xl">
+              <SheetTitle className="text-xl">
                 {word.article && (
                   <span
                     className={cn("mr-1.5 font-normal", ARTICLE_TEXT[word.article])}

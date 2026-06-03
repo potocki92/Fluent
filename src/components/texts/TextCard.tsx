@@ -17,7 +17,7 @@ export function TextCard({ text }: { text: Text }) {
 
   return (
     <Link href={`/learn/${text.id}`} className="block">
-      <Card className="gap-3 bg-[#2d3748] p-4 transition-colors hover:bg-[#374151]">
+      <Card className="gap-2 bg-[#2d3748] p-3 transition-colors hover:bg-[#374151]">
         <div className="flex items-center justify-between gap-3">
           <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
           <div className="flex items-center gap-1" aria-label="Poziom trudności">

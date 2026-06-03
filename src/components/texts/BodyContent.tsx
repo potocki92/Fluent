@@ -93,7 +93,7 @@ export function BodyContent({
   return (
     <div
       className={cn(
-        "text-[1.1rem] leading-[1.85] text-main [&_h2]:mb-4 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mb-3 [&_h3]:text-xl [&_h3]:font-semibold [&_li]:mb-1 [&_p]:mb-4 [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-5",
+        "text-base leading-relaxed text-main [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-bold [&_h3]:mb-3 [&_h3]:text-base [&_h3]:font-semibold [&_li]:mb-1 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5",
         className,
       )}
     >

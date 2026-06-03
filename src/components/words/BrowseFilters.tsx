@@ -98,25 +98,25 @@ export function BrowseFilters({
   }, []);
 
   return (
-    <div className="flex items-center gap-4 sm:gap-2">
+    <div className="flex items-center gap-2">
       <div className="relative flex-1">
-        <Search className="absolute left-4 top-1/2 size-6 -translate-y-1/2 text-muted-foreground sm:left-3 sm:size-4" />
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchValue}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Szukaj po niem. lub polsku…"
-          className="h-12 rounded-xl border-border bg-card pl-12 text-xl text-foreground placeholder:text-muted-foreground sm:h-9 sm:rounded-lg sm:pl-9 sm:text-base md:text-sm"
+          className="h-9 rounded-lg border-border bg-card pl-9 text-base text-foreground placeholder:text-muted-foreground md:text-sm"
         />
       </div>
 
       <Sheet>
         <SheetTrigger
-          className="relative flex size-12 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-gold transition-colors hover:bg-secondary sm:size-10 sm:rounded-lg"
+          className="relative flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-gold transition-colors hover:bg-secondary"
           aria-label="Filtry"
         >
-          <SlidersHorizontal className="size-6 sm:size-5" />
+          <SlidersHorizontal className="size-5" />
           {activeFilters > 0 && (
-            <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-gold text-xs font-semibold text-dark sm:size-4 sm:text-[10px]">
+            <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-gold text-[10px] font-semibold text-dark">
               {activeFilters}
             </span>
           )}
@@ -170,10 +170,10 @@ export function BrowseFilters({
       </Sheet>
 
       <div className="shrink-0 text-right">
-        <p className="text-2xl font-bold leading-none text-gold sm:text-lg">
+        <p className="text-lg font-bold leading-none text-gold">
           {savedCount}
         </p>
-        <p className="text-base leading-tight text-muted-foreground sm:text-xs">
+        <p className="text-xs leading-tight text-muted-foreground">
           {savedCount === 1 ? "słowo" : "słów"}
           <br />w nauce
         </p>

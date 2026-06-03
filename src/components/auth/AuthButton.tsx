@@ -32,17 +32,17 @@ export function AuthButton() {
     const initial =
       user?.user_metadata?.name?.[0] ?? user?.email?.[0] ?? "U";
     return (
-      <div className="flex items-center gap-3 sm:gap-2">
-        <span className="flex size-10 items-center justify-center rounded-full bg-gold text-lg font-semibold text-[#1a202c] uppercase sm:size-8 sm:text-sm">
+      <div className="flex items-center gap-2">
+        <span className="flex size-8 items-center justify-center rounded-full bg-gold text-sm font-semibold text-[#1a202c] uppercase">
           {initial}
         </span>
         <Button
           size="sm"
           variant="ghost"
           onClick={signOut}
-          className="h-10 px-1 text-lg sm:h-8 sm:px-3 sm:text-sm"
+          className="h-8 px-3 text-sm"
         >
-          <LogOut className="size-5 sm:size-4" />
+          <LogOut className="size-4" />
           Wyloguj
         </Button>
       </div>

@@ -73,7 +73,7 @@ export function TestRunner({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-muted2">
@@ -97,8 +97,8 @@ export function TestRunner({
         </div>
       </div>
 
-      <Card className="min-h-[300px] justify-center gap-6 bg-[#2d3748] p-6 text-center">
-        <p className="text-xl font-semibold">{question.prompt}</p>
+      <Card className="min-h-[260px] justify-center gap-4 bg-[#2d3748] p-4 text-center">
+        <p className="text-lg font-semibold">{question.prompt}</p>
 
         <div className="space-y-3">
           {question.options.map((option, i) => {
@@ -114,7 +114,7 @@ export function TestRunner({
                 disabled={pending || result !== null}
                 onClick={() => choose(i)}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border-2 px-4 py-3.5 text-left text-base transition-colors",
+                  "flex w-full items-center gap-3 rounded-lg border-2 px-3 py-3 text-left text-sm transition-colors",
                   "border-transparent bg-[#374151]",
                   isLoading && "animate-pulse border-[#a0aec0]",
                   showCorrect && "border-[#48bb78] bg-green-900/50",
@@ -124,7 +124,7 @@ export function TestRunner({
                     "hover:border-[#a0aec0] disabled:hover:border-transparent",
                 )}
               >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[#1a202c] text-sm font-bold text-muted2">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#1a202c] text-sm font-bold text-muted2">
                   {LETTERS[i]}
                 </span>
                 <span className="flex-1">{option}</span>

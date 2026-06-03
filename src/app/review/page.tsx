@@ -61,10 +61,10 @@ export default async function ReviewPage() {
 
   if (dueCards.length === 0) {
     return (
-      <div className="space-y-5">
-        <h1 className="text-xl font-bold">Powtórki</h1>
-        <Card className="items-center gap-3 bg-[#2d3748] p-8 text-center">
-          <PartyPopper className="size-10 text-gold" />
+      <div className="space-y-4">
+        <h1 className="text-lg font-bold">Powtórki</h1>
+        <Card className="items-center gap-3 bg-[#2d3748] p-5 text-center">
+          <PartyPopper className="size-8 text-gold" />
           <p className="font-semibold">🎉 Wszystko powtórzone!</p>
           {nextDueAt ? (
             <p className="text-sm text-muted2">
@@ -87,8 +87,8 @@ export default async function ReviewPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <h1 className="text-xl font-bold">Powtórki</h1>
+    <div className="space-y-4">
+      <h1 className="text-lg font-bold">Powtórki</h1>
       <ReviewSession cards={dueCards} />
     </div>
   );

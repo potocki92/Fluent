@@ -27,8 +27,8 @@ export default async function ReadingPage({
   if (!text) notFound();
 
   return (
-    <article className="space-y-6">
-      <header className="space-y-3">
+    <article className="space-y-4">
+      <header className="space-y-2">
         <div className="flex items-center gap-3">
           <Link
             href="/learn"
@@ -37,7 +37,7 @@ export default async function ReadingPage({
           >
             <ArrowLeft className="size-4" />
           </Link>
-          <h1 className="min-w-0 flex-1 truncate text-2xl font-bold">
+          <h1 className="min-w-0 flex-1 truncate text-xl font-bold">
             {text.title}
           </h1>
           <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
