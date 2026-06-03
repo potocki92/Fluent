@@ -15,6 +15,15 @@ export default async function TestPage({
 
   const supabase = await createServerSupabaseClient();
 
+  // Only published passages are testable by learners (drafts are admin-only).
+  const { data: text } = await supabase
+    .from("texts")
+    .select("id")
+    .eq("id", id)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!text) notFound();
+
   // `correct_idx` is intentionally never selected — the answer key stays
   // server-side inside the `submit-answer` Server Action.
   const { data } = await supabase

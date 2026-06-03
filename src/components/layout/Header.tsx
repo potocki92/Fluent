@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AuthButton } from "@/components/auth/AuthButton";
+import { AdminNavLink } from "@/components/layout/AdminNavLink";
 import { CurrentLevelRing } from "@/components/level/CurrentLevelRing";
 
 export function Header() {
@@ -14,6 +15,7 @@ export function Header() {
           <span className="text-xs text-muted2">DE · PL</span>
         </Link>
         <div className="flex items-center gap-3">
+          <AdminNavLink />
           <CurrentLevelRing />
           <AuthButton />
         </div>

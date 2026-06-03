@@ -15,6 +15,28 @@ export type Word = Tables["words"]["Row"];
 /** A reading passage. */
 export type Text = Tables["texts"]["Row"];
 
+/** Publication state of a reading passage. Drafts are admin-only. */
+export type TextStatus = "draft" | "published";
+
+/** The stored CEFR levels (the narrow set used by texts/questions, no `A1+`). */
+export type StoredCefrLevel = "A1" | "A2" | "B1" | "B2";
+
+/** Payload for creating/updating a text from the admin panel. */
+export interface TextInput {
+  title: string;
+  cefr: StoredCefrLevel;
+  body: string;
+  status: TextStatus;
+  word_count?: number | null;
+}
+
+/** Payload for creating/updating a question from the admin panel. */
+export interface QuestionInput {
+  prompt: string;
+  options: string[];
+  correct_idx: number;
+}
+
 /**
  * A comprehension question as sent to the client.
  * `correct_idx` is intentionally omitted — it is only known server-side and is

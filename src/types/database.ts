@@ -59,6 +59,7 @@ export type Database = {
           body: string;
           word_count: number | null;
           difficulty: number;
+          status: "draft" | "published";
           created_at: string;
         };
         Insert: {
@@ -68,6 +69,7 @@ export type Database = {
           body: string;
           word_count?: number | null;
           difficulty?: number;
+          status?: "draft" | "published";
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["texts"]["Insert"]>;
@@ -106,6 +108,7 @@ export type Database = {
         Row: {
           id: string;
           display_name: string | null;
+          role: "user" | "admin";
           ability: number;
           rd: number;
           answered: number;
@@ -118,6 +121,7 @@ export type Database = {
         Insert: {
           id: string;
           display_name?: string | null;
+          role?: "user" | "admin";
           ability?: number;
           rd?: number;
           answered?: number;
