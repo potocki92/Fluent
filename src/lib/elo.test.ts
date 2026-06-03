@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { confidenceLevel, expectedScore, kFactor, updateAbility } from "./elo";
+import {
+  calibrationMultiplier,
+  confidenceLevel,
+  expectedScore,
+  kFactor,
+  updateAbility,
+} from "./elo";
 
 describe("expectedScore", () => {
   it("is 0.5 when ability equals difficulty", () => {
@@ -27,6 +33,14 @@ describe("kFactor", () => {
   });
 });
 
+describe("calibrationMultiplier", () => {
+  it("boosts only the first few calibration answers", () => {
+    expect(calibrationMultiplier(0)).toBe(2);
+    expect(calibrationMultiplier(4)).toBeGreaterThan(1);
+    expect(calibrationMultiplier(5)).toBe(1);
+  });
+});
+
 describe("updateAbility", () => {
   it("raises ability on a correct answer", () => {
     const next = updateAbility({ ability: 1200, rd: 350 }, 1200, true);
@@ -39,7 +53,9 @@ describe("updateAbility", () => {
   });
 
   it("moves beginners down quickly during calibration", () => {
-    const next = updateAbility({ ability: 1200, rd: 350 }, 1100, false);
+    const next = updateAbility({ ability: 1200, rd: 350 }, 1100, false, {
+      answered: 0,
+    });
     expect(next.ability).toBeLessThan(1150);
   });
 

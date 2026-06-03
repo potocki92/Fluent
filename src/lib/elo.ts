@@ -28,11 +28,20 @@ export function expectedScore(ability: number, itemDifficulty: number): number {
 
 /**
  * K-factor derived from the current rating deviation: a higher `rd` (more
- * uncertainty) produces larger rating swings. Early calibration intentionally
- * moves fast, so a beginner is not stuck at the generic starting estimate.
+ * uncertainty) produces larger rating swings.
  */
 export function kFactor(rd: number): number {
-  return clamp(rd, RD_MIN, RD_MAX) / 4;
+  return clamp(rd, RD_MIN, RD_MAX) / 8;
+}
+
+/**
+ * Temporary multiplier for the first few answers, when the estimate is still
+ * being calibrated and should move faster than a settled level.
+ */
+export function calibrationMultiplier(answered: number): number {
+  if (answered <= 0) return 2;
+  if (answered >= 5) return 1;
+  return round(1 + (5 - answered) / 5);
 }
 
 /**
@@ -44,10 +53,13 @@ export function updateAbility(
   rating: AbilityRating,
   itemDifficulty: number,
   isCorrect: boolean,
+  options: { answered?: number } = {},
 ): AbilityRating {
   const expected = expectedScore(rating.ability, itemDifficulty);
   const actual = isCorrect ? 1 : 0;
-  const k = kFactor(rating.rd);
+  const multiplier =
+    options.answered === undefined ? 1 : calibrationMultiplier(options.answered);
+  const k = kFactor(rating.rd) * multiplier;
 
   const ability = rating.ability + k * (actual - expected);
   // Shrink uncertainty: the more surprising the result, the less it shrinks.

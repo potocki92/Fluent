@@ -3,31 +3,13 @@
 import { useState, useTransition } from "react";
 import { RotateCcw } from "lucide-react";
 
-import {
-  calibrateLevel,
-  type CalibrationLevel,
-} from "@/actions/calibrate-level";
+import { calibrateLevel } from "@/actions/calibrate-level";
+import { CALIBRATION_OPTIONS, type CalibrationLevel } from "@/lib/calibration";
 import { useAbility } from "@/hooks/useAbility";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const OPTIONS: { level: CalibrationLevel; label: string; hint: string }[] = [
-  {
-    level: "green",
-    label: "Jestem zielony",
-    hint: "start od zera",
-  },
-  {
-    level: "a1",
-    label: "Znam podstawy",
-    hint: "A1",
-  },
-  {
-    level: "a2",
-    label: "Ustaw A2",
-    hint: "łatwe teksty",
-  },
-];
+const OPTIONS = CALIBRATION_OPTIONS;
 
 /**
  * Manual calibration for the initial Elo estimate. The estimate still keeps
@@ -76,7 +58,7 @@ export function CalibrationControls({ className }: { className?: string }) {
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {OPTIONS.map((option) => (
           <Button
             key={option.level}
