@@ -6,7 +6,12 @@ import { abilityToCefr } from "@/lib/cefr";
 
 export interface CompleteTestInput {
   textId: number;
-  answers: { questionId: number; selectedIdx: number }[];
+  answers: {
+    questionId: number;
+    selectedIdx: number;
+    /** Time the learner took to answer, in ms. Recorded when available. */
+    responseMs?: number;
+  }[];
 }
 
 export interface CompleteTestResult {
@@ -39,36 +44,26 @@ export async function completeTest(
 
   if (input.answers.length === 0) throw new Error("No answers to score");
 
-  // 1. Load the answered questions (with the server-only answer key) and verify
-  //    they belong to the claimed text.
-  const questionIds = input.answers.map((a) => a.questionId);
-  const { data: questions, error: qError } = await supabase
-    .from("questions")
-    .select("id, text_id, correct_idx, difficulty")
-    .in("id", questionIds)
-    .eq("text_id", input.textId);
-  if (qError || !questions || questions.length === 0)
+  // 1. Re-grade authoritatively on the server. The `grade_test` SECURITY
+  //    DEFINER function reads `correct_idx` (never exposed to the client) and
+  //    returns only per-question correctness + difficulty, scoped to the text.
+  const { data: graded, error: gError } = await supabase.rpc("grade_test", {
+    p_text_id: input.textId,
+    p_question_ids: input.answers.map((a) => a.questionId),
+    p_selected_idxs: input.answers.map((a) => a.selectedIdx),
+  });
+  if (gError || !graded || graded.length === 0)
     throw new Error("Questions not found");
 
-  const byId = new Map(questions.map((q) => [q.id, q]));
-
-  // 2. Re-grade authoritatively on the server.
-  const graded = input.answers.flatMap((answer) => {
-    const question = byId.get(answer.questionId);
-    if (!question) return [];
-    return [
-      {
-        question,
-        isCorrect: answer.selectedIdx === question.correct_idx,
-      },
-    ];
-  });
-
   const total = graded.length;
-  if (total === 0) throw new Error("No matching questions to score");
-  const correct = graded.filter((g) => g.isCorrect).length;
+  const correct = graded.filter((g) => g.is_correct).length;
   const avgDifficulty =
-    graded.reduce((sum, g) => sum + g.question.difficulty, 0) / total;
+    graded.reduce((sum, g) => sum + g.difficulty, 0) / total;
+
+  // Per-question response time, keyed by question id, to record on each attempt.
+  const responseMsById = new Map(
+    input.answers.map((a) => [a.questionId, a.responseMs ?? null]),
+  );
 
   // 3. Load the learner's current ability.
   const { data: profile, error: pError } = await supabase
@@ -89,17 +84,19 @@ export async function completeTest(
   const { error: aError } = await supabase.from("attempts").insert(
     graded.map((g) => ({
       user_id: user.id,
-      question_id: g.question.id,
-      text_id: g.question.text_id,
-      is_correct: g.isCorrect,
+      question_id: g.question_id,
+      text_id: input.textId,
+      is_correct: g.is_correct,
       ability_before: before.ability,
       ability_after: score.ability,
+      response_ms: responseMsById.get(g.question_id) ?? null,
     })),
   );
   if (aError) throw aError;
 
   const answered = profile.answered + total;
 
+  // `updated_at` is stamped automatically by the profiles_touch_updated_at trigger.
   const { error: uError } = await supabase
     .from("profiles")
     .update({
@@ -107,7 +104,6 @@ export async function completeTest(
       rd: score.rd,
       answered,
       cefr_estimate: abilityToCefr(score.ability),
-      updated_at: new Date().toISOString(),
     })
     .eq("id", user.id);
   if (uError) throw uError;

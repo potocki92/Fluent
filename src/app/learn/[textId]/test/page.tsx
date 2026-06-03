@@ -24,10 +24,10 @@ export default async function TestPage({
     .maybeSingle();
   if (!text) notFound();
 
-  // `correct_idx` is intentionally never selected — the answer key stays
-  // server-side inside the `submit-answer` Server Action.
+  // Read from the answer-free `questions_public` view — `correct_idx` is not
+  // exposed there. Grading happens in the `submit-answer` Server Action.
   const { data } = await supabase
-    .from("questions")
+    .from("questions_public")
     .select("id, text_id, prompt, options, difficulty")
     .eq("text_id", id)
     .order("id", { ascending: true });

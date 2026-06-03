@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { submitAnswer, type SubmitAnswerResult } from "@/actions/submit-answer";
@@ -26,11 +26,20 @@ export function TestRunner({
   const [pending, setPending] = useState(false);
 
   // Collect every answer; Elo is only scored once, after the last question.
-  const answers = useRef<{ questionId: number; selectedIdx: number }[]>([]);
+  const answers = useRef<
+    { questionId: number; selectedIdx: number; responseMs: number }[]
+  >([]);
+  // When the current question was first shown, to measure response time.
+  const questionShownAt = useRef<number>(0);
 
   const question = questions[index];
   const total = questions.length;
   const isLast = index === total - 1;
+
+  // Reset the response-time clock whenever a new question is shown.
+  useEffect(() => {
+    questionShownAt.current = Date.now();
+  }, [index]);
 
   async function choose(idx: number) {
     if (pending || result) return;
@@ -42,7 +51,11 @@ export function TestRunner({
         selectedIdx: idx,
       });
       setResult(res);
-      answers.current.push({ questionId: question.id, selectedIdx: idx });
+      answers.current.push({
+        questionId: question.id,
+        selectedIdx: idx,
+        responseMs: Date.now() - questionShownAt.current,
+      });
 
       if (isLast) {
         // Score the whole test in one shot (the server re-grades authoritatively).
