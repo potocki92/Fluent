@@ -38,6 +38,11 @@ describe("updateAbility", () => {
     expect(next.ability).toBeLessThan(1200);
   });
 
+  it("moves beginners down quickly during calibration", () => {
+    const next = updateAbility({ ability: 1200, rd: 350 }, 1100, false);
+    expect(next.ability).toBeLessThan(1150);
+  });
+
   it("shrinks rd over time", () => {
     const next = updateAbility({ ability: 1200, rd: 350 }, 1200, true);
     expect(next.rd).toBeLessThan(350);

@@ -1,7 +1,7 @@
 /**
  * Pure Elo / Glicko-lite functions for estimating learner ability.
  *
- * A learner has an `ability` (≈1200 start) and a rating deviation `rd`
+ * A learner has an `ability` (≈1000 start) and a rating deviation `rd`
  * (≈350 start) that shrinks as they answer more questions, making later
  * updates smaller and more stable.
  */
@@ -28,10 +28,11 @@ export function expectedScore(ability: number, itemDifficulty: number): number {
 
 /**
  * K-factor derived from the current rating deviation: a higher `rd` (more
- * uncertainty) produces larger rating swings.
+ * uncertainty) produces larger rating swings. Early calibration intentionally
+ * moves fast, so a beginner is not stuck at the generic starting estimate.
  */
 export function kFactor(rd: number): number {
-  return clamp(rd, RD_MIN, RD_MAX) / 8;
+  return clamp(rd, RD_MIN, RD_MAX) / 4;
 }
 
 /**

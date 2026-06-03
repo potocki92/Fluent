@@ -67,7 +67,7 @@ export default async function StatsPage() {
     masteredCountPromise,
   ]);
 
-  const ability = Number(profile?.ability ?? 1200);
+  const ability = Number(profile?.ability ?? 1000);
   const answered = profile?.answered ?? 0;
   const streak = profile?.streak_days ?? 0;
   const cefr = abilityToCefr(ability);

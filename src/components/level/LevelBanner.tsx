@@ -6,6 +6,7 @@ import { ArrowRight, Sparkles } from "lucide-react";
 import { useAbility } from "@/hooks/useAbility";
 import { useProfile } from "@/hooks/useProfile";
 import { useAdaptiveTextSuggestion } from "@/hooks/useTexts";
+import { CalibrationControls } from "@/components/level/CalibrationControls";
 import { LevelRing } from "@/components/level/LevelRing";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,31 +22,37 @@ export function LevelBanner() {
   const suggestion = useAdaptiveTextSuggestion(ability);
 
   return (
-    <Card className="flex-row items-center gap-4 bg-[#2d3748] p-4">
-      <LevelRing size="lg" ability={ability} answered={answered} />
+    <Card className="gap-4 bg-card p-4">
+      <div className="flex items-center gap-4">
+        <LevelRing size="lg" ability={ability} answered={answered} />
 
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-muted2">
-          <Sparkles className="size-3.5 text-gold" />
-          Sugerowany tekst
-        </p>
-        {suggestion ? (
-          <Link href={`/learn/${suggestion.id}`} className="group mt-1 block">
-            <p className="truncate font-semibold group-hover:text-gold">
-              {suggestion.title}
-            </p>
-            <div className="mt-1 flex items-center justify-between gap-2">
-              <Badge className="bg-gold text-[#1a202c]">{suggestion.cefr}</Badge>
-              <span className="flex items-center gap-1 text-sm font-medium text-gold">
-                Czytaj
-                <ArrowRight className="size-4" />
-              </span>
-            </div>
-          </Link>
-        ) : (
-          <p className="mt-1 text-sm text-muted2">Brak dostępnych tekstów.</p>
-        )}
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted2">
+            <Sparkles className="size-3.5 text-gold" />
+            Sugerowany tekst
+          </p>
+          {suggestion ? (
+            <Link href={`/learn/${suggestion.id}`} className="group mt-1 block">
+              <p className="truncate font-semibold group-hover:text-gold">
+                {suggestion.title}
+              </p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <Badge className="bg-gold text-primary-foreground">
+                  {suggestion.cefr}
+                </Badge>
+                <span className="flex items-center gap-1 text-sm font-medium text-gold">
+                  Czytaj
+                  <ArrowRight className="size-4" />
+                </span>
+              </div>
+            </Link>
+          ) : (
+            <p className="mt-1 text-sm text-muted2">Brak dostępnych tekstów.</p>
+          )}
+        </div>
       </div>
+
+      <CalibrationControls />
     </Card>
   );
 }
