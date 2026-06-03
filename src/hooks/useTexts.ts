@@ -13,6 +13,7 @@ export function useTexts() {
       const { data, error } = await supabase
         .from("texts")
         .select("*")
+        .eq("status", "published")
         .order("difficulty", { ascending: true });
 
       if (error) throw error;
@@ -31,6 +32,7 @@ export function useText(textId: number) {
         .from("texts")
         .select("*")
         .eq("id", textId)
+        .eq("status", "published")
         .maybeSingle();
 
       if (error) throw error;

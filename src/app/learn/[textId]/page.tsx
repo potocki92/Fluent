@@ -21,6 +21,7 @@ export default async function ReadingPage({
     .from("texts")
     .select("*")
     .eq("id", id)
+    .eq("status", "published")
     .maybeSingle();
 
   if (!text) notFound();
