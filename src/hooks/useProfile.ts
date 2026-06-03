@@ -35,7 +35,7 @@ export function useProfile() {
   const profile = query.data ?? null;
 
   // Hydrate once on initial load. A background refetch must not clobber newer
-  // local state (e.g. from applyResult after answering) with stale DB values.
+  // local state (e.g. set after finishing a test) with stale DB values.
   const hydratedRef = useRef(false);
 
   useEffect(() => {

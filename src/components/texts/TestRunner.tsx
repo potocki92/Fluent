@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { submitAnswer, type SubmitAnswerResult } from "@/actions/submit-answer";
+import { completeTest } from "@/actions/complete-test";
 import { useAbility } from "@/hooks/useAbility";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -20,17 +21,15 @@ export function TestRunner({
   textId: number;
 }) {
   const router = useRouter();
-  const ability = useAbility((s) => s.ability);
-  const applyResult = useAbility((s) => s.applyResult);
-
-  // Snapshot the ability at the start so results can show before → after.
-  const abilityBefore = useRef(ability).current;
+  const setAbility = useAbility((s) => s.setAbility);
 
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitAnswerResult | null>(null);
   const [pending, setPending] = useState(false);
-  const [score, setScore] = useState(0);
+
+  // Collect every answer; Elo is only scored once, after the last question.
+  const answers = useRef<{ questionId: number; selectedIdx: number }[]>([]);
 
   const question = questions[index];
   const total = questions.length;
@@ -46,21 +45,32 @@ export function TestRunner({
         selectedIdx: idx,
       });
       setResult(res);
-      applyResult(res);
-      const nextScore = res.isCorrect ? score + 1 : score;
-      if (res.isCorrect) setScore(nextScore);
+      answers.current.push({ questionId: question.id, selectedIdx: idx });
 
-      window.setTimeout(() => {
-        if (isLast) {
+      if (isLast) {
+        // Score the whole test in one shot (the server re-grades authoritatively).
+        const summary = await completeTest({
+          textId,
+          answers: answers.current,
+        });
+        setAbility({
+          ability: summary.abilityAfter,
+          rd: summary.rd,
+          answered: summary.answered,
+        });
+        window.setTimeout(() => {
           const params = new URLSearchParams({
-            correct: String(nextScore),
-            total: String(total),
-            abilityBefore: String(Math.round(abilityBefore)),
-            abilityAfter: String(Math.round(res.abilityAfter)),
+            correct: String(summary.correct),
+            total: String(summary.total),
+            abilityBefore: String(Math.round(summary.abilityBefore)),
+            abilityAfter: String(Math.round(summary.abilityAfter)),
           });
           router.push(`/learn/${textId}/results?${params.toString()}`);
-          return;
-        }
+        }, 1500);
+        return;
+      }
+
+      window.setTimeout(() => {
         setIndex((i) => i + 1);
         setSelected(null);
         setResult(null);

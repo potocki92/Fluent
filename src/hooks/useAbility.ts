@@ -1,13 +1,12 @@
 import { create } from "zustand";
 
 import { abilityToCefr } from "@/lib/cefr";
-import type { AbilityState, TestResult } from "@/types";
+import type { AbilityState } from "@/types";
 
 interface AbilityStore extends AbilityState {
-  /** Replace the whole ability snapshot (e.g. after loading the profile). */
+  /** Replace the whole ability snapshot (e.g. after loading the profile or
+   * finishing a test). */
   setAbility: (state: Partial<AbilityState>) => void;
-  /** Fold a graded answer into the store. */
-  applyResult: (result: TestResult) => void;
   /** Reset to the default starting values. */
   reset: () => void;
 }
@@ -30,11 +29,5 @@ export const useAbility = create<AbilityStore>((set) => ({
         cefrEstimate: state.cefrEstimate ?? abilityToCefr(ability),
       };
     }),
-  applyResult: (result) =>
-    set((prev) => ({
-      ability: result.abilityAfter,
-      answered: prev.answered + 1,
-      cefrEstimate: abilityToCefr(result.abilityAfter),
-    })),
   reset: () => set({ ...DEFAULTS }),
 }));
