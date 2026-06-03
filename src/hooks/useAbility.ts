@@ -13,7 +13,7 @@ interface AbilityStore extends AbilityState {
 }
 
 const DEFAULTS: AbilityState = {
-  ability: 1200,
+  ability: 1000,
   rd: 350,
   answered: 0,
   cefrEstimate: null,

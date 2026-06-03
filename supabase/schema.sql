@@ -56,7 +56,7 @@ create table public.profiles (
   id              uuid primary key references auth.users(id) on delete cascade,
   display_name    text,
   role            text    not null default 'user' check (role in ('user','admin')),
-  ability         numeric not null default 1200,
+  ability         numeric not null default 1000,
   rd              numeric not null default 350,   -- rating deviation
   answered        int     not null default 0,
   cefr_estimate   text,

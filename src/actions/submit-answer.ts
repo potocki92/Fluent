@@ -52,7 +52,9 @@ export async function submitAnswer(
   const before = { ability: Number(profile.ability), rd: Number(profile.rd) };
 
   // 3. Compute the new Elo ability.
-  const after = updateAbility(before, question.difficulty, isCorrect);
+  const after = updateAbility(before, question.difficulty, isCorrect, {
+    answered: profile.answered,
+  });
 
   // 4. Persist: immutable attempt + updated profile (+ streak).
   const { error: aError } = await supabase.from("attempts").insert({

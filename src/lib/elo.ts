@@ -1,7 +1,7 @@
 /**
  * Pure Elo / Glicko-lite functions for estimating learner ability.
  *
- * A learner has an `ability` (≈1200 start) and a rating deviation `rd`
+ * A learner has an `ability` (≈1000 start) and a rating deviation `rd`
  * (≈350 start) that shrinks as they answer more questions, making later
  * updates smaller and more stable.
  */
@@ -35,6 +35,16 @@ export function kFactor(rd: number): number {
 }
 
 /**
+ * Temporary multiplier for the first few answers, when the estimate is still
+ * being calibrated and should move faster than a settled level.
+ */
+export function calibrationMultiplier(answered: number): number {
+  if (answered <= 0) return 2;
+  if (answered >= 5) return 1;
+  return round(1 + (5 - answered) / 5);
+}
+
+/**
  * Update a learner's ability after answering one item.
  *
  * @returns a new rating object (inputs are never mutated).
@@ -43,10 +53,13 @@ export function updateAbility(
   rating: AbilityRating,
   itemDifficulty: number,
   isCorrect: boolean,
+  options: { answered?: number } = {},
 ): AbilityRating {
   const expected = expectedScore(rating.ability, itemDifficulty);
   const actual = isCorrect ? 1 : 0;
-  const k = kFactor(rating.rd);
+  const multiplier =
+    options.answered === undefined ? 1 : calibrationMultiplier(options.answered);
+  const k = kFactor(rating.rd) * multiplier;
 
   const ability = rating.ability + k * (actual - expected);
   // Shrink uncertainty: the more surprising the result, the less it shrinks.
