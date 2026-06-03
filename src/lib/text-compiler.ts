@@ -33,6 +33,9 @@ export interface CompiledPassage {
 /** Matches a single word, including German umlauts and ß, plus inner hyphens. */
 const WORD_RE = /\p{L}[\p{L}ß]*(?:-\p{L}[\p{L}ß]*)*/gu;
 
+/** Splits HTML into tags, character entities, and the plain text between them. */
+const TOKEN_SPLIT_RE = /(<[^>]+>|&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);)/;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -129,10 +132,11 @@ function lookupLemma(token: string, index: Map<string, string>): string | null {
 }
 
 /**
- * Wrap dictionary words in `<mark data-lemma="…">`. Only text outside of HTML
- * tags is scanned, and text already inside a `<mark>` is left alone, so the
- * pass is idempotent. Returns the annotated HTML plus matched/unmatched word
- * stats for the admin summary.
+ * Wrap dictionary words in `<mark data-lemma="…">`. Only the plain text between
+ * HTML tags is scanned — tags and character entities (e.g. `&amp;`) are left
+ * intact so the regex never matches the "amp" inside an entity — and text
+ * already inside a `<mark>` is left alone, so the pass is idempotent. Returns
+ * the annotated HTML plus matched/unmatched word stats for the admin summary.
  */
 export function annotateVocabulary(
   html: string,
@@ -143,7 +147,7 @@ export function annotateVocabulary(
   let inMark = false;
 
   const annotated = html
-    .split(/(<[^>]+>)/)
+    .split(TOKEN_SPLIT_RE)
     .map((part) => {
       if (part.startsWith("<")) {
         const lower = part.toLowerCase();
@@ -151,6 +155,8 @@ export function annotateVocabulary(
         else if (lower.startsWith("</mark")) inMark = false;
         return part;
       }
+      // Leave HTML entities (&amp;, &#39;, …) untouched.
+      if (part.startsWith("&")) return part;
       if (inMark) return part;
 
       return part.replace(WORD_RE, (token) => {

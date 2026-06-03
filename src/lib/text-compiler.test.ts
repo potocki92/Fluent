@@ -52,7 +52,7 @@ describe("markdownToHtml", () => {
 });
 
 describe("buildDictIndex", () => {
-  it("indexes both the lemma and the first display word", () => {
+  it("indexes the lemma and the noun (last word) of display", () => {
     const index = buildDictIndex(DICT);
     expect(index.get("buch")).toBe("buch");
     expect(index.get("autobahn")).toBe("autobahn");
@@ -90,6 +90,12 @@ describe("annotateVocabulary", () => {
   it("collects unmatched content words", () => {
     const { unmatched } = annotateVocabulary("<p>Quatschwort</p>", index);
     expect(unmatched).toContain("quatschwort");
+  });
+
+  it("leaves HTML entities intact (no matching inside &amp;)", () => {
+    const { html, unmatched } = annotateVocabulary("<p>Tom &amp; Jerry</p>", index);
+    expect(html).toBe("<p>Tom &amp; Jerry</p>");
+    expect(unmatched).not.toContain("amp");
   });
 });
 

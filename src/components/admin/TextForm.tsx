@@ -61,6 +61,7 @@ export function TextForm(props: Props) {
     if (compiling || !source.trim()) return;
     setCompiling(true);
     setError(null);
+    setParseInfo(null);
     try {
       const { html, matched, unmatched } = await compileText(source);
       setBody(html);
