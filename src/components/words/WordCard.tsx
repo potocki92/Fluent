@@ -48,7 +48,7 @@ export function WordCard({
   }
 
   return (
-    <article className="flex flex-col gap-3 rounded-xl bg-[#2d3748] p-4 transition-colors hover:bg-[#374151]">
+    <article className="flex flex-col gap-2 rounded-xl bg-[#2d3748] p-3 transition-colors hover:bg-[#374151]">
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -73,7 +73,7 @@ export function WordCard({
       </div>
 
       <div>
-        <h3 className="text-2xl font-bold text-[#e2e8f0]">{word.display}</h3>
+        <h3 className="text-xl font-bold text-[#e2e8f0]">{word.display}</h3>
         <p className="text-xs uppercase tracking-wide text-[#a0aec0]">
           {TYPE_LABEL[word.word_type]}
         </p>
@@ -87,7 +87,7 @@ export function WordCard({
         <button
           type="button"
           onClick={speak}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#374151] px-3 py-2 text-sm text-[#e2e8f0] transition-colors hover:bg-[#4a5568]"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#374151] px-2.5 py-1.5 text-sm text-[#e2e8f0] transition-colors hover:bg-[#4a5568]"
         >
           <Volume2 className="size-4" />
           Wymowa
@@ -100,7 +100,7 @@ export function WordCard({
           onAnimationComplete={() => bounce && setBounce(false)}
           aria-pressed={isSaved}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+            "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors",
             isSaved
               ? "bg-[#d4a574] text-[#1a202c]"
               : "bg-[#374151] text-[#e2e8f0] hover:bg-[#4a5568]",

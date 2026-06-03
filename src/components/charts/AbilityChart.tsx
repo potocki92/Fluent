@@ -57,12 +57,12 @@ export function AbilityChart({ attempts }: { attempts: AbilityChartAttempt[] }) 
   // Recharts' ResponsiveContainer measures the DOM, so defer rendering until
   // mounted on the client to avoid SSR hydration mismatches.
   if (!useHydrated()) {
-    return <div className="h-[180px]" />;
+    return <div className="h-[150px]" />;
   }
 
   if (attempts.length === 0) {
     return (
-      <div className="flex h-[180px] items-center justify-center text-sm text-muted2">
+      <div className="flex h-[150px] items-center justify-center text-sm text-muted2">
         Brak danych — odpowiedz na kilka pytań, aby zobaczyć postęp.
       </div>
     );
@@ -75,7 +75,7 @@ export function AbilityChart({ attempts }: { attempts: AbilityChartAttempt[] }) 
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer width="100%" height={150}>
       <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
         <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
         <XAxis dataKey="index" hide />

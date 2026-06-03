@@ -12,7 +12,7 @@ export default async function AuthPage({
   const defaultMode = mode === "register" ? "register" : "login";
 
   return (
-    <div className="flex justify-center py-8">
+    <div className="flex justify-center py-6">
       <Card className="w-full max-w-md bg-[#2d3748]">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Witaj w Fluent</CardTitle>

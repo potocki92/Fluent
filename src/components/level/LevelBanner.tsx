@@ -22,8 +22,8 @@ export function LevelBanner() {
   const suggestion = useAdaptiveTextSuggestion(ability);
 
   return (
-    <Card className="gap-4 bg-card p-4">
-      <div className="flex items-center gap-4">
+    <Card className="gap-3 bg-card p-3">
+      <div className="flex items-center gap-3">
         <LevelRing size="lg" ability={ability} answered={answered} />
 
         <div className="min-w-0 flex-1">

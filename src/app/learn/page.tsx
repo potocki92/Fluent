@@ -12,9 +12,9 @@ export default function LearnPage() {
   const { data: texts, isLoading, error } = useTexts();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold">Czytaj i ucz się</h1>
+        <h1 className="text-lg font-bold">Czytaj i ucz się</h1>
         <p className="text-sm text-muted2">
           Wybierz tekst dopasowany do Twojego poziomu.
         </p>

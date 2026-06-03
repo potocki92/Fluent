@@ -14,7 +14,7 @@ const VIEWBOX = 100; // 2 * (R + STROKE/2) leaves a little padding
 const SIZE_PX: Record<"sm" | "header" | "lg", number> = {
   sm: 48,
   header: 52,
-  lg: 120,
+  lg: 96,
 };
 
 /**

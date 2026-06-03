@@ -1,7 +1,7 @@
 export default function BrowseLoading() {
   return (
     <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
-      <div className="mx-auto max-w-screen-xl space-y-6 px-4">
+      <div className="mx-auto max-w-screen-md space-y-5 px-4">
         <header className="space-y-2">
           <div className="h-7 w-40 animate-pulse rounded bg-[#374151]" />
           <div className="h-4 w-72 animate-pulse rounded bg-[#374151]" />

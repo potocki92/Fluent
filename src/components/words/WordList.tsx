@@ -120,7 +120,7 @@ export function WordList({
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (isLoading) {
-    return <p className="text-xl text-muted-foreground sm:text-sm">Ładowanie…</p>;
+    return <p className="text-sm text-muted-foreground">Ładowanie…</p>;
   }
 
   if (isError) {
@@ -137,12 +137,12 @@ export function WordList({
   }
 
   return (
-    <div className="space-y-4 sm:space-y-3">
-      <p className="text-xl text-muted-foreground sm:text-sm">
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
         Pokazano {words.length} z {total} słów
       </p>
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-background sm:rounded-xl">
+      <div className="overflow-hidden rounded-xl border border-border bg-background">
         {words.map((word) => (
           <WordRow
             key={word.id}

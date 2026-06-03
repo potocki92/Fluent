@@ -114,7 +114,7 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
   const progress = (index / deck.length) * 100;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <div className="space-y-2">
         <div className="flex justify-between text-sm text-muted2">
           <span>Powtórki</span>
@@ -142,12 +142,12 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
             aria-label="Odwróć fiszkę"
           >
             <motion.div
-              className="relative min-h-64 [transform-style:preserve-3d]"
+              className="relative min-h-52 [transform-style:preserve-3d]"
               animate={{ rotateY: flipped ? 180 : 0 }}
               transition={{ duration: 0.4 }}
             >
               {/* Front — German prompt */}
-              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-6 text-center [backface-visibility:hidden]">
+              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-4 text-center [backface-visibility:hidden]">
                 <span
                   className={cn(
                     "rounded-lg px-2 py-0.5 text-sm font-semibold",
@@ -158,7 +158,7 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
                 >
                   {word.article ?? TYPE_LABEL[word.word_type]}
                 </span>
-                <p className="text-4xl font-bold text-[#d4a574]">{word.display}</p>
+                <p className="text-2xl font-bold text-[#d4a574]">{word.display}</p>
                 <p className="text-xs uppercase tracking-wide text-muted2">
                   {TYPE_LABEL[word.word_type]}
                 </p>
@@ -168,8 +168,8 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
               </Card>
 
               {/* Back — Polish translation + examples */}
-              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-6 text-center [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                <p className="text-2xl font-semibold">
+              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-4 text-center [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                <p className="text-lg font-semibold">
                   {word.translation_pl ?? "—"}
                 </p>
                 {word.example_de && (
@@ -219,8 +219,8 @@ function SessionEnd({
   const mastered = results.filter((r) => r.mastered).length;
 
   return (
-    <Card className="items-center gap-4 bg-[#2d3748] p-8 text-center">
-      <PartyPopper className="size-10 text-gold" />
+    <Card className="items-center gap-4 bg-[#2d3748] p-5 text-center">
+      <PartyPopper className="size-8 text-gold" />
       <p className="text-lg font-semibold">Sesja zakończona!</p>
 
       <div className="grid w-full grid-cols-3 gap-3 text-center">
@@ -249,7 +249,7 @@ function SessionEnd({
 function Summary({ value, label }: { value: number; label: string }) {
   return (
     <div className="rounded-xl bg-[#374151] p-3">
-      <p className="text-2xl font-bold text-gold">{value}</p>
+      <p className="text-xl font-bold text-gold">{value}</p>
       <p className="text-xs text-muted2">{label}</p>
     </div>
   );
