@@ -100,7 +100,7 @@ export async function completeTest(
 
   const answered = profile.answered + total;
 
-  await supabase
+  const { error: uError } = await supabase
     .from("profiles")
     .update({
       ability: score.ability,
@@ -110,6 +110,7 @@ export async function completeTest(
       updated_at: new Date().toISOString(),
     })
     .eq("id", user.id);
+  if (uError) throw uError;
 
   await supabase.rpc("update_streak", { p_user_id: user.id });
 

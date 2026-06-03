@@ -146,7 +146,8 @@ export function confidenceLevel(answered: number): ConfidenceLevel {
   return "high";
 }
 
-function clamp(value: number, min: number, max: number): number {
+/** Constrain a value to the inclusive `[min, max]` range. */
+export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 

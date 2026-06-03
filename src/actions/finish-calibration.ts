@@ -2,7 +2,7 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { abilityToCefr } from "@/lib/cefr";
-import { RD_MIN } from "@/lib/elo";
+import { clamp, RD_MIN } from "@/lib/elo";
 import { FINAL_RD } from "@/lib/calibration-test";
 import type { AbilityState } from "@/types";
 
@@ -16,10 +16,6 @@ export interface FinishCalibrationInput {
 /** Keep a placement result inside a sane Elo range. */
 const ABILITY_MIN = 900;
 const ABILITY_MAX = 2000;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 /**
  * Persist the result of the adaptive placement test to the learner's profile.

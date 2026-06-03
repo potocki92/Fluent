@@ -18,13 +18,12 @@ import {
 } from "@/lib/calibration-test";
 import { abilityToCefr } from "@/lib/cefr";
 import { LevelRing } from "@/components/level/LevelRing";
+import { QuestionCard } from "@/components/texts/QuestionCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import type { AbilityState, CalibrationQuestion } from "@/types";
 import type { GradeCalibrationResult } from "@/actions/grade-calibration";
 
-const LETTERS = ["A", "B", "C", "D"];
 const REVEAL_MS = 1200;
 
 /**
@@ -185,56 +184,14 @@ export function CalibrationRunner() {
         </div>
       </div>
 
-      <Card className="min-h-[260px] justify-center gap-4 bg-[#2d3748] p-4 text-center">
-        <p className="text-lg font-semibold">{current.prompt}</p>
-
-        <div className="space-y-3">
-          {current.options.map((option, i) => {
-            const isSelected = selected === i;
-            const isLoading = pending && isSelected;
-            const showCorrect = result && result.correctIdx === i;
-            const showWrong = result && isSelected && !result.isCorrect;
-
-            return (
-              <button
-                key={i}
-                type="button"
-                disabled={pending || result !== null}
-                onClick={() => choose(i)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border-2 px-3 py-3 text-left text-sm transition-colors",
-                  "border-transparent bg-[#374151]",
-                  isLoading && "animate-pulse border-[#a0aec0]",
-                  showCorrect && "border-[#48bb78] bg-green-900/50",
-                  showWrong && "border-[#f56565] bg-red-900/50",
-                  !result &&
-                    !isLoading &&
-                    "hover:border-[#a0aec0] disabled:hover:border-transparent",
-                )}
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#1a202c] text-sm font-bold text-muted2">
-                  {LETTERS[i]}
-                </span>
-                <span className="flex-1">{option}</span>
-                {isLoading && <Loader2 className="size-4 animate-spin" />}
-              </button>
-            );
-          })}
-        </div>
-      </Card>
-
-      {result && (
-        <p
-          className={cn(
-            "text-center text-sm font-medium",
-            result.isCorrect ? "text-green" : "text-red",
-          )}
-        >
-          {result.isCorrect
-            ? "✓ Poprawnie!"
-            : `✗ Błąd. Poprawna: ${LETTERS[result.correctIdx]}`}
-        </p>
-      )}
+      <QuestionCard
+        prompt={current.prompt}
+        options={current.options}
+        selected={selected}
+        result={result}
+        pending={pending}
+        onChoose={choose}
+      />
     </div>
   );
 }
