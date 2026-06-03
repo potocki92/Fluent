@@ -1,28 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
-import { LogOut, Mail } from "lucide-react";
+import { LogOut } from "lucide-react";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 
 export function AuthButton() {
   const supabase = createClientSupabaseClient();
   const [user, setUser] = useState<User | null>(null);
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
@@ -34,16 +22,6 @@ export function AuthButton() {
 
   const isAnonymous = user?.is_anonymous ?? false;
   const isEmailUser = !!user && !isAnonymous;
-
-  async function sendMagicLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email) return;
-    await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    });
-    setSent(true);
-  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -67,52 +45,17 @@ export function AuthButton() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          size="sm"
-          className="bg-gold text-[#1a202c] hover:bg-gold-dark"
-        >
-          <Mail className="size-4" />
-          {isAnonymous ? "Zapisz postęp" : "Zaloguj się (e-mail)"}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {isAnonymous ? "Zapisz swój postęp" : "Zaloguj się"}
-          </DialogTitle>
-          <DialogDescription>
-            {isAnonymous
-              ? "Podaj e-mail, aby powiązać dotychczasowe postępy ze swoim kontem."
-              : "Wyślemy magiczny link na Twój adres e-mail."}
-          </DialogDescription>
-        </DialogHeader>
-
-        {sent ? (
-          <p className="py-4 text-sm text-green">
-            Sprawdź skrzynkę — wysłaliśmy link logowania na {email}.
-          </p>
-        ) : (
-          <form onSubmit={sendMagicLink} className="space-y-4">
-            <Input
-              type="email"
-              required
-              placeholder="ty@przyklad.pl"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <DialogFooter>
-              <Button
-                type="submit"
-                className="w-full bg-gold text-[#1a202c] hover:bg-gold-dark"
-              >
-                Wyślij magiczny link
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
+    <div className="flex items-center gap-2">
+      <Button size="sm" variant="ghost" asChild className="hidden sm:inline-flex">
+        <Link href="/auth">Zaloguj się</Link>
+      </Button>
+      <Button
+        size="sm"
+        asChild
+        className="bg-gold text-[#1a202c] hover:bg-gold-dark"
+      >
+        <Link href="/auth?mode=register">Załóż konto</Link>
+      </Button>
+    </div>
   );
 }
