@@ -43,9 +43,9 @@ export function useText(textId: number) {
 }
 
 /**
- * Fetch the comprehension questions for a text. `correct_idx` is never
- * selected here — the answer key stays server-side in the `submit-answer`
- * Server Action.
+ * Fetch the comprehension questions for a text from the answer-free
+ * `questions_public` view. `correct_idx` is not exposed there at all — grading
+ * goes through the `submit-answer` / `complete-test` Server Actions.
  */
 export function useQuestions(textId: number) {
   return useQuery({
@@ -53,7 +53,7 @@ export function useQuestions(textId: number) {
     queryFn: async (): Promise<Question[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
-        .from("questions")
+        .from("questions_public")
         .select("id, text_id, prompt, options, difficulty")
         .eq("text_id", textId)
         .order("id", { ascending: true });

@@ -15,9 +15,9 @@ export interface SubmitAnswerResult {
 }
 
 /**
- * Grade a single answer for immediate feedback. This is the ONLY place
- * `correct_idx` is read for a text question, keeping the answer key off the
- * client until the user has committed to an answer.
+ * Grade a single answer for immediate feedback. `correct_idx` is never readable
+ * from the client — the `grade_question` SECURITY DEFINER function is the only
+ * path to it, and it only reveals the key for the one question being answered.
  *
  * Grading no longer touches the learner's Elo — ability is updated once, after
  * the whole test, by the `complete-test` Server Action. This keeps a single
@@ -33,16 +33,16 @@ export async function submitAnswer(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data: question, error: qError } = await supabase
-    .from("questions")
-    .select("id, correct_idx")
-    .eq("id", input.questionId)
-    .single();
-  if (qError || !question) throw new Error("Question not found");
+  const { data, error } = await supabase.rpc("grade_question", {
+    p_question_id: input.questionId,
+    p_selected_idx: input.selectedIdx,
+  });
+  const graded = data?.[0];
+  if (error || !graded) throw new Error("Question not found");
 
   return {
-    questionId: question.id,
-    isCorrect: input.selectedIdx === question.correct_idx,
-    correctIdx: question.correct_idx,
+    questionId: input.questionId,
+    isCorrect: graded.is_correct,
+    correctIdx: graded.correct_idx,
   };
 }

@@ -17,8 +17,9 @@ export interface GradeCalibrationResult {
 }
 
 /**
- * Grade a single calibration item. The ONLY place a calibration item's
- * `correct_idx` is read, keeping the answer key off the client.
+ * Grade a single calibration item. `correct_idx` is never readable from the
+ * client — the `grade_calibration` SECURITY DEFINER function is the only path to
+ * it, revealing the key only for the one item being answered.
  */
 export async function gradeCalibrationAnswer(
   input: GradeCalibrationInput,
@@ -30,17 +31,17 @@ export async function gradeCalibrationAnswer(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data: question, error } = await supabase
-    .from("calibration_questions")
-    .select("id, correct_idx, difficulty")
-    .eq("id", input.questionId)
-    .single();
-  if (error || !question) throw new Error("Question not found");
+  const { data, error } = await supabase.rpc("grade_calibration", {
+    p_question_id: input.questionId,
+    p_selected_idx: input.selectedIdx,
+  });
+  const graded = data?.[0];
+  if (error || !graded) throw new Error("Question not found");
 
   return {
-    questionId: question.id,
-    isCorrect: input.selectedIdx === question.correct_idx,
-    correctIdx: question.correct_idx,
-    difficulty: question.difficulty,
+    questionId: input.questionId,
+    isCorrect: graded.is_correct,
+    correctIdx: graded.correct_idx,
+    difficulty: graded.difficulty,
   };
 }

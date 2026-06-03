@@ -80,7 +80,7 @@ export type Database = {
           id: number;
           text_id: number;
           prompt: string;
-          options: Json;
+          options: string[];
           correct_idx: number;
           difficulty: number;
           created_at: string;
@@ -89,7 +89,7 @@ export type Database = {
           id?: number;
           text_id: number;
           prompt: string;
-          options: Json;
+          options: string[];
           correct_idx: number;
           difficulty?: number;
           created_at?: string;
@@ -108,7 +108,7 @@ export type Database = {
         Row: {
           id: number;
           prompt: string;
-          options: Json;
+          options: string[];
           correct_idx: number;
           difficulty: number;
           cefr: "A1" | "A2" | "B1" | "B2";
@@ -118,7 +118,7 @@ export type Database = {
         Insert: {
           id?: number;
           prompt: string;
-          options: Json;
+          options: string[];
           correct_idx: number;
           difficulty: number;
           cefr: "A1" | "A2" | "B1" | "B2";
@@ -169,6 +169,7 @@ export type Database = {
           is_correct: boolean;
           ability_before: number;
           ability_after: number;
+          response_ms: number | null;
           created_at: string;
         };
         Insert: {
@@ -179,6 +180,7 @@ export type Database = {
           is_correct: boolean;
           ability_before: number;
           ability_after: number;
+          response_ms?: number | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["attempts"]["Insert"]>;
@@ -229,11 +231,66 @@ export type Database = {
         ];
       };
     };
-    Views: Record<never, never>;
+    Views: {
+      questions_public: {
+        Row: {
+          id: number;
+          text_id: number;
+          prompt: string;
+          options: string[];
+          difficulty: number;
+          created_at: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "questions_text_id_fkey";
+            columns: ["text_id"];
+            referencedRelation: "texts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calibration_questions_public: {
+        Row: {
+          id: number;
+          prompt: string;
+          options: string[];
+          difficulty: number;
+          cefr: "A1" | "A2" | "B1" | "B2";
+          skill: "vocab" | "grammar" | null;
+          created_at: string;
+        };
+        Relationships: [];
+      };
+    };
     Functions: {
       update_streak: {
         Args: { p_user_id: string };
         Returns: undefined;
+      };
+      grade_question: {
+        Args: { p_question_id: number; p_selected_idx: number };
+        Returns: { is_correct: boolean; correct_idx: number }[];
+      };
+      grade_calibration: {
+        Args: { p_question_id: number; p_selected_idx: number };
+        Returns: {
+          is_correct: boolean;
+          correct_idx: number;
+          difficulty: number;
+        }[];
+      };
+      grade_test: {
+        Args: {
+          p_text_id: number;
+          p_question_ids: number[];
+          p_selected_idxs: number[];
+        };
+        Returns: {
+          question_id: number;
+          is_correct: boolean;
+          difficulty: number;
+        }[];
       };
     };
     Enums: Record<never, never>;
