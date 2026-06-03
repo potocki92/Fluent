@@ -66,9 +66,9 @@ export function WordRow({
           onOpen();
         }
       }}
-      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] items-center gap-2 border-b border-border px-2 py-2.5 text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none sm:gap-3 sm:px-3"
+      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_auto_auto_auto] items-center gap-4 border-b border-border px-4 py-4 text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] sm:gap-3 sm:px-3 sm:py-2.5"
     >
-      <span className="min-w-0 truncate font-semibold text-foreground">
+      <span className="min-w-0 truncate text-xl font-semibold text-foreground sm:text-base">
         {word.article && (
           <span className={cn("mr-1 font-normal", ARTICLE_TEXT[word.article])}>
             {word.article}
@@ -77,21 +77,21 @@ export function WordRow({
         {word.display}
       </span>
 
-      <span className="min-w-0 truncate text-sm text-muted-foreground">
+      <span className="min-w-0 truncate text-xl text-muted-foreground sm:text-sm">
         {word.translation_pl ?? "—"}
       </span>
 
       {word.cefr ? (
         <span
           className={cn(
-            "rounded-md px-1.5 py-0.5 text-xs font-semibold",
+            "rounded-md px-2 py-1 text-sm font-semibold sm:px-1.5 sm:py-0.5 sm:text-xs",
             CEFR_COLORS[word.cefr],
           )}
         >
           {word.cefr}
         </span>
       ) : (
-        <span className="w-6" />
+        <span className="w-8 sm:w-6" />
       )}
 
       <motion.button
@@ -103,13 +103,17 @@ export function WordRow({
         aria-pressed={isSaved}
         aria-label={isSaved ? "Usuń z nauki" : "Dodaj do nauki"}
         className={cn(
-          "flex size-7 items-center justify-center rounded-md transition-colors",
+          "flex size-11 items-center justify-center rounded-xl transition-colors sm:size-7 sm:rounded-md",
           isSaved
             ? "bg-gold text-dark"
             : "bg-secondary text-muted-foreground hover:text-foreground",
         )}
       >
-        {isSaved ? <Check className="size-4" /> : <Plus className="size-4" />}
+        {isSaved ? (
+          <Check className="size-6 sm:size-4" />
+        ) : (
+          <Plus className="size-6 sm:size-4" />
+        )}
       </motion.button>
 
       <span
@@ -119,7 +123,7 @@ export function WordRow({
       >
         <span
           className={cn(
-            "size-2.5 rounded-full",
+            "size-3 rounded-full sm:size-2.5",
             statusMeta ? statusMeta.dot : "bg-border",
           )}
         />
