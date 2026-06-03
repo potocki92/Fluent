@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { ClipboardCheck, RotateCcw } from "lucide-react";
 
 import { calibrateLevel } from "@/actions/calibrate-level";
 import { CALIBRATION_OPTIONS, type CalibrationLevel } from "@/lib/calibration";
@@ -48,11 +49,30 @@ export function CalibrationControls({ className }: { className?: string }) {
       )}
     >
       <div className="flex items-start gap-2">
-        <RotateCcw className="mt-0.5 size-4 shrink-0 text-gold" />
-        <div>
-          <p className="text-sm font-semibold">Szybka kalibracja poziomu</p>
+        <ClipboardCheck className="mt-0.5 size-4 shrink-0 text-gold" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Sprawdź swój poziom</p>
           <p className="text-xs text-muted2">
-            Jeśli start jest za wysoki, ustaw punkt wyjścia ręcznie. Nie blokuje to
+            Rozwiąż krótki, adaptacyjny test poziomujący — najdokładniej wyznaczy
+            Twój poziom niemieckiego.
+          </p>
+        </div>
+      </div>
+
+      <Button
+        asChild
+        size="sm"
+        className="w-full bg-gold text-[#1a202c] hover:bg-gold-dark"
+      >
+        <Link href="/calibration">Rozpocznij test poziomujący</Link>
+      </Button>
+
+      <div className="flex items-start gap-2 border-t border-border pt-3">
+        <RotateCcw className="mt-0.5 size-4 shrink-0 text-muted2" />
+        <div>
+          <p className="text-sm font-semibold">Albo ustaw ręcznie</p>
+          <p className="text-xs text-muted2">
+            Jeśli znasz swój poziom, ustaw punkt wyjścia od razu. Nie blokuje to
             dalszej automatycznej kalibracji po odpowiedziach.
           </p>
         </div>

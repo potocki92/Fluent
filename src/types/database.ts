@@ -104,6 +104,32 @@ export type Database = {
           },
         ];
       };
+      calibration_questions: {
+        Row: {
+          id: number;
+          prompt: string;
+          options: Json;
+          correct_idx: number;
+          difficulty: number;
+          cefr: "A1" | "A2" | "B1" | "B2";
+          skill: "vocab" | "grammar" | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: number;
+          prompt: string;
+          options: Json;
+          correct_idx: number;
+          difficulty: number;
+          cefr: "A1" | "A2" | "B1" | "B2";
+          skill?: "vocab" | "grammar" | null;
+          created_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["calibration_questions"]["Insert"]
+        >;
+        Relationships: [];
+      };
       profiles: {
         Row: {
           id: string;

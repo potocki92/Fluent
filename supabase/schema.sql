@@ -51,6 +51,22 @@ create table public.questions (
 );
 create index questions_text_idx on public.questions(text_id);
 
+-- CALIBRATION QUESTIONS (standalone placement-test item bank, not tied to a text)
+-- Used by the adaptive level test. As with `questions`, `correct_idx` is only
+-- read by the grade-calibration Server Action, never selected on the client.
+create table public.calibration_questions (
+  id          bigint generated always as identity primary key,
+  prompt      text not null,
+  options     jsonb not null,   -- ["option A", "option B", "option C", "option D"]
+  correct_idx int  not null,
+  difficulty  int  not null,    -- Elo difficulty of the item
+  cefr        text not null check (cefr in ('A1','A2','B1','B2')),
+  skill       text check (skill in ('vocab','grammar')),
+  created_at  timestamptz default now()
+);
+create index calibration_difficulty_idx
+  on public.calibration_questions(difficulty);
+
 -- PROFILES (one per auth user, holds Elo ability)
 create table public.profiles (
   id              uuid primary key references auth.users(id) on delete cascade,
@@ -161,14 +177,25 @@ create trigger profiles_no_role_change
   for each row execute function public.prevent_role_change();
 
 -- ROW LEVEL SECURITY
-alter table public.words       enable row level security;
-alter table public.texts       enable row level security;
-alter table public.questions   enable row level security;
-alter table public.profiles    enable row level security;
-alter table public.attempts    enable row level security;
-alter table public.saved_words enable row level security;
+alter table public.words                 enable row level security;
+alter table public.texts                 enable row level security;
+alter table public.questions             enable row level security;
+alter table public.calibration_questions enable row level security;
+alter table public.profiles              enable row level security;
+alter table public.attempts              enable row level security;
+alter table public.saved_words           enable row level security;
 
 create policy "words public read"     on public.words     for select using (true);
+-- calibration questions: readable by everyone (the client only ever selects the
+-- non-answer columns); grading happens server-side via the Server Action.
+create policy "calibration public read" on public.calibration_questions
+  for select using (true);
+create policy "calibration admin insert" on public.calibration_questions
+  for insert with check (public.is_admin());
+create policy "calibration admin update" on public.calibration_questions
+  for update using (public.is_admin()) with check (public.is_admin());
+create policy "calibration admin delete" on public.calibration_questions
+  for delete using (public.is_admin());
 -- texts: learners read only published passages; admins also read drafts.
 create policy "texts published read" on public.texts
   for select using (status = 'published' or public.is_admin());
@@ -211,6 +238,29 @@ create policy "own saved delete" on public.saved_words
   for delete using (auth.uid() = user_id);
 create policy "own saved update" on public.saved_words
   for update using (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SEED — starter calibration item bank (Polish prompts, German vocab/grammar)
+-- spanning A1–B2 so the adaptive level test works out of the box. The answer is
+-- always option index 0; shuffle in the admin panel later if desired.
+-- ─────────────────────────────────────────────────────────────────────────────
+insert into public.calibration_questions (prompt, options, correct_idx, difficulty, cefr, skill) values
+  ('Jak po niemiecku „dziękuję"?', '["Danke","Bitte","Tschüss","Hallo"]', 0, 1080, 'A1', 'vocab'),
+  ('Co znaczy „das Haus"?', '["dom","kot","stół","pies"]', 0, 1100, 'A1', 'vocab'),
+  ('Uzupełnij: Ich ___ Anna.', '["bin","ist","sind","bist"]', 0, 1120, 'A1', 'grammar'),
+  ('Jak po niemiecku „woda"?', '["das Wasser","das Brot","der Apfel","die Milch"]', 0, 1140, 'A1', 'vocab'),
+  ('Co znaczy „einkaufen"?', '["robić zakupy","gotować","spać","biegać"]', 0, 1280, 'A2', 'vocab'),
+  ('Co znaczy „der Bahnhof"?', '["dworzec","lotnisko","sklep","szpital"]', 0, 1260, 'A2', 'vocab'),
+  ('Jaki rodzajnik: ___ Sonne?', '["die","der","das","den"]', 0, 1300, 'A2', 'grammar'),
+  ('Uzupełnij: Gestern ___ ich ins Kino gegangen.', '["bin","habe","war","bist"]', 0, 1320, 'A2', 'grammar'),
+  ('Co znaczy „die Umwelt"?', '["środowisko","umowa","sąsiedztwo","podróż"]', 0, 1500, 'B1', 'vocab'),
+  ('Co znaczy „sich bewerben"?', '["ubiegać się (o pracę)","martwić się","cieszyć się","spóźnić się"]', 0, 1480, 'B1', 'vocab'),
+  ('Uzupełnij: Wenn ich Zeit ___, würde ich reisen.', '["hätte","habe","hatte","haben"]', 0, 1520, 'B1', 'grammar'),
+  ('Wybierz poprawne: Der Film, ___ ich gesehen habe, war gut.', '["den","der","dem","das"]', 0, 1540, 'B1', 'grammar'),
+  ('Co znaczy „der Vorschlag"?', '["propozycja","przewaga","uprzedzenie","postęp"]', 0, 1680, 'B2', 'vocab'),
+  ('Co znaczy „nachhaltig"?', '["zrównoważony","następny","niedbały","głośny"]', 0, 1700, 'B2', 'vocab'),
+  ('Uzupełnij: Er tat so, als ___ er nichts gehört.', '["hätte","hat","habe","würde"]', 0, 1720, 'B2', 'grammar'),
+  ('Wybierz formę grzeczną: „___ Sie mir bitte helfen?"', '["Könnten","Kannst","Könnt","Konntest"]', 0, 1660, 'B2', 'grammar');
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRATION — run these on an already-provisioned database (the statements above

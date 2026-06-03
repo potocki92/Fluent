@@ -2,15 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
 import { submitAnswer, type SubmitAnswerResult } from "@/actions/submit-answer";
+import { completeTest } from "@/actions/complete-test";
 import { useAbility } from "@/hooks/useAbility";
-import { Card } from "@/components/ui/card";
+import { QuestionCard } from "@/components/texts/QuestionCard";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/types";
-
-const LETTERS = ["A", "B", "C", "D"];
 
 export function TestRunner({
   questions,
@@ -20,17 +18,15 @@ export function TestRunner({
   textId: number;
 }) {
   const router = useRouter();
-  const ability = useAbility((s) => s.ability);
-  const applyResult = useAbility((s) => s.applyResult);
-
-  // Snapshot the ability at the start so results can show before → after.
-  const abilityBefore = useRef(ability).current;
+  const setAbility = useAbility((s) => s.setAbility);
 
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitAnswerResult | null>(null);
   const [pending, setPending] = useState(false);
-  const [score, setScore] = useState(0);
+
+  // Collect every answer; Elo is only scored once, after the last question.
+  const answers = useRef<{ questionId: number; selectedIdx: number }[]>([]);
 
   const question = questions[index];
   const total = questions.length;
@@ -46,21 +42,40 @@ export function TestRunner({
         selectedIdx: idx,
       });
       setResult(res);
-      applyResult(res);
-      const nextScore = res.isCorrect ? score + 1 : score;
-      if (res.isCorrect) setScore(nextScore);
+      answers.current.push({ questionId: question.id, selectedIdx: idx });
 
-      window.setTimeout(() => {
-        if (isLast) {
-          const params = new URLSearchParams({
-            correct: String(nextScore),
-            total: String(total),
-            abilityBefore: String(Math.round(abilityBefore)),
-            abilityAfter: String(Math.round(res.abilityAfter)),
-          });
-          router.push(`/learn/${textId}/results?${params.toString()}`);
+      if (isLast) {
+        // Score the whole test in one shot (the server re-grades authoritatively).
+        let summary;
+        try {
+          summary = await completeTest({ textId, answers: answers.current });
+        } catch {
+          // Scoring failed — let the learner re-pick the final answer without
+          // double-recording it, instead of being stuck with disabled options.
+          answers.current.pop();
+          setResult(null);
+          setSelected(null);
+          setPending(false);
           return;
         }
+        setAbility({
+          ability: summary.abilityAfter,
+          rd: summary.rd,
+          answered: summary.answered,
+        });
+        window.setTimeout(() => {
+          const params = new URLSearchParams({
+            correct: String(summary.correct),
+            total: String(summary.total),
+            abilityBefore: String(Math.round(summary.abilityBefore)),
+            abilityAfter: String(Math.round(summary.abilityAfter)),
+          });
+          router.push(`/learn/${textId}/results?${params.toString()}`);
+        }, 1500);
+        return;
+      }
+
+      window.setTimeout(() => {
         setIndex((i) => i + 1);
         setSelected(null);
         setResult(null);
@@ -97,56 +112,14 @@ export function TestRunner({
         </div>
       </div>
 
-      <Card className="min-h-[260px] justify-center gap-4 bg-[#2d3748] p-4 text-center">
-        <p className="text-lg font-semibold">{question.prompt}</p>
-
-        <div className="space-y-3">
-          {question.options.map((option, i) => {
-            const isSelected = selected === i;
-            const isLoading = pending && isSelected;
-            const showCorrect = result && result.correctIdx === i;
-            const showWrong = result && isSelected && !result.isCorrect;
-
-            return (
-              <button
-                key={i}
-                type="button"
-                disabled={pending || result !== null}
-                onClick={() => choose(i)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border-2 px-3 py-3 text-left text-sm transition-colors",
-                  "border-transparent bg-[#374151]",
-                  isLoading && "animate-pulse border-[#a0aec0]",
-                  showCorrect && "border-[#48bb78] bg-green-900/50",
-                  showWrong && "border-[#f56565] bg-red-900/50",
-                  !result &&
-                    !isLoading &&
-                    "hover:border-[#a0aec0] disabled:hover:border-transparent",
-                )}
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#1a202c] text-sm font-bold text-muted2">
-                  {LETTERS[i]}
-                </span>
-                <span className="flex-1">{option}</span>
-                {isLoading && <Loader2 className="size-4 animate-spin" />}
-              </button>
-            );
-          })}
-        </div>
-      </Card>
-
-      {result && (
-        <p
-          className={cn(
-            "text-center text-sm font-medium",
-            result.isCorrect ? "text-green" : "text-red",
-          )}
-        >
-          {result.isCorrect
-            ? "✓ Poprawnie!"
-            : `✗ Błąd. Poprawna: ${LETTERS[result.correctIdx]}`}
-        </p>
-      )}
+      <QuestionCard
+        prompt={question.prompt}
+        options={question.options}
+        selected={selected}
+        result={result}
+        pending={pending}
+        onChoose={choose}
+      />
     </div>
   );
 }

@@ -5,6 +5,9 @@ import {
   confidenceLevel,
   expectedScore,
   kFactor,
+  RD_MAX,
+  RD_MIN,
+  scoreTest,
   updateAbility,
 } from "./elo";
 
@@ -69,6 +72,61 @@ describe("updateAbility", () => {
     const input = { ability: 1200, rd: 350 };
     updateAbility(input, 1200, true);
     expect(input).toEqual({ ability: 1200, rd: 350 });
+  });
+});
+
+describe("scoreTest", () => {
+  const rating = { ability: 1200, rd: 150 };
+
+  it("deducts Elo at 2/5 regardless of difficulty", () => {
+    const easy = scoreTest(rating, 1000, 2, 5);
+    const hard = scoreTest(rating, 1700, 2, 5);
+    expect(easy.passed).toBe(false);
+    expect(hard.passed).toBe(false);
+    expect(easy.delta).toBeLessThan(0);
+    expect(hard.delta).toBeLessThan(0);
+    expect(easy.ability).toBeLessThan(1200);
+  });
+
+  it("adds Elo at 3/5 regardless of difficulty", () => {
+    const easy = scoreTest(rating, 1000, 3, 5);
+    const hard = scoreTest(rating, 1700, 3, 5);
+    expect(easy.passed).toBe(true);
+    expect(hard.passed).toBe(true);
+    expect(easy.delta).toBeGreaterThan(0);
+    expect(hard.delta).toBeGreaterThan(0);
+    expect(hard.ability).toBeGreaterThan(1200);
+  });
+
+  it("rewards passing a harder text more than an easy one", () => {
+    const easy = scoreTest(rating, 1000, 3, 5);
+    const hard = scoreTest(rating, 1700, 3, 5);
+    expect(hard.delta).toBeGreaterThan(easy.delta);
+  });
+
+  it("punishes failing an easy text more than a hard one", () => {
+    const easy = scoreTest(rating, 1000, 1, 5);
+    const hard = scoreTest(rating, 1700, 1, 5);
+    expect(Math.abs(easy.delta)).toBeGreaterThan(Math.abs(hard.delta));
+  });
+
+  it("moves a perfect score more than a marginal pass", () => {
+    const perfect = scoreTest(rating, 1200, 5, 5);
+    const marginal = scoreTest(rating, 1200, 3, 5);
+    expect(perfect.delta).toBeGreaterThan(marginal.delta);
+  });
+
+  it("shrinks rd and keeps it within bounds", () => {
+    const next = scoreTest(rating, 1200, 4, 5);
+    expect(next.rd).toBeLessThan(rating.rd);
+    expect(next.rd).toBeGreaterThanOrEqual(RD_MIN);
+    expect(next.rd).toBeLessThanOrEqual(RD_MAX);
+  });
+
+  it("does not mutate the input", () => {
+    const input = { ability: 1200, rd: 150 };
+    scoreTest(input, 1200, 4, 5);
+    expect(input).toEqual({ ability: 1200, rd: 150 });
   });
 });
 

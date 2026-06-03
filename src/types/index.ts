@@ -51,6 +51,18 @@ export type QuestionWithAnswer = Tables["questions"]["Row"] & {
   options: string[];
 };
 
+/**
+ * A standalone placement-test item as sent to the client. Like {@link Question},
+ * `correct_idx` is omitted — grading happens in the `grade-calibration` Server
+ * Action.
+ */
+export type CalibrationQuestion = Omit<
+  Tables["calibration_questions"]["Row"],
+  "correct_idx"
+> & {
+  options: string[];
+};
+
 /** A learner profile holding the Elo ability estimate. */
 export type Profile = Tables["profiles"]["Row"];
 
@@ -66,12 +78,4 @@ export interface AbilityState {
   rd: number;
   answered: number;
   cefrEstimate: CefrLevel | null;
-}
-
-/** The outcome of grading a single answer. */
-export interface TestResult {
-  questionId: number;
-  isCorrect: boolean;
-  abilityBefore: number;
-  abilityAfter: number;
 }
