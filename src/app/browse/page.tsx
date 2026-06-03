@@ -31,7 +31,7 @@ export default async function BrowsePage({
 
         <Suspense
           fallback={
-            <p className="mt-1 text-xl text-muted-foreground sm:text-sm">
+            <p className="text-xl text-muted-foreground sm:text-sm">
               Ładowanie…
             </p>
           }
