@@ -372,6 +372,20 @@ create policy "own saved update" on public.saved_words
 -- the schema owner and so bypass the (deliberately absent) SELECT policy on the
 -- base tables, exposing every column EXCEPT `correct_idx`. Supabase's linter
 -- flags these as "Security Definer View"; that is the intended behaviour here.
+--
+-- NOT DUPLICATE TABLES. `questions_public` / `calibration_questions_public` are
+-- VIEWS, not tables — they store no data of their own. The rows live exactly
+-- once, in the base tables `questions` / `calibration_questions`; each view is
+-- just a safe projection of those same rows with `correct_idx` removed. So the
+-- table↔view pair is intentional, not redundant: learners read the view (no
+-- answer key), and grading goes through the SECURITY DEFINER functions above
+-- (grade_question / grade_calibration / grade_test), the only code allowed to
+-- touch `correct_idx`. Consumers: src/hooks/useTexts.ts,
+-- src/hooks/useCalibrationQuestions.ts, src/app/learn/[textId]/test/page.tsx.
+--
+-- This schema defines NO objects with a `_local` suffix. If a project shows
+-- e.g. `questions_public_local`, it came from outside this repo (a Studio
+-- Duplicate/CSV import, a branch, or a local seed) and the app does not use it.
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace view public.questions_public as
   select q.id, q.text_id, q.prompt, q.options, q.difficulty, q.created_at
