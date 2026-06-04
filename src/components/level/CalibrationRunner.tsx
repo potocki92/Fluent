@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
@@ -17,6 +17,7 @@ import {
   shouldStop,
 } from "@/lib/calibration-test";
 import { abilityToCefr } from "@/lib/cefr";
+import { shuffleWithOrder } from "@/lib/shuffle";
 import { LevelRing } from "@/components/level/LevelRing";
 import { QuestionCard } from "@/components/texts/QuestionCard";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,14 @@ export function CalibrationRunner() {
   const [done, setDone] = useState<AbilityState | null>(null);
   const [error, setError] = useState(false);
 
+  // Shuffle the current item's options so the correct answer is not always under
+  // the same letter. Re-shuffled whenever a new item is shown. `order[displayed]`
+  // is the stored index, used to map the choice back before grading.
+  const view = useMemo(
+    () => (current ? shuffleWithOrder(current.options) : null),
+    [current],
+  );
+
   // Seed the first question once the pool has loaded.
   const started = useRef(false);
   useEffect(() => {
@@ -54,13 +63,15 @@ export function CalibrationRunner() {
   }, [pool]);
 
   async function choose(idx: number) {
-    if (!pool || !current || pending || result) return;
+    if (!pool || !current || !view || pending || result) return;
     setSelected(idx);
     setPending(true);
+    // `idx` is the displayed position; grade against the stored option order.
+    const originalIdx = view.order[idx];
     try {
       const res = await gradeCalibrationAnswer({
         questionId: current.id,
-        selectedIdx: idx,
+        selectedIdx: originalIdx,
       });
       setResult(res);
 
@@ -186,9 +197,17 @@ export function CalibrationRunner() {
 
       <QuestionCard
         prompt={current.prompt}
-        options={current.options}
+        options={view?.items ?? current.options}
         selected={selected}
-        result={result}
+        result={
+          result && view
+            ? {
+                isCorrect: result.isCorrect,
+                // Map the stored correct index to its displayed position.
+                correctIdx: view.order.indexOf(result.correctIdx),
+              }
+            : null
+        }
         pending={pending}
         onChoose={choose}
       />

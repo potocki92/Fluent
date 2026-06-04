@@ -8,6 +8,7 @@ import { completeTest } from "@/actions/complete-test";
 import { useAbility } from "@/hooks/useAbility";
 import { QuestionCard } from "@/components/texts/QuestionCard";
 import { cn } from "@/lib/utils";
+import { shuffleWithOrder } from "@/lib/shuffle";
 import type { Question } from "@/types";
 
 export function TestRunner({
@@ -24,6 +25,14 @@ export function TestRunner({
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitAnswerResult | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Shuffle each question's options once per page load so the correct answer is
+  // not always under the same letter. `order[displayedIdx]` is the stored index,
+  // used to map the learner's choice back before grading (which compares against
+  // the original `correct_idx`).
+  const [shuffled] = useState(() =>
+    questions.map((q) => shuffleWithOrder(q.options)),
+  );
 
   // Collect every answer; Elo is only scored once, after the last question.
   const answers = useRef<
@@ -45,15 +54,17 @@ export function TestRunner({
     if (pending || result) return;
     setSelected(idx);
     setPending(true);
+    // `idx` is the displayed position; grade against the stored option order.
+    const originalIdx = shuffled[index].order[idx];
     try {
       const res = await submitAnswer({
         questionId: question.id,
-        selectedIdx: idx,
+        selectedIdx: originalIdx,
       });
       setResult(res);
       answers.current.push({
         questionId: question.id,
-        selectedIdx: idx,
+        selectedIdx: originalIdx,
         responseMs: Date.now() - questionShownAt.current,
       });
 
@@ -127,9 +138,17 @@ export function TestRunner({
 
       <QuestionCard
         prompt={question.prompt}
-        options={question.options}
+        options={shuffled[index].items}
         selected={selected}
-        result={result}
+        result={
+          result
+            ? {
+                isCorrect: result.isCorrect,
+                // Map the stored correct index to its displayed position.
+                correctIdx: shuffled[index].order.indexOf(result.correctIdx),
+              }
+            : null
+        }
         pending={pending}
         onChoose={choose}
       />
