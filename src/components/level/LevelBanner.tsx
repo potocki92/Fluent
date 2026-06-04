@@ -6,7 +6,6 @@ import { ArrowRight, Sparkles } from "lucide-react";
 import { useAbility } from "@/hooks/useAbility";
 import { useProfile } from "@/hooks/useProfile";
 import { useAdaptiveTextSuggestion } from "@/hooks/useTexts";
-import { CalibrationControls } from "@/components/level/CalibrationControls";
 import { LevelRing } from "@/components/level/LevelRing";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,8 +50,6 @@ export function LevelBanner() {
           )}
         </div>
       </div>
-
-      <CalibrationControls />
     </Card>
   );
 }
