@@ -120,7 +120,13 @@ create index if not exists saved_due_idx on public.saved_words(user_id, due_at);
 -- skipped when a table already exists, so bring older installs up to date here.
 -- Each step is guarded and safe to run repeatedly.
 -- ─────────────────────────────────────────────────────────────────────────────
--- options jsonb -> text[]
+-- options jsonb -> text[]. The conversion is wrapped in a helper function
+-- because Postgres forbids a subquery directly inside an ALTER COLUMN ... USING
+-- transform expression. The helper is dropped again once the migration is done.
+create or replace function public.jsonb_to_text_array(j jsonb)
+returns text[] language sql immutable as $$
+  select array(select jsonb_array_elements_text(j));
+$$;
 do $$
 begin
   if (select data_type from information_schema.columns
@@ -128,16 +134,17 @@ begin
         and column_name = 'options') = 'jsonb' then
     alter table public.questions
       alter column options type text[]
-      using array(select jsonb_array_elements_text(options));
+      using public.jsonb_to_text_array(options);
   end if;
   if (select data_type from information_schema.columns
       where table_schema = 'public' and table_name = 'calibration_questions'
         and column_name = 'options') = 'jsonb' then
     alter table public.calibration_questions
       alter column options type text[]
-      using array(select jsonb_array_elements_text(options));
+      using public.jsonb_to_text_array(options);
   end if;
 end $$;
+drop function if exists public.jsonb_to_text_array(jsonb);
 -- response time on attempts
 alter table public.attempts add column if not exists response_ms int;
 
