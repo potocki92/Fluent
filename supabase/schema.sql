@@ -123,6 +123,10 @@ create index if not exists saved_due_idx on public.saved_words(user_id, due_at);
 -- options jsonb -> text[]. The conversion is wrapped in a helper function
 -- because Postgres forbids a subquery directly inside an ALTER COLUMN ... USING
 -- transform expression. The helper is dropped again once the migration is done.
+-- The public views are dropped first because they depend on `options`; they are
+-- recreated further down by the `create or replace view` statements.
+drop view if exists public.questions_public;
+drop view if exists public.calibration_questions_public;
 create or replace function public.jsonb_to_text_array(j jsonb)
 returns text[] language sql immutable as $$
   select array(select jsonb_array_elements_text(j));
