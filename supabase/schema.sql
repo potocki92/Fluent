@@ -123,10 +123,9 @@ create index if not exists saved_due_idx on public.saved_words(user_id, due_at);
 -- options jsonb -> text[]. The conversion is wrapped in a helper function
 -- because Postgres forbids a subquery directly inside an ALTER COLUMN ... USING
 -- transform expression. The helper is dropped again once the migration is done.
--- The public views are dropped first because they depend on `options`; they are
--- recreated further down by the `create or replace view` statements.
-drop view if exists public.questions_public;
-drop view if exists public.calibration_questions_public;
+-- The dependent public views are dropped only when the migration actually runs
+-- (i.e. the column is still jsonb); they are recreated further down by the
+-- `create or replace view` statements.
 create or replace function public.jsonb_to_text_array(j jsonb)
 returns text[] language sql immutable as $$
   select array(select jsonb_array_elements_text(j));
@@ -136,6 +135,7 @@ begin
   if (select data_type from information_schema.columns
       where table_schema = 'public' and table_name = 'questions'
         and column_name = 'options') = 'jsonb' then
+    drop view if exists public.questions_public;
     alter table public.questions
       alter column options type text[]
       using public.jsonb_to_text_array(options);
@@ -143,6 +143,7 @@ begin
   if (select data_type from information_schema.columns
       where table_schema = 'public' and table_name = 'calibration_questions'
         and column_name = 'options') = 'jsonb' then
+    drop view if exists public.calibration_questions_public;
     alter table public.calibration_questions
       alter column options type text[]
       using public.jsonb_to_text_array(options);
@@ -387,30 +388,31 @@ grant select on public.calibration_questions_public to anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SEED — starter calibration item bank (Polish prompts, German vocab/grammar)
--- spanning A1–B2 so the adaptive level test works out of the box. The answer is
--- always option index 0; shuffle in the admin panel later if desired. Only
--- seeded when the bank is empty, so re-running the script never duplicates it.
+-- spanning A1–B2 so the adaptive level test works out of the box. The correct
+-- option sits at a varied index per item (so the answer key isn't predictable);
+-- `correct_idx` points at it. Only seeded when the bank is empty, so re-running
+-- the script never duplicates it.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 begin
   if not exists (select 1 from public.calibration_questions) then
     insert into public.calibration_questions (prompt, options, correct_idx, difficulty, cefr, skill) values
-      ('Jak po niemiecku „dziękuję"?', array['Danke','Bitte','Tschüss','Hallo'], 0, 1080, 'A1', 'vocab'),
-      ('Co znaczy „das Haus"?', array['dom','kot','stół','pies'], 0, 1100, 'A1', 'vocab'),
-      ('Uzupełnij: Ich ___ Anna.', array['bin','ist','sind','bist'], 0, 1120, 'A1', 'grammar'),
-      ('Jak po niemiecku „woda"?', array['das Wasser','das Brot','der Apfel','die Milch'], 0, 1140, 'A1', 'vocab'),
-      ('Co znaczy „einkaufen"?', array['robić zakupy','gotować','spać','biegać'], 0, 1280, 'A2', 'vocab'),
+      ('Jak po niemiecku „dziękuję"?', array['Bitte','Tschüss','Danke','Hallo'], 2, 1080, 'A1', 'vocab'),
+      ('Co znaczy „das Haus"?', array['kot','dom','stół','pies'], 1, 1100, 'A1', 'vocab'),
+      ('Uzupełnij: Ich ___ Anna.', array['ist','sind','bist','bin'], 3, 1120, 'A1', 'grammar'),
+      ('Jak po niemiecku „woda"?', array['das Brot','das Wasser','der Apfel','die Milch'], 1, 1140, 'A1', 'vocab'),
+      ('Co znaczy „einkaufen"?', array['gotować','spać','robić zakupy','biegać'], 2, 1280, 'A2', 'vocab'),
       ('Co znaczy „der Bahnhof"?', array['dworzec','lotnisko','sklep','szpital'], 0, 1260, 'A2', 'vocab'),
-      ('Jaki rodzajnik: ___ Sonne?', array['die','der','das','den'], 0, 1300, 'A2', 'grammar'),
-      ('Uzupełnij: Gestern ___ ich ins Kino gegangen.', array['bin','habe','war','bist'], 0, 1320, 'A2', 'grammar'),
-      ('Co znaczy „die Umwelt"?', array['środowisko','umowa','sąsiedztwo','podróż'], 0, 1500, 'B1', 'vocab'),
-      ('Co znaczy „sich bewerben"?', array['ubiegać się (o pracę)','martwić się','cieszyć się','spóźnić się'], 0, 1480, 'B1', 'vocab'),
+      ('Jaki rodzajnik: ___ Sonne?', array['der','das','den','die'], 3, 1300, 'A2', 'grammar'),
+      ('Uzupełnij: Gestern ___ ich ins Kino gegangen.', array['habe','bin','war','bist'], 1, 1320, 'A2', 'grammar'),
+      ('Co znaczy „die Umwelt"?', array['umowa','sąsiedztwo','środowisko','podróż'], 2, 1500, 'B1', 'vocab'),
+      ('Co znaczy „sich bewerben"?', array['martwić się','cieszyć się','spóźnić się','ubiegać się (o pracę)'], 3, 1480, 'B1', 'vocab'),
       ('Uzupełnij: Wenn ich Zeit ___, würde ich reisen.', array['hätte','habe','hatte','haben'], 0, 1520, 'B1', 'grammar'),
-      ('Wybierz poprawne: Der Film, ___ ich gesehen habe, war gut.', array['den','der','dem','das'], 0, 1540, 'B1', 'grammar'),
-      ('Co znaczy „der Vorschlag"?', array['propozycja','przewaga','uprzedzenie','postęp'], 0, 1680, 'B2', 'vocab'),
-      ('Co znaczy „nachhaltig"?', array['zrównoważony','następny','niedbały','głośny'], 0, 1700, 'B2', 'vocab'),
+      ('Wybierz poprawne: Der Film, ___ ich gesehen habe, war gut.', array['der','dem','den','das'], 2, 1540, 'B1', 'grammar'),
+      ('Co znaczy „der Vorschlag"?', array['przewaga','propozycja','uprzedzenie','postęp'], 1, 1680, 'B2', 'vocab'),
+      ('Co znaczy „nachhaltig"?', array['następny','niedbały','głośny','zrównoważony'], 3, 1700, 'B2', 'vocab'),
       ('Uzupełnij: Er tat so, als ___ er nichts gehört.', array['hätte','hat','habe','würde'], 0, 1720, 'B2', 'grammar'),
-      ('Wybierz formę grzeczną: „___ Sie mir bitte helfen?"', array['Könnten','Kannst','Könnt','Konntest'], 0, 1660, 'B2', 'grammar');
+      ('Wybierz formę grzeczną: „___ Sie mir bitte helfen?"', array['Kannst','Könnt','Könnten','Konntest'], 2, 1660, 'B2', 'grammar');
   end if;
 end $$;
 
