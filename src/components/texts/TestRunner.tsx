@@ -108,6 +108,9 @@ export function TestRunner({
         setIndex((i) => i + 1);
         setSelected(null);
         setResult(null);
+        // Re-enable the options for the next question — without this, `pending`
+        // stays true after the first answer and every later question is locked.
+        setPending(false);
       }, 1500);
     } catch {
       // Grading failed — surface it instead of silently resetting, so the
