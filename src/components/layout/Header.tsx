@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Settings } from "lucide-react";
 
 import { AuthButton } from "@/components/auth/AuthButton";
 import { AdminNavLink } from "@/components/layout/AdminNavLink";
@@ -17,6 +18,13 @@ export function Header() {
         <div className="flex items-center gap-3">
           <AdminNavLink />
           <CurrentLevelRing />
+          <Link
+            href="/settings"
+            aria-label="Ustawienia"
+            className="flex items-center text-muted2 transition-colors hover:text-main"
+          >
+            <Settings className="size-5" />
+          </Link>
           <AuthButton />
         </div>
       </div>
