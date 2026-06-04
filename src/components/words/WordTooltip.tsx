@@ -52,7 +52,20 @@ export function WordTooltip({
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
-        <mark className="cursor-help rounded bg-[#d4a574]/15 px-0.5 text-[#d4a574] underline decoration-dotted underline-offset-2">
+        <mark
+          role="button"
+          tabIndex={0}
+          // Radix tooltips only react to hover/focus and ignore touch, so a tap
+          // on mobile never opens them. We drive `open` ourselves on click: the
+          // `preventDefault` calls suppress Radix's built-in close-on-pointer so
+          // the toggle stays reliable while desktop hover keeps working.
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.preventDefault();
+            setOpen((prev) => !prev);
+          }}
+          className="cursor-pointer rounded bg-[#d4a574]/15 px-0.5 text-[#d4a574] underline decoration-dotted underline-offset-2"
+        >
           {children}
         </mark>
       </TooltipTrigger>
