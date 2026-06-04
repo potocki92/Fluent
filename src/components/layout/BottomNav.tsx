@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Library, Layers, BarChart3, Settings } from "lucide-react";
+import { BookOpen, Library, Layers, BarChart3 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,6 @@ const NAV = [
   { href: "/browse", label: "Słownik", icon: Library },
   { href: "/review", label: "Powtórki", icon: Layers },
   { href: "/stats", label: "Statystyki", icon: BarChart3 },
-  { href: "/settings", label: "Ustawienia", icon: Settings },
 ];
 
 export function BottomNav() {
