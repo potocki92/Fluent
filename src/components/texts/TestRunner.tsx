@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { submitAnswer, type SubmitAnswerResult } from "@/actions/submit-answer";
 import { completeTest } from "@/actions/complete-test";
 import { useAbility } from "@/hooks/useAbility";
 import { QuestionCard } from "@/components/texts/QuestionCard";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { shuffleWithOrder } from "@/lib/shuffle";
 import type { Question } from "@/types";
@@ -25,6 +28,7 @@ export function TestRunner({
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<SubmitAnswerResult | null>(null);
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState(false);
 
   // Shuffle each question's options once per page load so the correct answer is
   // not always under the same letter. `order[displayedIdx]` is the stored index,
@@ -74,12 +78,13 @@ export function TestRunner({
         try {
           summary = await completeTest({ textId, answers: answers.current });
         } catch {
-          // Scoring failed — let the learner re-pick the final answer without
-          // double-recording it, instead of being stuck with disabled options.
+          // Scoring failed — undo the recorded answer and surface the failure
+          // instead of silently resetting (which looks like the test is broken).
           answers.current.pop();
           setResult(null);
           setSelected(null);
           setPending(false);
+          setError(true);
           return;
         }
         setAbility({
@@ -105,10 +110,26 @@ export function TestRunner({
         setResult(null);
       }, 1500);
     } catch {
-      // Allow a retry if the grading request failed.
+      // Grading failed — surface it instead of silently resetting, so the
+      // learner sees why nothing happened rather than a dead-end click.
       setPending(false);
       setSelected(null);
+      setError(true);
     }
+  }
+
+  if (error) {
+    return (
+      <Card className="items-center gap-3 bg-[#2d3748] p-5 text-center">
+        <p className="text-sm text-red">
+          Coś poszło nie tak przy sprawdzaniu odpowiedzi. Zaloguj się i spróbuj
+          ponownie.
+        </p>
+        <Button asChild variant="ghost">
+          <Link href="/learn">Wróć do nauki</Link>
+        </Button>
+      </Card>
+    );
   }
 
   return (
