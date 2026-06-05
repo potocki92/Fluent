@@ -32,6 +32,11 @@ export type Database = {
           example_pl: string | null;
           cefr: "A1" | "A2" | "B1" | "B2" | null;
           source: string | null;
+          topic: string | null;
+          plural: string | null;
+          aux: "haben" | "sein" | null;
+          synonyms: string[] | null;
+          ipa: string | null;
           created_at: string;
         };
         Insert: {
@@ -46,10 +51,52 @@ export type Database = {
           example_pl?: string | null;
           cefr?: "A1" | "A2" | "B1" | "B2" | null;
           source?: string | null;
+          topic?: string | null;
+          plural?: string | null;
+          aux?: "haben" | "sein" | null;
+          synonyms?: string[] | null;
+          ipa?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["words"]["Insert"]>;
         Relationships: [];
+      };
+      word_suggestions: {
+        Row: {
+          id: number;
+          word_id: number;
+          user_id: string;
+          field: "translation_pl" | "example_de" | "example_pl" | "other";
+          suggestion: string;
+          note: string | null;
+          status: "pending" | "approved" | "rejected";
+          created_at: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+        };
+        Insert: {
+          id?: number;
+          word_id: number;
+          user_id: string;
+          field: "translation_pl" | "example_de" | "example_pl" | "other";
+          suggestion: string;
+          note?: string | null;
+          status?: "pending" | "approved" | "rejected";
+          created_at?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["word_suggestions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "word_suggestions_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       texts: {
         Row: {

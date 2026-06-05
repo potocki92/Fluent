@@ -1,4 +1,5 @@
 import { isCurrentUserAdmin } from "@/lib/admin";
+import { AdminNav } from "@/components/admin/AdminNav";
 
 /**
  * Gate the whole admin subtree once. Non-admins (including signed-out users)
@@ -22,5 +23,10 @@ export default async function AdminLayout({
     );
   }
 
-  return <div className="space-y-6">{children}</div>;
+  return (
+    <div className="space-y-6">
+      <AdminNav />
+      {children}
+    </div>
+  );
 }

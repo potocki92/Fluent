@@ -115,6 +115,25 @@ create table if not exists public.saved_words (
 );
 create index if not exists saved_due_idx on public.saved_words(user_id, due_at);
 
+-- WORD SUGGESTIONS (learner-submitted corrections, reviewed by admins)
+-- A signed-in learner proposes a better translation/example for a word; an admin
+-- approves (which overwrites the word field) or rejects. `field` names the words
+-- column the suggestion targets.
+create table if not exists public.word_suggestions (
+  id          bigint generated always as identity primary key,
+  word_id     bigint not null references public.words(id) on delete cascade,
+  user_id     uuid   not null references auth.users(id) on delete cascade,
+  field       text   not null check (field in ('translation_pl','example_de','example_pl','other')),
+  suggestion  text   not null,
+  note        text,
+  status      text   not null default 'pending' check (status in ('pending','approved','rejected')),
+  created_at  timestamptz default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references auth.users(id)
+);
+create index if not exists word_suggestions_status_idx
+  on public.word_suggestions(status, created_at desc);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRATIONS for already-provisioned databases. The CREATE statements above are
 -- skipped when a table already exists, so bring older installs up to date here.
@@ -152,6 +171,17 @@ end $$;
 drop function if exists public.jsonb_to_text_array(jsonb);
 -- response time on attempts
 alter table public.attempts add column if not exists response_ms int;
+
+-- dictionary enrichment: topic/category (#tematy) + richer entry detail
+-- (plural form, verb auxiliary, synonyms, IPA). All nullable; `aux`/`topic` are
+-- validated in the admin Server Action rather than via a DB check so the column
+-- can be added idempotently to already-provisioned databases.
+alter table public.words add column if not exists topic    text;
+alter table public.words add column if not exists plural   text;
+alter table public.words add column if not exists aux      text;
+alter table public.words add column if not exists synonyms text[];
+alter table public.words add column if not exists ipa      text;
+create index if not exists words_topic_idx on public.words(topic);
 
 -- AUTO-CREATE PROFILE ON SIGNUP
 create or replace function public.handle_new_user()
@@ -283,9 +313,22 @@ alter table public.calibration_questions enable row level security;
 alter table public.profiles              enable row level security;
 alter table public.attempts              enable row level security;
 alter table public.saved_words           enable row level security;
+alter table public.word_suggestions      enable row level security;
 
 drop policy if exists "words public read" on public.words;
 create policy "words public read" on public.words for select using (true);
+
+-- words: only admins may insert/update/delete dictionary entries (the admin
+-- editor). Learners keep public read above.
+drop policy if exists "words admin insert" on public.words;
+create policy "words admin insert" on public.words
+  for insert with check (public.is_admin());
+drop policy if exists "words admin update" on public.words;
+create policy "words admin update" on public.words
+  for update using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "words admin delete" on public.words;
+create policy "words admin delete" on public.words
+  for delete using (public.is_admin());
 
 -- questions / calibration_questions: NO public SELECT policy. Learners never
 -- touch these tables directly — they read the answer-free `*_public` views and
@@ -366,6 +409,17 @@ create policy "own saved delete" on public.saved_words
 drop policy if exists "own saved update" on public.saved_words;
 create policy "own saved update" on public.saved_words
   for update using (auth.uid() = user_id);
+
+-- word_suggestions: a learner inserts/reads their own; admins read & review all.
+drop policy if exists "suggestions insert own" on public.word_suggestions;
+create policy "suggestions insert own" on public.word_suggestions
+  for insert with check (auth.uid() = user_id);
+drop policy if exists "suggestions read own or admin" on public.word_suggestions;
+create policy "suggestions read own or admin" on public.word_suggestions
+  for select using (auth.uid() = user_id or public.is_admin());
+drop policy if exists "suggestions admin update" on public.word_suggestions;
+create policy "suggestions admin update" on public.word_suggestions
+  for update using (public.is_admin()) with check (public.is_admin());
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PUBLIC VIEWS — the answer-free read surface for learners. These are owned by

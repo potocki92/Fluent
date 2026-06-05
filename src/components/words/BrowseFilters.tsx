@@ -13,6 +13,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { useSavedWords } from "@/hooks/useSavedWords";
+import { WORD_TOPICS } from "@/lib/word-topics";
 import { cn } from "@/lib/utils";
 
 type CefrValue = "A1" | "A2" | "B1";
@@ -45,10 +46,12 @@ export function BrowseFilters({
   cefr,
   type,
   q,
+  topic,
 }: {
   cefr?: string;
   type?: string;
   q?: string;
+  topic?: string;
 }) {
   const router = useRouter();
   const { data: saved } = useSavedWords();
@@ -57,7 +60,7 @@ export function BrowseFilters({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Number of active (non-default) filters, shown as a badge on the button.
-  const activeFilters = (cefr ? 1 : 0) + (type ? 1 : 0);
+  const activeFilters = (cefr ? 1 : 0) + (type ? 1 : 0) + (topic ? 1 : 0);
 
   // Keep the input in sync if the URL query changes externally (e.g. back nav),
   // using React's "adjust state during render" pattern instead of an effect.
@@ -68,18 +71,19 @@ export function BrowseFilters({
   }
 
   const pushParams = useCallback(
-    (next: { cefr?: string; type?: string; q?: string }) => {
+    (next: { cefr?: string; type?: string; q?: string; topic?: string }) => {
       const params = new URLSearchParams();
-      const merged = { cefr, type, q, ...next };
+      const merged = { cefr, type, q, topic, ...next };
       if (merged.q) params.set("q", merged.q);
       if (merged.cefr) params.set("cefr", merged.cefr);
       if (merged.type) params.set("type", merged.type);
+      if (merged.topic) params.set("topic", merged.topic);
       const query = params.toString();
       router.replace(query ? `/browse?${query}` : "/browse", {
         scroll: false,
       });
     },
-    [router, cefr, type, q],
+    [router, cefr, type, q, topic],
   );
 
   const handleSearchChange = useCallback(
@@ -159,6 +163,31 @@ export function BrowseFilters({
                     type="button"
                     onClick={() => pushParams({ type: chip.value })}
                     className={chipClass((type ?? undefined) === chip.value)}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Temat
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => pushParams({ topic: undefined })}
+                  className={chipClass(!topic)}
+                >
+                  Wszystkie
+                </button>
+                {WORD_TOPICS.map((chip) => (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    onClick={() => pushParams({ topic: chip.value })}
+                    className={chipClass((topic ?? undefined) === chip.value)}
                   >
                     {chip.label}
                   </button>

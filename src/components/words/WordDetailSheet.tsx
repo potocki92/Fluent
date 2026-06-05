@@ -8,7 +8,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { WordSuggestDialog } from "@/components/words/WordSuggestDialog";
 import { CEFR_COLORS } from "@/lib/cefr";
+import { topicLabel } from "@/lib/word-topics";
 import { cn } from "@/lib/utils";
 import type { Word, WordType } from "@/types";
 
@@ -92,9 +94,53 @@ export function WordDetailSheet({
               {word.translation_pl && (
                 <p className="text-base text-foreground">{word.translation_pl}</p>
               )}
+              {word.ipa && (
+                <p className="text-sm text-muted-foreground">[{word.ipa}]</p>
+              )}
             </SheetHeader>
 
             <div className="space-y-4 px-4 pb-4">
+              {(word.plural ||
+                word.aux ||
+                word.topic ||
+                (word.synonyms && word.synonyms.length > 0)) && (
+                <dl className="space-y-2 rounded-xl bg-card p-3 text-sm">
+                  {word.plural && (
+                    <div className="flex gap-2">
+                      <dt className="text-muted-foreground">Liczba mnoga:</dt>
+                      <dd className="text-foreground">{word.plural}</dd>
+                    </div>
+                  )}
+                  {word.aux && (
+                    <div className="flex gap-2">
+                      <dt className="text-muted-foreground">Posiłkowy:</dt>
+                      <dd className="text-foreground">{word.aux}</dd>
+                    </div>
+                  )}
+                  {word.topic && (
+                    <div className="flex gap-2">
+                      <dt className="text-muted-foreground">Temat:</dt>
+                      <dd className="text-foreground">{topicLabel(word.topic)}</dd>
+                    </div>
+                  )}
+                  {word.synonyms && word.synonyms.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      <dt className="text-muted-foreground">Synonimy:</dt>
+                      <dd className="flex flex-wrap gap-1.5">
+                        {word.synonyms.map((syn) => (
+                          <span
+                            key={syn}
+                            className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-foreground"
+                          >
+                            {syn}
+                          </span>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+
               {word.example_de && (
                 <div className="rounded-xl bg-card p-3">
                   <p className="text-foreground">{word.example_de}</p>
@@ -139,6 +185,8 @@ export function WordDetailSheet({
                   )}
                 </button>
               </div>
+
+              <WordSuggestDialog wordId={word.id} />
             </div>
           </>
         )}
