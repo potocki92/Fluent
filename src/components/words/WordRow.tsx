@@ -66,9 +66,9 @@ export function WordRow({
           onOpen();
         }
       }}
-      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2.5 text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none"
+      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] items-center gap-2 border-b border-border px-2.5 py-1.5 text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none sm:gap-3 sm:px-3 sm:py-2.5"
     >
-      <span className="min-w-0 truncate text-base font-semibold text-foreground">
+      <span className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
         {word.article && (
           <span className={cn("mr-1 font-normal", ARTICLE_TEXT[word.article])}>
             {word.article}
@@ -77,7 +77,7 @@ export function WordRow({
         {word.display}
       </span>
 
-      <span className="min-w-0 truncate text-sm text-muted-foreground">
+      <span className="min-w-0 truncate text-xs text-muted-foreground sm:text-sm">
         {word.translation_pl ?? "—"}
       </span>
 
@@ -103,27 +103,27 @@ export function WordRow({
         aria-pressed={isSaved}
         aria-label={isSaved ? "Usuń z nauki" : "Dodaj do nauki"}
         className={cn(
-          "flex size-7 items-center justify-center rounded-md transition-colors",
+          "flex size-6 items-center justify-center rounded-md transition-colors sm:size-7",
           isSaved
             ? "bg-gold text-dark"
             : "bg-secondary text-muted-foreground hover:text-foreground",
         )}
       >
         {isSaved ? (
-          <Check className="size-4" />
+          <Check className="size-3.5 sm:size-4" />
         ) : (
-          <Plus className="size-4" />
+          <Plus className="size-3.5 sm:size-4" />
         )}
       </motion.button>
 
       <span
-        className="flex size-7 items-center justify-center"
+        className="flex size-6 items-center justify-center sm:size-7"
         aria-label={statusMeta?.label}
         title={statusMeta?.label}
       >
         <span
           className={cn(
-            "size-2.5 rounded-full",
+            "size-2 rounded-full sm:size-2.5",
             statusMeta ? statusMeta.dot : "bg-border",
           )}
         />
