@@ -10,10 +10,19 @@ const ARTICLE_VALUES: NonNullable<WordInput["article"]>[] = ["der", "die", "das"
 const GENDER_VALUES: NonNullable<WordInput["gender"]>[] = ["m", "f", "n"];
 const AUX_VALUES: NonNullable<WordInput["aux"]>[] = ["haben", "sein"];
 
+type WordActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
 /** Trim a string field, collapsing empty input to null. */
 function trimOrNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+/** Extract a safe message from expected Server Action failures. */
+function actionErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Coś poszło nie tak.";
 }
 
 /** Validate and normalise a word payload shared by create/update. */
@@ -66,42 +75,55 @@ function normaliseWord(input: WordInput) {
  * Create a new dictionary entry. Admin only. `words.id` is a plain bigint (not
  * an identity column), so we derive the next id from the current maximum.
  */
-export async function createWord(input: WordInput): Promise<Word> {
-  const { supabase } = await requireAdmin();
+export async function createWord(
+  input: WordInput,
+): Promise<WordActionResult<Word>> {
+  try {
+    const { supabase } = await requireAdmin();
 
-  const { data: top, error: maxError } = await supabase
-    .from("words")
-    .select("id")
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (maxError) throw maxError;
+    const { data: top, error: maxError } = await supabase
+      .from("words")
+      .select("id")
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (maxError) throw maxError;
 
-  const nextId = (top?.id ?? 0) + 1;
+    const nextId = (top?.id ?? 0) + 1;
 
-  const { data, error } = await supabase
-    .from("words")
-    .insert({ id: nextId, ...normaliseWord(input) })
-    .select()
-    .single();
-  if (error) throw error;
+    const { data, error } = await supabase
+      .from("words")
+      .insert({ id: nextId, ...normaliseWord(input) })
+      .select()
+      .single();
+    if (error) throw error;
 
-  return data;
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: actionErrorMessage(err) };
+  }
 }
 
 /** Update an existing dictionary entry. Admin only. */
-export async function updateWord(id: number, input: WordInput): Promise<Word> {
-  const { supabase } = await requireAdmin();
+export async function updateWord(
+  id: number,
+  input: WordInput,
+): Promise<WordActionResult<Word>> {
+  try {
+    const { supabase } = await requireAdmin();
 
-  const { data, error } = await supabase
-    .from("words")
-    .update(normaliseWord(input))
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw error;
+    const { data, error } = await supabase
+      .from("words")
+      .update(normaliseWord(input))
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
 
-  return data;
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: actionErrorMessage(err) };
+  }
 }
 
 /**

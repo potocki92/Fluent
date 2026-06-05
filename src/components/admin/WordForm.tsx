@@ -95,11 +95,15 @@ export function WordForm({ word, onDone }: Props) {
     };
 
     try {
-      if (isEdit) {
-        await updateWord(word.id, input);
-      } else {
-        await createWord(input);
+      const result = isEdit
+        ? await updateWord(word.id, input)
+        : await createWord(input);
+
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+
       await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
       await queryClient.invalidateQueries({ queryKey: ["words"] });
       onDone();
