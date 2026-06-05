@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
 import type { Text } from "@/types";
 
@@ -19,7 +20,9 @@ export function TextCard({ text }: { text: Text }) {
     <Link href={`/learn/${text.id}`} className="block">
       <Card className="gap-2 bg-[#2d3748] p-3 transition-colors hover:bg-[#374151]">
         <div className="flex items-center justify-between gap-3">
-          <Badge className="bg-gold text-[#1a202c]">{text.cefr}</Badge>
+          <Badge className={cn("border-0", CEFR_COLORS[text.cefr])}>
+            {text.cefr}
+          </Badge>
           <div className="flex items-center gap-1" aria-label="Poziom trudności">
             {Array.from({ length: 5 }).map((_, i) => (
               <span
