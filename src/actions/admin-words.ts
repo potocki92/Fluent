@@ -22,7 +22,19 @@ function trimOrNull(value: string | null | undefined): string | null {
 
 /** Extract a safe message from expected Server Action failures. */
 function actionErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "Coś poszło nie tak.";
+  if (err instanceof Error) return err.message;
+  // Supabase zwraca PostgrestError jako zwykły obiekt { message, details, hint,
+  // code }, który nie jest instancją Error — wyciągnij komunikat wprost, by nie
+  // maskować prawdziwej przyczyny ogólnym "Coś poszło nie tak.".
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string"
+  ) {
+    return (err as { message: string }).message;
+  }
+  return "Coś poszło nie tak.";
 }
 
 /** Validate and normalise a word payload shared by create/update. */
