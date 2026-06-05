@@ -3,7 +3,7 @@ import { Settings } from "lucide-react";
 
 import { AuthButton } from "@/components/auth/AuthButton";
 import { AdminNavLink } from "@/components/layout/AdminNavLink";
-import { CurrentLevelRing } from "@/components/level/CurrentLevelRing";
+import { LevelSummary } from "@/components/level/LevelSummary";
 
 export function Header() {
   return (
@@ -17,7 +17,7 @@ export function Header() {
         </Link>
         <div className="flex items-center gap-3">
           <AdminNavLink />
-          <CurrentLevelRing />
+          <LevelSummary size="header" />
           <Link
             href="/settings"
             aria-label="Ustawienia"

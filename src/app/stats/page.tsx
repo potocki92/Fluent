@@ -1,9 +1,7 @@
 import { Flame, MessageSquare, BookmarkCheck, CheckCircle2 } from "lucide-react";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { abilityToCefr } from "@/lib/cefr";
-import { confidenceLevel, type ConfidenceLevel } from "@/lib/elo";
-import { LevelRing } from "@/components/level/LevelRing";
+import { LevelSummary } from "@/components/level/LevelSummary";
 import { CefrMilestones } from "@/components/level/CefrMilestones";
 import {
   AbilityChart,
@@ -12,14 +10,6 @@ import {
 import { Card } from "@/components/ui/card";
 
 export const metadata = { title: "Statystyki · Fluent" };
-
-/** Polish labels for the estimate-confidence levels. */
-const CONFIDENCE_PL: Record<ConfidenceLevel, string> = {
-  calibrating: "kalibracja",
-  low: "niska",
-  medium: "średnia",
-  high: "wysoka",
-};
 
 export default async function StatsPage() {
   const supabase = await createServerSupabaseClient();
@@ -70,8 +60,6 @@ export default async function StatsPage() {
   const ability = Number(profile?.ability ?? 1000);
   const answered = profile?.answered ?? 0;
   const streak = profile?.streak_days ?? 0;
-  const cefr = abilityToCefr(ability);
-  const confidence = CONFIDENCE_PL[confidenceLevel(answered)];
   const chartAttempts = (attempts ?? []) as AbilityChartAttempt[];
 
   return (
@@ -79,19 +67,11 @@ export default async function StatsPage() {
       <h1 className="text-lg font-bold">Statystyki</h1>
 
       {/* A) Level banner */}
-      <Card className="flex-row items-center gap-3 bg-[#2d3748] p-4">
-        <LevelRing ability={ability} answered={answered} size="lg" />
-        <div className="space-y-1">
-          <p className="text-lg font-bold">
-            Twój poziom: <span className="text-gold">{cefr}</span>
-          </p>
-          <p className="text-sm text-muted2">
-            Elo: {Math.round(ability)} · Pewność: {confidence}
-          </p>
-          <p className="text-xs text-muted2">
-            Na podstawie {answered} odpowiedzi
-          </p>
-        </div>
+      <Card className="bg-[#2d3748] p-4">
+        <LevelSummary
+          size="lg"
+          initial={{ ability, rd: Number(profile?.rd ?? 350), answered }}
+        />
       </Card>
 
       {/* B) Stat tiles */}
