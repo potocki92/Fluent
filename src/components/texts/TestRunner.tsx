@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { submitAnswer, type SubmitAnswerResult } from "@/actions/submit-answer";
 import { completeTest } from "@/actions/complete-test";
@@ -10,9 +11,10 @@ import { useAbility } from "@/hooks/useAbility";
 import { QuestionCard } from "@/components/texts/QuestionCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { abilityToCefr } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
 import { shuffleWithOrder } from "@/lib/shuffle";
-import type { Question } from "@/types";
+import type { Profile, Question } from "@/types";
 
 export function TestRunner({
   questions,
@@ -23,6 +25,7 @@ export function TestRunner({
 }) {
   const router = useRouter();
   const setAbility = useAbility((s) => s.setAbility);
+  const queryClient = useQueryClient();
 
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -92,6 +95,20 @@ export function TestRunner({
           rd: summary.rd,
           answered: summary.answered,
         });
+        // Keep the ["profile"] cache in step with the authoritative result, so a
+        // later remount of useProfile re-hydrates the store from fresh data
+        // instead of clobbering it with the pre-test profile.
+        queryClient.setQueryData<Profile | null>(["profile"], (prev) =>
+          prev
+            ? {
+                ...prev,
+                ability: summary.abilityAfter,
+                rd: summary.rd,
+                answered: summary.answered,
+                cefr_estimate: abilityToCefr(summary.abilityAfter),
+              }
+            : prev,
+        );
         window.setTimeout(() => {
           const params = new URLSearchParams({
             correct: String(summary.correct),
