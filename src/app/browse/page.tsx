@@ -11,9 +11,14 @@ export const metadata: Metadata = {
 export default async function BrowsePage({
   searchParams,
 }: {
-  searchParams: Promise<{ cefr?: string; type?: string; q?: string }>;
+  searchParams: Promise<{
+    cefr?: string;
+    type?: string;
+    q?: string;
+    topic?: string;
+  }>;
 }) {
-  const { cefr, type, q } = await searchParams;
+  const { cefr, type, q, topic } = await searchParams;
 
   return (
     <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
@@ -27,7 +32,7 @@ export default async function BrowsePage({
           </p>
         </header>
 
-        <BrowseFilters cefr={cefr} type={type} q={q} />
+        <BrowseFilters cefr={cefr} type={type} q={q} topic={topic} />
 
         <Suspense
           fallback={
@@ -36,7 +41,7 @@ export default async function BrowsePage({
             </p>
           }
         >
-          <WordList cefr={cefr} type={type} q={q} />
+          <WordList cefr={cefr} type={type} q={q} topic={topic} />
         </Suspense>
       </div>
     </div>

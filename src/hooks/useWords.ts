@@ -1,12 +1,13 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
-import type { CefrLevel, Word, WordType } from "@/types";
+import type { CefrLevel, Word, WordTopic, WordType } from "@/types";
 
 export interface WordFilters {
   search?: string;
   cefr?: Exclude<CefrLevel, "A1+">;
   type?: WordType;
+  topic?: WordTopic;
 }
 
 /** Number of words fetched per page when scrolling the dictionary. */
@@ -50,6 +51,9 @@ export function useWords(filters: WordFilters = {}) {
       }
       if (filters.type) {
         query = query.eq("word_type", filters.type);
+      }
+      if (filters.topic) {
+        query = query.eq("topic", filters.topic);
       }
 
       const { data, error, count } = await query;

@@ -1,0 +1,118 @@
+"use client";
+
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Check, X } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { reviewSuggestion } from "@/actions/admin-words";
+import {
+  useAdminSuggestions,
+  type AdminSuggestionRow,
+} from "@/hooks/useAdminSuggestions";
+import type { SuggestionField } from "@/types";
+
+/** Polish label for the word field a suggestion targets. */
+const FIELD_LABEL: Record<SuggestionField, string> = {
+  translation_pl: "Tłumaczenie",
+  example_de: "Przykład (DE)",
+  example_pl: "Przykład (PL)",
+  other: "Inne",
+};
+
+export function SuggestionList() {
+  const { data: suggestions, isLoading, error } = useAdminSuggestions();
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  async function review(
+    suggestion: AdminSuggestionRow,
+    decision: "approved" | "rejected",
+  ) {
+    if (busyId) return;
+    setBusyId(suggestion.id);
+    try {
+      await reviewSuggestion(suggestion.id, decision);
+      await queryClient.invalidateQueries({ queryKey: ["adminSuggestions"] });
+      if (decision === "approved") {
+        await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
+        await queryClient.invalidateQueries({ queryKey: ["words"] });
+      }
+    } catch {
+      // Leave the row in place; the next refetch reflects the true state.
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold">Zgłoszenia</h1>
+        <p className="text-sm text-muted2">
+          Propozycje poprawek od użytkowników. Zaakceptowanie nadpisuje pole
+          słowa.
+        </p>
+      </div>
+
+      {isLoading && <p className="text-sm text-muted2">Ładowanie…</p>}
+      {error && (
+        <p className="text-sm text-red">Nie udało się wczytać zgłoszeń.</p>
+      )}
+
+      {suggestions && suggestions.length === 0 && (
+        <p className="text-sm text-muted2">Brak oczekujących zgłoszeń.</p>
+      )}
+
+      {suggestions && suggestions.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-border bg-background">
+          {suggestions.map((s) => (
+            <div
+              key={s.id}
+              className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-main">
+                    {s.word?.display ?? `#${s.word_id}`}
+                  </span>
+                  <Badge className="border-0 bg-secondary text-muted-foreground">
+                    {FIELD_LABEL[s.field]}
+                  </Badge>
+                </div>
+                <p className="text-sm text-foreground">{s.suggestion}</p>
+                {s.note && (
+                  <p className="text-xs text-muted2">Uwaga: {s.note}</p>
+                )}
+              </div>
+
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-green hover:text-green"
+                  disabled={busyId === s.id}
+                  onClick={() => review(s, "approved")}
+                >
+                  <Check className="size-4" />
+                  Zaakceptuj
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red hover:text-red"
+                  disabled={busyId === s.id}
+                  onClick={() => review(s, "rejected")}
+                >
+                  <X className="size-4" />
+                  Odrzuć
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

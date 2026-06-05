@@ -7,6 +7,22 @@ export type CefrLevel = "A1" | "A1+" | "A2" | "B1" | "B2";
 
 export type WordType = "noun" | "verb" | "other";
 
+/** Verb auxiliary used to form the perfect tense. */
+export type WordAux = "haben" | "sein";
+
+/** DTZ thematic categories a dictionary word can belong to. */
+export type WordTopic =
+  | "praca"
+  | "zdrowie"
+  | "urzad"
+  | "mieszkanie"
+  | "zakupy"
+  | "rodzina"
+  | "edukacja"
+  | "podroze"
+  | "czas-wolny"
+  | "jedzenie";
+
 type Tables = Database["public"]["Tables"];
 
 /** A dictionary entry. */
@@ -71,6 +87,34 @@ export type Attempt = Tables["attempts"]["Row"];
 
 /** A saved dictionary word together with its SM-2 scheduling state. */
 export type SavedWord = Tables["saved_words"]["Row"];
+
+/** Payload for creating/updating a dictionary word from the admin panel. */
+export interface WordInput {
+  lemma: string;
+  display: string;
+  article: "der" | "die" | "das" | null;
+  word_type: WordType;
+  gender: "m" | "f" | "n" | null;
+  translation_pl: string | null;
+  example_de: string | null;
+  example_pl: string | null;
+  cefr: StoredCefrLevel | null;
+  source: string | null;
+  topic: WordTopic | null;
+  plural: string | null;
+  aux: WordAux | null;
+  synonyms: string[] | null;
+  ipa: string | null;
+}
+
+/** A learner-submitted dictionary correction awaiting admin review. */
+export type WordSuggestion = Tables["word_suggestions"]["Row"];
+
+/** Which word field a suggestion targets. */
+export type SuggestionField = WordSuggestion["field"];
+
+/** Review state of a word suggestion. */
+export type SuggestionStatus = WordSuggestion["status"];
 
 /** The learner's current ability snapshot used across the UI. */
 export interface AbilityState {

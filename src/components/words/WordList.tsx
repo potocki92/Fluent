@@ -8,6 +8,7 @@ import { useWords, type WordFilters } from "@/hooks/useWords";
 import { useSavedWords } from "@/hooks/useSavedWords";
 import { WordDetailSheet } from "@/components/words/WordDetailSheet";
 import { WordRow, type WordStatus } from "@/components/words/WordRow";
+import { toTopic } from "@/lib/word-topics";
 import type { CefrLevel, Word, WordType } from "@/types";
 
 const CEFR_VALUES = new Set<Exclude<CefrLevel, "A1+">>(["A1", "A2", "B1", "B2"]);
@@ -34,15 +35,18 @@ export function WordList({
   cefr,
   type,
   q,
+  topic,
 }: {
   cefr?: string;
   type?: string;
   q?: string;
+  topic?: string;
 }) {
   const filters: WordFilters = {
     search: q?.trim() || undefined,
     cefr: toCefr(cefr),
     type: toType(type),
+    topic: toTopic(topic),
   };
 
   const {
