@@ -69,9 +69,15 @@ export function DailyGoalRing() {
 
       {/* Text info */}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-[#e2e8f0]">
-          {reviewedToday} / {goal} powtórek
-        </p>
+        {progressPct >= 100 ? (
+          <p className="text-sm font-semibold text-green">
+            🎉 Cel dzienny osiągnięty!
+          </p>
+        ) : (
+          <p className="text-sm font-semibold text-[#e2e8f0]">
+            {reviewedToday} / {goal} powtórek
+          </p>
+        )}
         <p className="text-xs text-muted2">
           🔥 Passa słówkowa: {wordStreak} {wordStreak === 1 ? "dzień" : "dni"}
         </p>

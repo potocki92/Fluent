@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { review, DEFAULT_EASE_FACTOR, MIN_EASE_FACTOR } from "./sm2";
+import {
+  review,
+  masteryProgress,
+  DEFAULT_EASE_FACTOR,
+  MIN_EASE_FACTOR,
+  MASTERY_INTERVAL,
+} from "./sm2";
 
 const fresh = { interval: 0, repetitions: 0, easeFactor: DEFAULT_EASE_FACTOR };
 const NOW = new Date("2026-01-01T00:00:00.000Z");
@@ -48,5 +54,21 @@ describe("review", () => {
     let state = review(fresh, 5, NOW);
     for (let i = 0; i < 5; i++) state = review(state, 5, NOW);
     expect(state.isMastered).toBe(true);
+  });
+});
+
+describe("masteryProgress", () => {
+  it("is 0 for a brand-new card", () => {
+    expect(masteryProgress(0)).toBe(0);
+  });
+
+  it("reaches 1 once the interval hits the mastery threshold", () => {
+    expect(masteryProgress(MASTERY_INTERVAL)).toBe(1);
+    expect(masteryProgress(MASTERY_INTERVAL + 50)).toBe(1);
+  });
+
+  it("rises monotonically with the interval before mastery", () => {
+    expect(masteryProgress(6)).toBeGreaterThan(masteryProgress(1));
+    expect(masteryProgress(15)).toBeGreaterThan(masteryProgress(6));
   });
 });
