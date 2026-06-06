@@ -42,6 +42,14 @@ export interface Sm2Result extends Sm2State {
 export const MASTERY_INTERVAL = 21;
 
 /**
+ * Progress (0–1) of a card toward mastery, based on how close its interval is to
+ * {@link MASTERY_INTERVAL}. Drives the "do opanowania" progress bars in the UI.
+ */
+export function masteryProgress(interval: number): number {
+  return Math.min(1, Math.max(0, interval / MASTERY_INTERVAL));
+}
+
+/**
  * Apply one SM-2 review.
  *
  * @param state current scheduling state

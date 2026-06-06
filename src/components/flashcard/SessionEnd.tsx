@@ -21,10 +21,13 @@ export interface Result {
 export function SessionEnd({
   results,
   onRepeat,
+  onContinue,
   firstLabel,
 }: {
   results: Result[];
   onRepeat: () => void;
+  /** When provided, offers a "ucz się dalej" button to extend the session. */
+  onContinue?: () => void;
   firstLabel: string;
 }) {
   const toRepeat = results.filter((r) => r.grade === "again").length;
@@ -43,8 +46,20 @@ export function SessionEnd({
       </div>
 
       <div className="flex w-full flex-col gap-2">
+        {onContinue && (
+          <Button onClick={onContinue} className="bg-gold text-[#1a202c]">
+            Ucz się dalej
+          </Button>
+        )}
         {toRepeat > 0 && (
-          <Button onClick={onRepeat} className="bg-gold text-[#1a202c]">
+          <Button
+            onClick={onRepeat}
+            className={
+              onContinue
+                ? "bg-[#374151] text-[#e2e8f0] hover:bg-[#4a5568]"
+                : "bg-gold text-[#1a202c]"
+            }
+          >
             Powtórz błędy
           </Button>
         )}

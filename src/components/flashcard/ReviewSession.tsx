@@ -5,6 +5,7 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
+import { MasteryBar } from "@/components/flashcard/MasteryBar";
 import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -51,13 +52,21 @@ const cardVariants: Variants = {
  * recall ratings, and an end-of-session summary. Each rating persists through
  * the `updateSrs` server action (SM-2 scheduling lives in `src/lib/sm2.ts`).
  */
-export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
+export function ReviewSession({
+  cards,
+  extra,
+}: {
+  cards: SavedWordWithWord[];
+  extra?: SavedWordWithWord[];
+}) {
   const [deck, setDeck] = useState(cards);
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [exitDir, setExitDir] = useState(1);
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState(false);
+  // True once the "ucz się dalej" extras have been folded into the deck.
+  const [extended, setExtended] = useState(false);
 
   const current = deck[index];
   const finished = index >= deck.length;
@@ -118,17 +127,29 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
     const againIds = new Set(
       results.filter((r) => r.grade === "again").map((r) => r.wordId),
     );
-    setDeck(cards.filter((c) => againIds.has(c.word_id)));
+    setDeck(deck.filter((c) => againIds.has(c.word_id)));
     setIndex(0);
     setFlipped(false);
     setResults([]);
   }
+
+  // Append the study-ahead / new cards onto the finished deck. `index` already
+  // sits at the old length, so it lands on the first appended card.
+  function continueAhead() {
+    if (!extra || extra.length === 0) return;
+    setDeck((d) => [...d, ...extra]);
+    setExtended(true);
+    setFlipped(false);
+  }
+
+  const canContinue = !extended && (extra?.length ?? 0) > 0;
 
   if (finished) {
     return (
       <SessionEnd
         results={results}
         onRepeat={repeatMistakes}
+        onContinue={canContinue ? continueAhead : undefined}
         firstLabel="nauczonych"
       />
     );
@@ -207,6 +228,8 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
           </button>
         </motion.div>
       </AnimatePresence>
+
+      <MasteryBar interval={current.interval} />
 
       {flipped && (
         <div className="space-y-2">

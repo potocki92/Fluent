@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
@@ -10,6 +10,7 @@ import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ARTICLE_CHIP, TYPE_LABEL } from "@/components/flashcard/word-chip";
+import { MasteryBar } from "@/components/flashcard/MasteryBar";
 import { SessionEnd, type Result } from "@/components/flashcard/SessionEnd";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,13 @@ const cardVariants: Variants = {
   exit: (dir: number) => ({ x: dir * 400, opacity: 0 }),
 };
 
-export function QuizSession({ cards }: { cards: SavedWordWithWord[] }) {
+export function QuizSession({
+  cards,
+  extra,
+}: {
+  cards: SavedWordWithWord[];
+  extra?: SavedWordWithWord[];
+}) {
   // The active deck — narrowed to mistakes when re-drilling.
   const [deck, setDeck] = useState(cards);
   const { questions, isLoading } = useQuizDeck(deck);
@@ -33,7 +40,15 @@ export function QuizSession({ cards }: { cards: SavedWordWithWord[] }) {
   const [busy, setBusy] = useState(false);
   // null = unanswered, number = index of chosen option
   const [chosen, setChosen] = useState<number | null>(null);
+  // True once the "ucz się dalej" extras have been folded into the deck.
+  const [extended, setExtended] = useState(false);
   const shownAt = useRef<number>(0);
+
+  // word id -> SM-2 interval, to drive the per-card mastery bar.
+  const intervalById = useMemo(
+    () => new Map(deck.map((c) => [c.word_id, c.interval])),
+    [deck],
+  );
 
   const finished = index >= questions.length && questions.length > 0;
   const current = questions[index];
@@ -102,12 +117,24 @@ export function QuizSession({ cards }: { cards: SavedWordWithWord[] }) {
       results.filter((r) => r.grade === "again").map((r) => r.wordId),
     );
     // Narrow the deck to the failed cards; useQuizDeck rebuilds the questions.
-    setDeck(cards.filter((c) => againIds.has(c.word_id)));
+    setDeck(deck.filter((c) => againIds.has(c.word_id)));
     setIndex(0);
     setChosen(null);
     setResults([]);
     setExitDir(1);
   }
+
+  // Fold the study-ahead / new cards onto the deck; useQuizDeck appends their
+  // questions and `index` lands on the first one.
+  function continueAhead() {
+    if (!extra || extra.length === 0) return;
+    setDeck((d) => [...d, ...extra]);
+    setExtended(true);
+    setChosen(null);
+    setExitDir(1);
+  }
+
+  const canContinue = !extended && (extra?.length ?? 0) > 0;
 
   if (isLoading) {
     return (
@@ -123,6 +150,7 @@ export function QuizSession({ cards }: { cards: SavedWordWithWord[] }) {
       <SessionEnd
         results={results}
         onRepeat={repeatMistakes}
+        onContinue={canContinue ? continueAhead : undefined}
         firstLabel="poprawnych"
       />
     );
@@ -211,6 +239,8 @@ export function QuizSession({ cards }: { cards: SavedWordWithWord[] }) {
           </Card>
         </motion.div>
       </AnimatePresence>
+
+      <MasteryBar interval={intervalById.get(current.wordId) ?? 0} />
     </div>
   );
 }

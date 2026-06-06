@@ -1,7 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { review, GRADE_QUALITY } from "@/lib/sm2";
+import { review, GRADE_QUALITY, DEFAULT_EASE_FACTOR } from "@/lib/sm2";
 
 export type ReviewGrade = keyof typeof GRADE_QUALITY;
 
@@ -20,34 +20,36 @@ export async function updateSrs(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data: current, error: cError } = await supabase
+  // A row may not exist yet when the learner grades a brand-new dictionary word
+  // straight from the "ucz się dalej" deck — in that case start from a fresh
+  // SM-2 state and let the upsert below enrol the word.
+  const { data: current } = await supabase
     .from("saved_words")
     .select("interval, repetitions, ease_factor")
     .eq("user_id", user.id)
     .eq("word_id", wordId)
-    .single();
-  if (cError || !current) throw new Error("Saved word not found");
+    .maybeSingle();
 
   const result = review(
     {
-      interval: current.interval,
-      repetitions: current.repetitions,
-      easeFactor: Number(current.ease_factor),
+      interval: current?.interval ?? 0,
+      repetitions: current?.repetitions ?? 0,
+      easeFactor: current ? Number(current.ease_factor) : DEFAULT_EASE_FACTOR,
     },
     GRADE_QUALITY[grade],
   );
 
-  const { error: uError } = await supabase
-    .from("saved_words")
-    .update({
-      interval: result.interval,
-      repetitions: result.repetitions,
-      ease_factor: result.easeFactor,
-      due_at: result.dueAt,
-      is_mastered: result.isMastered,
-    })
-    .eq("user_id", user.id)
-    .eq("word_id", wordId);
+  // Upsert so a first review enrols the word; `saved_at` is omitted so its
+  // default `now()` applies on insert and stays untouched on update.
+  const { error: uError } = await supabase.from("saved_words").upsert({
+    user_id: user.id,
+    word_id: wordId,
+    interval: result.interval,
+    repetitions: result.repetitions,
+    ease_factor: result.easeFactor,
+    due_at: result.dueAt,
+    is_mastered: result.isMastered,
+  });
   if (uError) throw uError;
 
   // Track daily review count and vocabulary streak.

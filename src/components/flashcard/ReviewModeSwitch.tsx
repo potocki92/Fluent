@@ -8,7 +8,13 @@ import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 
 type Mode = "flashcard" | "quiz";
 
-export function ReviewModeSwitch({ cards }: { cards: SavedWordWithWord[] }) {
+export function ReviewModeSwitch({
+  cards,
+  extra,
+}: {
+  cards: SavedWordWithWord[];
+  extra?: SavedWordWithWord[];
+}) {
   const [mode, setMode] = useState<Mode>("flashcard");
 
   return (
@@ -32,9 +38,9 @@ export function ReviewModeSwitch({ cards }: { cards: SavedWordWithWord[] }) {
       </div>
 
       {mode === "flashcard" ? (
-        <ReviewSession key="flashcard" cards={cards} />
+        <ReviewSession key="flashcard" cards={cards} extra={extra} />
       ) : (
-        <QuizSession key="quiz" cards={cards} />
+        <QuizSession key="quiz" cards={cards} extra={extra} />
       )}
     </div>
   );

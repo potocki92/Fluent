@@ -8,6 +8,7 @@ import { useWords, type WordFilters } from "@/hooks/useWords";
 import { useSavedWords } from "@/hooks/useSavedWords";
 import { WordDetailSheet } from "@/components/words/WordDetailSheet";
 import { WordRow, type WordStatus } from "@/components/words/WordRow";
+import { masteryProgress } from "@/lib/sm2";
 import { toTopic } from "@/lib/word-topics";
 import type { CefrLevel, Word, WordType } from "@/types";
 
@@ -84,6 +85,15 @@ export function WordList({
     [isSaved, savedById],
   );
 
+  // Mastery progress (0–1) for the row bar; undefined when the word isn't saved.
+  const progressFor = useCallback(
+    (id: number): number | undefined => {
+      const s = savedById.get(id);
+      return s ? masteryProgress(s.interval) : undefined;
+    },
+    [savedById],
+  );
+
   const onSave = useCallback(
     async (word: Word) => {
       const next = !isSaved(word.id);
@@ -153,6 +163,7 @@ export function WordList({
             word={word}
             isSaved={isSaved(word.id)}
             status={statusFor(word.id)}
+            progress={progressFor(word.id)}
             onSave={() => onSave(word)}
             onOpen={() => setSelected(word)}
           />

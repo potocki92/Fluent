@@ -37,17 +37,22 @@ export function WordRow({
   word,
   isSaved,
   status,
+  progress,
   onSave,
   onOpen,
 }: {
   word: Word;
   isSaved: boolean;
   status: WordStatus;
+  /** 0–1 progress toward mastery; shown for saved, not-yet-mastered words. */
+  progress?: number;
   onSave: () => void;
   onOpen: () => void;
 }) {
   const [bounce, setBounce] = useState(false);
   const statusMeta = status === "none" ? null : STATUS_META[status];
+  const showProgress =
+    progress != null && (status === "saved" || status === "review");
 
   function handleSave(event: React.MouseEvent) {
     event.stopPropagation();
@@ -66,8 +71,9 @@ export function WordRow({
           onOpen();
         }
       }}
-      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] items-center gap-2 border-b border-border px-2.5 py-1.5 text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none sm:gap-3 sm:px-3 sm:py-2.5"
+      className="block cursor-pointer border-b border-border text-left transition-colors hover:bg-card focus-visible:bg-card focus-visible:outline-none"
     >
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto_auto_auto] items-center gap-2 px-2.5 py-1.5 sm:gap-3 sm:px-3 sm:py-2.5">
       <span className="min-w-0 truncate text-sm font-semibold text-foreground sm:text-base">
         {word.article && (
           <span className={cn("mr-1 font-normal", ARTICLE_TEXT[word.article])}>
@@ -128,6 +134,18 @@ export function WordRow({
           )}
         />
       </span>
+      </div>
+
+      {showProgress && (
+        <div className="px-2.5 pb-1.5 sm:px-3 sm:pb-2">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-green/15">
+            <div
+              className="h-full rounded-full bg-green/70 transition-all"
+              style={{ width: `${Math.round((progress ?? 0) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
