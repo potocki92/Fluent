@@ -76,8 +76,13 @@ export function updateAbility(
  */
 export const TEST_PASS_LINE = 0.5;
 
-/** Scales a whole completed test into roughly one strong Elo step. */
-export const TEST_K_SCALE = 4;
+/**
+ * Scales a whole completed test into a gentle Elo step. Kept deliberately small
+ * so reaching the next CEFR band takes several consistent tests rather than one
+ * or two lucky ones; only affects {@link scoreTest} (steady-state tests), never
+ * the per-question {@link updateAbility} used by the placement test.
+ */
+export const TEST_K_SCALE = 1;
 
 /** The outcome of scoring a whole completed test. */
 export interface TestScore {

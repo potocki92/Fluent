@@ -2,7 +2,7 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { scoreTest } from "@/lib/elo";
-import { abilityToCefr } from "@/lib/cefr";
+import { abilityToCefr, gatePromotion } from "@/lib/cefr";
 
 export interface CompleteTestInput {
   textId: number;
@@ -68,7 +68,7 @@ export async function completeTest(
   // 3. Load the learner's current ability.
   const { data: profile, error: pError } = await supabase
     .from("profiles")
-    .select("ability, rd, answered")
+    .select("ability, rd, answered, promotion_streak")
     .eq("id", user.id)
     .single();
   if (pError || !profile) throw new Error("Profile not found");
@@ -80,6 +80,16 @@ export async function completeTest(
     answered: profile.answered,
   });
 
+  // 4b. Gate band crossings: a single test never bumps the displayed level —
+  //     crossing into a higher CEFR band needs a streak of strong passes.
+  const gated = gatePromotion(
+    before.ability,
+    score.ability,
+    score.passed,
+    score.ratio,
+    profile.promotion_streak,
+  );
+
   // 5. Persist: immutable attempts + updated profile (+ streak once).
   const { error: aError } = await supabase.from("attempts").insert(
     graded.map((g) => ({
@@ -88,7 +98,7 @@ export async function completeTest(
       text_id: input.textId,
       is_correct: g.is_correct,
       ability_before: before.ability,
-      ability_after: score.ability,
+      ability_after: gated.ability,
       response_ms: responseMsById.get(g.question_id) ?? null,
     })),
   );
@@ -115,10 +125,11 @@ export async function completeTest(
   const { error: uError } = await supabase
     .from("profiles")
     .update({
-      ability: score.ability,
+      ability: gated.ability,
       rd: score.rd,
       answered,
-      cefr_estimate: abilityToCefr(score.ability),
+      cefr_estimate: abilityToCefr(gated.ability),
+      promotion_streak: gated.streak,
     })
     .eq("id", user.id);
   if (uError) throw uError;
@@ -129,7 +140,7 @@ export async function completeTest(
     correct,
     total,
     abilityBefore: before.ability,
-    abilityAfter: score.ability,
+    abilityAfter: gated.ability,
     rd: score.rd,
     answered,
   };
