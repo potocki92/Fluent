@@ -1,33 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { PartyPopper } from "lucide-react";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
-import type { WordType } from "@/types";
+import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { ARTICLE_CHIP, TYPE_LABEL } from "@/components/flashcard/word-chip";
 import { cn } from "@/lib/utils";
 
-/** Background/text tokens for the article (rodzaj) chip. */
-const ARTICLE_CHIP: Record<"der" | "die" | "das", string> = {
-  der: "bg-blue-900/40 text-blue-300",
-  die: "bg-pink-900/40 text-pink-300",
-  das: "bg-purple-900/40 text-purple-300",
-};
-
-/** Polish labels for each grammatical word type. */
-const TYPE_LABEL: Record<WordType, string> = {
-  noun: "rzeczownik",
-  verb: "czasownik",
-  other: "inne",
-};
-
-/** The three recall ratings, mapped onto the SM-2 grades the action accepts. */
+/**
+ * The recall ratings, mapped onto the SM-2 grades the action accepts, in
+ * keyboard order (1–4). "easy" stretches the interval the most.
+ */
 const RATINGS: { grade: ReviewGrade; label: string; className: string }[] = [
   {
     grade: "again",
@@ -43,6 +33,11 @@ const RATINGS: { grade: ReviewGrade; label: string; className: string }[] = [
     grade: "good",
     label: "✅ Dobrze",
     className: "border-[#48bb78] bg-[#48bb78]/20 text-[#48bb78]",
+  },
+  {
+    grade: "easy",
+    label: "🚀 Łatwe",
+    className: "border-[#4299e1] bg-[#4299e1]/20 text-[#4299e1]",
   },
 ];
 
@@ -75,26 +70,57 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
   const current = deck[index];
   const finished = index >= deck.length;
 
-  async function rate(grade: ReviewGrade) {
-    if (!current || busy) return;
-    setBusy(true);
-    setExitDir(grade === "again" ? -1 : 1);
-    try {
-      const { isMastered } = await updateSrs(current.word_id, grade);
-      setResults((r) => [
-        ...r,
-        { wordId: current.word_id, grade, mastered: isMastered },
-      ]);
-      // Only advance once the schedule is persisted — otherwise the card stays
-      // so the user can retry instead of silently losing progress.
-      setFlipped(false);
-      setIndex((i) => i + 1);
-    } catch (err) {
-      console.error("Failed to update SRS:", err);
-    } finally {
-      setBusy(false);
+  const rate = useCallback(
+    async (grade: ReviewGrade) => {
+      if (!current || busy) return;
+      setBusy(true);
+      setExitDir(grade === "again" ? -1 : 1);
+      try {
+        const { isMastered } = await updateSrs(current.word_id, grade);
+        setResults((r) => [
+          ...r,
+          { wordId: current.word_id, grade, mastered: isMastered },
+        ]);
+        // Only advance once the schedule is persisted — otherwise the card stays
+        // so the user can retry instead of silently losing progress.
+        setFlipped(false);
+        setIndex((i) => i + 1);
+      } catch (err) {
+        console.error("Failed to update SRS:", err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [current, busy],
+  );
+
+  // Read the German word aloud the moment the card is revealed.
+  useEffect(() => {
+    if (flipped && current) speakGerman(current.word.display);
+  }, [flipped, current]);
+
+  // Keyboard shortcuts (desktop): Space/Enter flips the card; 1–4 grade it once
+  // revealed. Ignored while typing in a field. Mobile keeps the tap-to-flip UX.
+  useEffect(() => {
+    if (finished) return;
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        setFlipped((f) => !f);
+        return;
+      }
+      if (!flipped || busy) return;
+      const idx = Number(e.key) - 1;
+      if (Number.isInteger(idx) && idx >= 0 && idx < RATINGS.length) {
+        e.preventDefault();
+        void rate(RATINGS[idx].grade);
+      }
     }
-  }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [finished, flipped, busy, rate]);
 
   function repeatMistakes() {
     const againIds = new Set(
@@ -185,21 +211,27 @@ export function ReviewSession({ cards }: { cards: SavedWordWithWord[] }) {
       </AnimatePresence>
 
       {flipped && (
-        <div className="grid grid-cols-3 gap-2">
-          {RATINGS.map(({ grade, label, className }) => (
-            <button
-              key={grade}
-              type="button"
-              disabled={busy}
-              onClick={() => rate(grade)}
-              className={cn(
-                "rounded-xl border px-3 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
-                className,
-              )}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {RATINGS.map(({ grade, label, className }, i) => (
+              <button
+                key={grade}
+                type="button"
+                disabled={busy}
+                onClick={() => rate(grade)}
+                className={cn(
+                  "rounded-xl border px-3 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
+                  className,
+                )}
+              >
+                <span className="mr-1 opacity-60">{i + 1}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="hidden text-center text-xs text-muted2 sm:block">
+            Spacja — odwróć · 1–4 — oceń
+          </p>
         </div>
       )}
     </div>

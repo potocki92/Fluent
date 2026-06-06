@@ -2,7 +2,8 @@ import Link from "next/link";
 import { PartyPopper } from "lucide-react";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { ReviewSession } from "@/components/flashcard/ReviewSession";
+import { ReviewModeSwitch } from "@/components/flashcard/ReviewModeSwitch";
+import { DailyGoalRing } from "@/components/flashcard/DailyGoalRing";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { Card } from "@/components/ui/card";
 
@@ -89,7 +90,8 @@ export default async function ReviewPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-bold">Powtórki</h1>
-      <ReviewSession cards={dueCards} />
+      <DailyGoalRing />
+      <ReviewModeSwitch cards={dueCards} />
     </div>
   );
 }

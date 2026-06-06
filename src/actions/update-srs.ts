@@ -12,7 +12,7 @@ export type ReviewGrade = keyof typeof GRADE_QUALITY;
 export async function updateSrs(
   wordId: number,
   grade: ReviewGrade,
-): Promise<{ dueAt: string; isMastered: boolean }> {
+): Promise<{ dueAt: string; isMastered: boolean; reviewedToday: number }> {
   const supabase = await createServerSupabaseClient();
 
   const {
@@ -50,5 +50,14 @@ export async function updateSrs(
     .eq("word_id", wordId);
   if (uError) throw uError;
 
-  return { dueAt: result.dueAt, isMastered: result.isMastered };
+  // Track daily review count and vocabulary streak.
+  const { data: count } = await supabase.rpc("bump_word_review", {
+    p_user_id: user.id,
+  });
+
+  return {
+    dueAt: result.dueAt,
+    isMastered: result.isMastered,
+    reviewedToday: count ?? 0,
+  };
 }
