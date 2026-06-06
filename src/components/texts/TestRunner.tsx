@@ -95,6 +95,9 @@ export function TestRunner({
           rd: summary.rd,
           answered: summary.answered,
         });
+        // This text now has a fresh completion row — refetch so the learn page
+        // moves it to the right section (passed → "read & passed", failed → retry).
+        queryClient.invalidateQueries({ queryKey: ["completedTexts"] });
         // Keep the ["profile"] cache in step with the authoritative result, so a
         // later remount of useProfile re-hydrates the store from fresh data
         // instead of clobbering it with the pre-test profile.

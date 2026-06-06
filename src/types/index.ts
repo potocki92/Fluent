@@ -88,6 +88,9 @@ export type Attempt = Tables["attempts"]["Row"];
 /** A saved dictionary word together with its SM-2 scheduling state. */
 export type SavedWord = Tables["saved_words"]["Row"];
 
+/** The learner's latest result for a single reading passage. */
+export type TextCompletion = Tables["text_completions"]["Row"];
+
 /** Payload for creating/updating a dictionary word from the admin panel. */
 export interface WordInput {
   lemma: string;

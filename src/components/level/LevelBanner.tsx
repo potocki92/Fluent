@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 
+import { useMemo } from "react";
+
 import { useAbility } from "@/hooks/useAbility";
 import { useAdaptiveTextSuggestion } from "@/hooks/useTexts";
+import { useCompletedTexts } from "@/hooks/useCompletedTexts";
 import { LevelSummary } from "@/components/level/LevelSummary";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +20,13 @@ import { Badge } from "@/components/ui/badge";
  */
 export function LevelBanner() {
   const ability = useAbility((s) => s.ability);
-  const suggestion = useAdaptiveTextSuggestion(ability);
+  const { data: completed } = useCompletedTexts();
+  const passedTextIds = useMemo(
+    () =>
+      new Set((completed ?? []).filter((c) => c.passed).map((c) => c.text_id)),
+    [completed],
+  );
+  const suggestion = useAdaptiveTextSuggestion(ability, passedTextIds);
 
   return (
     <Card className="gap-3 bg-card p-3">

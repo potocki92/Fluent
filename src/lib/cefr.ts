@@ -44,6 +44,23 @@ export const CEFR_HEX: Record<CefrLevel, string> = {
   B2: "#f56565",
 };
 
+/**
+ * How far above a learner's ability a text may sit and still be offered on the
+ * learn page. Texts harder than `ability + LEVEL_HEADROOM` are hidden so the
+ * list stays at-or-below the learner's level; easier texts always remain
+ * visible. Roughly half a CEFR band, so e.g. an A1 text (1100) stays available
+ * down to an ability of ~950.
+ */
+export const LEVEL_HEADROOM = 150;
+
+/**
+ * Whether a text of `difficulty` is too hard to show a learner of `ability` —
+ * i.e. it sits more than {@link LEVEL_HEADROOM} above their current level.
+ */
+export function isTextTooHard(difficulty: number, ability: number): boolean {
+  return difficulty > ability + LEVEL_HEADROOM;
+}
+
 /** Convert an Elo ability score into the matching CEFR level. */
 export function abilityToCefr(ability: number): CefrLevel {
   for (const band of CEFR_BANDS) {
