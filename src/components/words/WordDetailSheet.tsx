@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Plus, Volume2 } from "lucide-react";
+import { useState } from "react";
+import { Check, Lightbulb, Plus, Volume2 } from "lucide-react";
 
 import {
   Sheet,
@@ -8,6 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { MnemonicDialog } from "@/components/words/MnemonicDialog";
 import { WordSuggestDialog } from "@/components/words/WordSuggestDialog";
 import { CEFR_COLORS } from "@/lib/cefr";
 import { topicLabel } from "@/lib/word-topics";
@@ -46,6 +48,17 @@ export function WordDetailSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Reflect a freshly saved mnemonic without refetching the dictionary. Keyed by
+  // word id so the override never leaks onto a different word in the reused sheet.
+  const [override, setOverride] = useState<{
+    id: number;
+    value: string | null;
+  } | null>(null);
+  const mnemonic =
+    override && word && override.id === word.id
+      ? override.value
+      : (word?.mnemonic ?? null);
+
   function speak() {
     if (!word || typeof window === "undefined" || !window.speechSynthesis) {
       return;
@@ -184,6 +197,21 @@ export function WordDetailSheet({
                     </>
                   )}
                 </button>
+              </div>
+
+              <div className="space-y-2">
+                {mnemonic && (
+                  <div className="flex items-start gap-2 rounded-xl bg-card p-3">
+                    <Lightbulb className="mt-0.5 size-4 shrink-0 text-gold" />
+                    <p className="text-sm text-foreground">{mnemonic}</p>
+                  </div>
+                )}
+                <MnemonicDialog
+                  wordId={word.id}
+                  display={word.display}
+                  mnemonic={mnemonic}
+                  onSaved={(value) => setOverride({ id: word.id, value })}
+                />
               </div>
 
               <WordSuggestDialog wordId={word.id} />

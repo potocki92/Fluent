@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
-import { useQueryClient } from "@tanstack/react-query";
+import { Lightbulb } from "lucide-react";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
+import { MnemonicDialog } from "@/components/words/MnemonicDialog";
 import { MasteryBar } from "@/components/flashcard/MasteryBar";
 import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
@@ -130,6 +131,15 @@ export function ReviewSession({
     return () => window.removeEventListener("keydown", onKey);
   }, [finished, flipped, busy, rate]);
 
+  // Reflect a freshly saved mnemonic on the current card without a refetch.
+  function handleMnemonicSaved(value: string | null) {
+    setDeck((d) =>
+      d.map((c, i) =>
+        i === index ? { ...c, word: { ...c.word, mnemonic: value } } : c,
+      ),
+    );
+  }
+
   function repeatMistakes() {
     const againIds = new Set(
       results.filter((r) => r.grade === "again").map((r) => r.wordId),
@@ -234,6 +244,12 @@ export function ReviewSession({
                 {word.example_pl && (
                   <p className="text-xs text-muted2">{word.example_pl}</p>
                 )}
+                {word.mnemonic && (
+                  <div className="mt-1 flex items-start gap-1.5 text-left">
+                    <Lightbulb className="mt-0.5 size-4 shrink-0 text-gold" />
+                    <p className="text-xs text-muted2">{word.mnemonic}</p>
+                  </div>
+                )}
               </Card>
             </motion.div>
           </button>
@@ -244,6 +260,21 @@ export function ReviewSession({
 
       {flipped && (
         <div className="space-y-2">
+          <MnemonicDialog
+            wordId={word.id}
+            display={word.display}
+            mnemonic={word.mnemonic}
+            onSaved={handleMnemonicSaved}
+            trigger={
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Lightbulb className="size-3.5" />
+                {word.mnemonic ? "Edytuj skojarzenie" : "Dodaj skojarzenie"}
+              </button>
+            }
+          />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {RATINGS.map(({ grade, label, className }, i) => (
               <button
