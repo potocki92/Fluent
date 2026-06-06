@@ -186,6 +186,7 @@ export type Database = {
           rd: number;
           answered: number;
           cefr_estimate: string | null;
+          promotion_streak: number;
           streak_days: number;
           last_active: string | null;
           daily_word_goal: number;
@@ -203,6 +204,7 @@ export type Database = {
           rd?: number;
           answered?: number;
           cefr_estimate?: string | null;
+          promotion_streak?: number;
           streak_days?: number;
           last_active?: string | null;
           daily_word_goal?: number;

@@ -89,6 +89,7 @@ create table if not exists public.profiles (
   rd              numeric not null default 350,   -- rating deviation
   answered        int     not null default 0,
   cefr_estimate   text,
+  promotion_streak int    not null default 0,   -- consecutive strong passes toward next CEFR band
   streak_days          int     not null default 0,
   last_active          date,
   daily_word_goal      int     not null default 20,
@@ -202,6 +203,9 @@ end $$;
 drop function if exists public.jsonb_to_text_array(jsonb);
 -- response time on attempts
 alter table public.attempts add column if not exists response_ms int;
+
+-- ReadTheory-style promotion gate: consecutive strong passes toward the next band
+alter table public.profiles add column if not exists promotion_streak int not null default 0;
 
 -- dictionary enrichment: topic/category (#tematy) + richer entry detail
 -- (plural form, verb auxiliary, synonyms, IPA). All nullable; `aux`/`topic` are

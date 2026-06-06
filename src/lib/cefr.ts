@@ -69,6 +69,57 @@ export function abilityToCefr(ability: number): CefrLevel {
   return "A1";
 }
 
+/** Consecutive strong passes required to actually cross into a higher band. */
+export const PROMOTION_STREAK = 3;
+/** Fraction correct at/above which a passing test counts toward a promotion. */
+export const PROMOTION_RATIO = 0.75;
+
+/**
+ * The minimum Elo of the band just above the one `ability` currently sits in,
+ * or `Infinity` when the learner is already in the top band.
+ */
+function nextBandMin(ability: number): number {
+  const current = abilityToCefr(ability);
+  const next = CEFR_ORDER[CEFR_ORDER.indexOf(current) + 1];
+  if (!next) return Infinity;
+  const band = CEFR_BANDS.find((b) => b.level === next);
+  return band ? band.min : Infinity;
+}
+
+/**
+ * ReadTheory-style promotion gate. Ability moves freely *within* its current
+ * CEFR band, but crossing into a higher band requires {@link PROMOTION_STREAK}
+ * consecutive strong passes (≥ {@link PROMOTION_RATIO}). Until the streak is
+ * earned the ability is held just below the band ceiling, so a single lucky test
+ * never bumps the displayed level — the learner keeps practising at their level
+ * (texts are picked from `ability`) until they prove sustained mastery.
+ *
+ * @param beforeAbility ability before the test (decides the current band)
+ * @param proposedAbility ability the test would produce
+ * @param passed whether the test met the pass line
+ * @param ratio fraction correct (0–1)
+ * @param streak the learner's current promotion streak
+ * @returns the gated ability and the updated streak to persist
+ */
+export function gatePromotion(
+  beforeAbility: number,
+  proposedAbility: number,
+  passed: boolean,
+  ratio: number,
+  streak: number,
+): { ability: number; streak: number } {
+  const ceiling = nextBandMin(beforeAbility);
+  // Not crossing the band: let it move freely and clear any pending streak.
+  if (proposedAbility < ceiling) return { ability: proposedAbility, streak: 0 };
+
+  const qualifies = passed && ratio >= PROMOTION_RATIO;
+  const nextStreak = qualifies ? streak + 1 : 0;
+  // Streak earned: release the ceiling and let the band crossing stick.
+  if (nextStreak >= PROMOTION_STREAK) return { ability: proposedAbility, streak: 0 };
+  // Otherwise hold just below the next band while the streak builds.
+  return { ability: Math.min(proposedAbility, ceiling - 1), streak: nextStreak };
+}
+
 /**
  * Progress (0–1) of an ability within its current CEFR band — useful for
  * rendering level rings/progress bars.
