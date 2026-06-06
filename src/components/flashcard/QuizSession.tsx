@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import { useQuizDeck } from "@/hooks/useQuizDeck";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { speakGerman } from "@/lib/speech";
@@ -30,6 +32,7 @@ export function QuizSession({
   cards: SavedWordWithWord[];
   extra?: SavedWordWithWord[];
 }) {
+  const queryClient = useQueryClient();
   // The active deck — narrowed to mistakes when re-drilling.
   const [deck, setDeck] = useState(cards);
   const { questions, isLoading } = useQuizDeck(deck);
@@ -81,6 +84,10 @@ export function QuizSession({
           ...r,
           { wordId: current.wordId, grade, mastered: isMastered },
         ]);
+        // The action bumped today's review count and the vocabulary streak in
+        // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
+        // update live instead of staying frozen until the next page load.
+        void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
         // Brief visual feedback (highlight correct/wrong) before advancing.
         window.setTimeout(() => {
           setChosen(null);
@@ -93,7 +100,7 @@ export function QuizSession({
         setBusy(false);
       }
     },
-    [current, busy, chosen],
+    [current, busy, chosen, queryClient],
   );
 
   // Keyboard: 1–4 choose option.
