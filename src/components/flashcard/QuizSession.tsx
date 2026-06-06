@@ -196,9 +196,13 @@ export function QuizSession({
               >
                 {word.article ?? TYPE_LABEL[word.word_type]}
               </span>
-              <p className="text-xs uppercase tracking-wide text-muted2">
-                {TYPE_LABEL[word.word_type]}
-              </p>
+              {/* The chip already shows the type for non-nouns; only nouns
+                  (chip = der/die/das) need the spelled-out type beside it. */}
+              {word.article && (
+                <p className="text-xs uppercase tracking-wide text-muted2">
+                  {TYPE_LABEL[word.word_type]}
+                </p>
+              )}
             </div>
             <p className="w-full text-center text-2xl font-bold text-[#d4a574]">
               {word.display}

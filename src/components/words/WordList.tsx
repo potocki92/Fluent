@@ -4,28 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { saveWord, unsaveWord } from "@/actions/save-word";
-import { useWords, type WordFilters } from "@/hooks/useWords";
+import { useWords, buildWordFilters } from "@/hooks/useWords";
 import { useSavedWords } from "@/hooks/useSavedWords";
 import { WordDetailSheet } from "@/components/words/WordDetailSheet";
 import { WordRow, type WordStatus } from "@/components/words/WordRow";
 import { masteryProgress } from "@/lib/sm2";
-import { toTopic } from "@/lib/word-topics";
-import type { CefrLevel, Word, WordType } from "@/types";
-
-const CEFR_VALUES = new Set<Exclude<CefrLevel, "A1+">>(["A1", "A2", "B1", "B2"]);
-const TYPE_VALUES = new Set<WordType>(["noun", "verb", "other"]);
-
-function toCefr(value?: string): WordFilters["cefr"] {
-  return value && CEFR_VALUES.has(value as Exclude<CefrLevel, "A1+">)
-    ? (value as Exclude<CefrLevel, "A1+">)
-    : undefined;
-}
-
-function toType(value?: string): WordType | undefined {
-  return value && TYPE_VALUES.has(value as WordType)
-    ? (value as WordType)
-    : undefined;
-}
+import type { Word } from "@/types";
 
 /**
  * Compact, scannable list view of the dictionary. Replaces the card grid: each
@@ -43,12 +27,7 @@ export function WordList({
   q?: string;
   topic?: string;
 }) {
-  const filters: WordFilters = {
-    search: q?.trim() || undefined,
-    cefr: toCefr(cefr),
-    type: toType(type),
-    topic: toTopic(topic),
-  };
+  const filters = buildWordFilters({ cefr, type, q, topic });
 
   const {
     data,

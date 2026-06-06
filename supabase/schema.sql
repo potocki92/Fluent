@@ -23,6 +23,9 @@ create table if not exists public.words (
 );
 create index if not exists words_cefr_idx   on public.words(cefr);
 create index if not exists words_type_idx   on public.words(word_type);
+-- Btree on lemma backs the dictionary's default `order by lemma` + range
+-- pagination; the trgm GIN below only serves ILIKE search, not ordering.
+create index if not exists words_lemma_idx  on public.words(lemma);
 create index if not exists words_lemma_trgm on public.words
   using gin (lower(lemma) gin_trgm_ops);
 
