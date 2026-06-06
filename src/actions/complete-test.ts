@@ -94,6 +94,21 @@ export async function completeTest(
   );
   if (aError) throw aError;
 
+  // Record the compact per-text result (latest wins) so the learn page can hide
+  // finished texts and list passed ones separately. A retake overwrites the row.
+  const { error: cError } = await supabase.from("text_completions").upsert(
+    {
+      user_id: user.id,
+      text_id: input.textId,
+      passed: score.passed,
+      correct,
+      total,
+      completed_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,text_id" },
+  );
+  if (cError) throw cError;
+
   const answered = profile.answered + total;
 
   // `updated_at` is stamped automatically by the profiles_touch_updated_at trigger.

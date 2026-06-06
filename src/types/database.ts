@@ -254,6 +254,35 @@ export type Database = {
           },
         ];
       };
+      text_completions: {
+        Row: {
+          user_id: string;
+          text_id: number;
+          passed: boolean;
+          correct: number;
+          total: number;
+          completed_at: string;
+        };
+        Insert: {
+          user_id: string;
+          text_id: number;
+          passed: boolean;
+          correct: number;
+          total: number;
+          completed_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["text_completions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "text_completions_text_id_fkey";
+            columns: ["text_id"];
+            referencedRelation: "texts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       saved_words: {
         Row: {
           user_id: string;

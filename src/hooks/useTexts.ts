@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { isTextTooHard } from "@/lib/cefr";
 import type { Question, Text } from "@/types";
 
 /** Fetch the list of reading passages, ordered by difficulty. */
@@ -68,18 +69,27 @@ export function useQuestions(textId: number) {
 /**
  * Suggest the reading passage whose difficulty is closest to the learner's
  * current ability. Pure client computation over the cached `useTexts` list —
- * no extra network request.
+ * no extra network request. Texts the learner has already passed (in
+ * `passedTextIds`) and texts that are too hard for their level are excluded, so
+ * the suggestion is always something new and reachable.
  */
-export function useAdaptiveTextSuggestion(ability: number): Text | null {
+export function useAdaptiveTextSuggestion(
+  ability: number,
+  passedTextIds?: Set<number>,
+): Text | null {
   const { data: texts } = useTexts();
 
   return useMemo(() => {
-    if (!texts || texts.length === 0) return null;
+    const candidates = (texts ?? []).filter(
+      (t) =>
+        !passedTextIds?.has(t.id) && !isTextTooHard(t.difficulty, ability),
+    );
+    if (candidates.length === 0) return null;
 
-    return texts.reduce((best, text) =>
+    return candidates.reduce((best, text) =>
       Math.abs(text.difficulty - ability) < Math.abs(best.difficulty - ability)
         ? text
         : best,
     );
-  }, [texts, ability]);
+  }, [texts, ability, passedTextIds]);
 }

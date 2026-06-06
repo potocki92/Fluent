@@ -113,6 +113,24 @@ create table if not exists public.attempts (
 );
 create index if not exists attempts_user_idx on public.attempts(user_id, created_at desc);
 
+-- TEXT COMPLETIONS (one row per learner+text — the latest test result for it)
+-- The `attempts` log records every answered question; this table is the compact
+-- "did I finish this text and did I pass" summary the /learn page reads to filter
+-- out completed texts and build the "read & passed" section. Upserted by the
+-- `complete-test` Server Action so a retake overwrites the previous result
+-- (latest wins), which a plain aggregate over `attempts` could not do reliably.
+create table if not exists public.text_completions (
+  user_id      uuid    not null references auth.users(id) on delete cascade,
+  text_id      bigint  not null references public.texts(id) on delete cascade,
+  passed       boolean not null,
+  correct      int     not null,
+  total        int     not null,
+  completed_at timestamptz not null default now(),
+  primary key (user_id, text_id)
+);
+create index if not exists text_completions_user_idx
+  on public.text_completions(user_id, completed_at desc);
+
 -- SAVED WORDS with SRS data
 create table if not exists public.saved_words (
   user_id     uuid    not null references auth.users(id) on delete cascade,
@@ -350,6 +368,7 @@ alter table public.questions             enable row level security;
 alter table public.calibration_questions enable row level security;
 alter table public.profiles              enable row level security;
 alter table public.attempts              enable row level security;
+alter table public.text_completions      enable row level security;
 alter table public.saved_words           enable row level security;
 alter table public.word_suggestions      enable row level security;
 
@@ -434,6 +453,16 @@ create policy "own attempts read"   on public.attempts
 drop policy if exists "own attempts insert" on public.attempts;
 create policy "own attempts insert" on public.attempts
   for insert with check (auth.uid() = user_id);
+
+drop policy if exists "own completions read" on public.text_completions;
+create policy "own completions read"   on public.text_completions
+  for select using (auth.uid() = user_id);
+drop policy if exists "own completions insert" on public.text_completions;
+create policy "own completions insert" on public.text_completions
+  for insert with check (auth.uid() = user_id);
+drop policy if exists "own completions update" on public.text_completions;
+create policy "own completions update" on public.text_completions
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "own saved read" on public.saved_words;
 create policy "own saved read"   on public.saved_words

@@ -1,16 +1,23 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, CheckCircle2, RotateCcw } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
-import type { Text } from "@/types";
+import type { Text, TextCompletion } from "@/types";
 
 /** Max difficulty used to scale the 5-dot indicator. */
 const MAX_DIFFICULTY = 1800;
 
-export function TextCard({ text }: { text: Text }) {
+export function TextCard({
+  text,
+  completion,
+}: {
+  text: Text;
+  /** The learner's latest result for this text, when they have finished it. */
+  completion?: TextCompletion;
+}) {
   const filled = Math.max(
     0,
     Math.min(5, Math.round((text.difficulty / MAX_DIFFICULTY) * 5)),
@@ -20,9 +27,22 @@ export function TextCard({ text }: { text: Text }) {
     <Link href={`/learn/${text.id}`} className="block">
       <Card className="gap-2 bg-[#2d3748] p-3 transition-colors hover:bg-[#374151]">
         <div className="flex items-center justify-between gap-3">
-          <Badge className={cn("border-0", CEFR_COLORS[text.cefr])}>
-            {text.cefr}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge className={cn("border-0", CEFR_COLORS[text.cefr])}>
+              {text.cefr}
+            </Badge>
+            {completion?.passed && (
+              <Badge className="border-0 bg-green-900/40 text-green-300">
+                <CheckCircle2 />
+                {completion.correct}/{completion.total}
+              </Badge>
+            )}
+            {completion && !completion.passed && (
+              <Badge className="border-0 bg-red-900/40 text-red-300">
+                Spróbuj ponownie
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center gap-1" aria-label="Poziom trudności">
             {Array.from({ length: 5 }).map((_, i) => (
               <span
@@ -43,8 +63,17 @@ export function TextCard({ text }: { text: Text }) {
             {text.word_count ?? "—"} słów · trudność {text.difficulty}
           </p>
           <span className="flex items-center gap-1 text-sm font-medium text-gold">
-            Czytaj
-            <ArrowRight className="size-4" />
+            {completion ? (
+              <>
+                <RotateCcw className="size-4" />
+                Powtórz
+              </>
+            ) : (
+              <>
+                Czytaj
+                <ArrowRight className="size-4" />
+              </>
+            )}
           </span>
         </div>
       </Card>
