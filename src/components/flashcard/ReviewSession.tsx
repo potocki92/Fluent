@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Lightbulb } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
