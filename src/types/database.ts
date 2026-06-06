@@ -188,6 +188,10 @@ export type Database = {
           cefr_estimate: string | null;
           streak_days: number;
           last_active: string | null;
+          daily_word_goal: number;
+          word_streak_days: number;
+          words_reviewed_today: number;
+          last_word_review: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -201,6 +205,10 @@ export type Database = {
           cefr_estimate?: string | null;
           streak_days?: number;
           last_active?: string | null;
+          daily_word_goal?: number;
+          word_streak_days?: number;
+          words_reviewed_today?: number;
+          last_word_review?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -314,6 +322,10 @@ export type Database = {
       update_streak: {
         Args: { p_user_id: string };
         Returns: undefined;
+      };
+      bump_word_review: {
+        Args: { p_user_id: string };
+        Returns: number;
       };
       grade_question: {
         Args: { p_question_id: number; p_selected_idx: number };

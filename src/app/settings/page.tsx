@@ -4,6 +4,7 @@ import { useAbility } from "@/hooks/useAbility";
 import { useProfile } from "@/hooks/useProfile";
 import { CalibrationControls } from "@/components/level/CalibrationControls";
 import { LevelRing } from "@/components/level/LevelRing";
+import { WordGoalControl } from "@/components/flashcard/WordGoalControl";
 import { Card } from "@/components/ui/card";
 
 export default function SettingsPage() {
@@ -31,6 +32,7 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <WordGoalControl />
       <CalibrationControls />
     </div>
   );

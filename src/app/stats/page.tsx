@@ -1,5 +1,7 @@
 import { Flame, MessageSquare, BookmarkCheck, CheckCircle2 } from "lucide-react";
 
+import { WordGoalStat } from "@/components/flashcard/WordGoalStat";
+
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { LevelSummary } from "@/components/level/LevelSummary";
 import { CefrMilestones } from "@/components/level/CefrMilestones";
@@ -75,7 +77,7 @@ export default async function StatsPage() {
       </Card>
 
       {/* B) Stat tiles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat
           icon={<Flame className="size-5 text-gold" />}
           value={`${streak} dni`}
@@ -96,6 +98,7 @@ export default async function StatsPage() {
           value={masteredCount ?? 0}
           label="Opanowanych"
         />
+        <WordGoalStat />
       </div>
 
       {/* C) Ability chart */}

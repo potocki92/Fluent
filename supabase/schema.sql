@@ -80,10 +80,14 @@ create table if not exists public.profiles (
   rd              numeric not null default 350,   -- rating deviation
   answered        int     not null default 0,
   cefr_estimate   text,
-  streak_days     int     not null default 0,
-  last_active     date,
-  created_at      timestamptz default now(),
-  updated_at      timestamptz default now()
+  streak_days          int     not null default 0,
+  last_active          date,
+  daily_word_goal      int     not null default 20,
+  word_streak_days     int     not null default 0,
+  words_reviewed_today int     not null default 0,
+  last_word_review     date,
+  created_at           timestamptz default now(),
+  updated_at           timestamptz default now()
 );
 
 -- ATTEMPTS (immutable audit log — one row per answered question)
@@ -215,6 +219,31 @@ begin
   update public.profiles
     set streak_days = v_streak, last_active = current_date
     where id = p_user_id;
+end; $$;
+
+-- Spaced-repetition daily goal: increment today's review count and maintain a
+-- separate vocabulary streak, mirroring the update_streak pattern exactly.
+create or replace function public.bump_word_review(p_user_id uuid)
+returns int language plpgsql security definer as $$
+declare v_last date; v_streak int; v_count int;
+begin
+  select last_word_review, word_streak_days, words_reviewed_today
+    into v_last, v_streak, v_count
+    from public.profiles where id = p_user_id for update;
+  if v_last = current_date then
+    v_count := v_count + 1;
+  else
+    v_count := 1;
+    -- `>=` so a timezone rollover still counts as a continued streak.
+    if v_last >= current_date - 1 then v_streak := v_streak + 1;
+    else v_streak := 1; end if;
+  end if;
+  update public.profiles
+    set words_reviewed_today = v_count,
+        word_streak_days     = v_streak,
+        last_word_review     = current_date
+    where id = p_user_id;
+  return v_count;
 end; $$;
 
 -- updated_at maintenance: stamp profiles.updated_at on every update so the

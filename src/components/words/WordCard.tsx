@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Check, Plus, Volume2 } from "lucide-react";
 
 import { CEFR_COLORS } from "@/lib/cefr";
+import { speakGerman } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 import type { Word, WordType } from "@/types";
 
@@ -32,15 +33,6 @@ export function WordCard({
   onSave: () => void;
 }) {
   const [bounce, setBounce] = useState(false);
-
-  function speak() {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-    const utterance = new SpeechSynthesisUtterance(word.display);
-    utterance.lang = "de-DE";
-    utterance.rate = 0.8;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
 
   function handleSave() {
     setBounce(true);
@@ -86,7 +78,7 @@ export function WordCard({
       <div className="mt-auto flex gap-2 pt-1">
         <button
           type="button"
-          onClick={speak}
+          onClick={() => speakGerman(word.display)}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#374151] px-2.5 py-1.5 text-sm text-[#e2e8f0] transition-colors hover:bg-[#4a5568]"
         >
           <Volume2 className="size-4" />

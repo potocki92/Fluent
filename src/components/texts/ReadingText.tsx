@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { BodyContent } from "@/components/texts/BodyContent";
+import { SaveTextWordsButton } from "@/components/texts/SaveTextWordsButton";
 import type { Text } from "@/types";
 
 export function ReadingText({ text }: { text: Text }) {
@@ -32,7 +33,8 @@ export function ReadingText({ text }: { text: Text }) {
     <>
       <BodyContent body={text.body} />
 
-      <div className="sticky bottom-20 pt-4">
+      <div className="sticky bottom-20 space-y-2 pt-4">
+        <SaveTextWordsButton textId={text.id} body={text.body} />
         {unlocked ? (
           <Button
             asChild
