@@ -30,11 +30,19 @@ export async function saveTextWords(
   const lemmas = extractLemmas(text.body);
   if (lemmas.length === 0) return { saved: 0 };
 
-  // Resolve lemmas to word ids — case-insensitive, ignore missing entries.
+  // Resolve lemmas to word ids — case-insensitive (matching the `ilike` lookup
+  // used by WordTooltip), ignoring missing entries. Commas/parens would break
+  // the PostgREST or-filter syntax, so drop those (malformed) lemmas.
+  const orFilter = lemmas
+    .filter((l) => !/[(),]/.test(l))
+    .map((l) => `lemma.ilike.${l}`)
+    .join(",");
+  if (!orFilter) return { saved: 0 };
+
   const { data: words, error: wError } = await supabase
     .from("words")
     .select("id, lemma")
-    .in("lemma", lemmas);
+    .or(orFilter);
   if (wError) throw wError;
 
   const rows = (words ?? []).map((w) => ({

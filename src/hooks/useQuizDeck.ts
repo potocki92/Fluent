@@ -32,7 +32,9 @@ function pickDistractors(
   pool: string[],
   seed: number,
 ): string[] {
-  const candidates = pool.filter((t) => t !== answer);
+  // Distinct translations only, excluding the answer — duplicate options would
+  // collide on React keys and show the same choice twice.
+  const candidates = [...new Set(pool)].filter((t) => t !== answer);
   const shuffled = seededShuffle(candidates, seed);
   return shuffled.slice(0, 3);
 }
@@ -87,7 +89,7 @@ export function useQuizDeck(cards: SavedWordWithWord[]): {
 
       // Fallback: if the same-CEFR pool is too small, widen to all passed items.
       if (distractors.length < 3) {
-        const wider = pool.filter((t) => t !== answer);
+        const wider = [...new Set(pool)].filter((t) => t !== answer);
         distractors = seededShuffle(wider, card.word_id).slice(0, 3);
       }
 

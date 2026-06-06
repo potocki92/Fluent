@@ -73,12 +73,7 @@ export function DailyGoalRing() {
           {reviewedToday} / {goal} powtórek
         </p>
         <p className="text-xs text-muted2">
-          🔥 Passa słówkowa: {wordStreak}{" "}
-          {wordStreak === 1
-            ? "dzień"
-            : wordStreak >= 2 && wordStreak <= 4
-              ? "dni"
-              : "dni"}
+          🔥 Passa słówkowa: {wordStreak} {wordStreak === 1 ? "dzień" : "dni"}
         </p>
       </div>
     </div>

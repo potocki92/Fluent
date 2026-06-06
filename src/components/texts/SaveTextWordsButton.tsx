@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BookmarkPlus, Check, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -19,7 +19,7 @@ export function SaveTextWordsButton({
   const [status, setStatus] = useState<"idle" | "saving" | "done">("idle");
   const [savedCount, setSavedCount] = useState(0);
 
-  const lemmaCount = extractLemmas(body).length;
+  const lemmaCount = useMemo(() => extractLemmas(body).length, [body]);
   if (lemmaCount === 0) return null;
 
   async function handleSave() {
