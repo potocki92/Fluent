@@ -204,9 +204,13 @@ export function ReviewSession({
                   {word.article ?? TYPE_LABEL[word.word_type]}
                 </span>
                 <p className="text-2xl font-bold text-[#d4a574]">{word.display}</p>
-                <p className="text-xs uppercase tracking-wide text-muted2">
-                  {TYPE_LABEL[word.word_type]}
-                </p>
+                {/* The chip already shows the type for non-nouns; only nouns
+                    (chip = der/die/das) need the spelled-out type below. */}
+                {word.article && (
+                  <p className="text-xs uppercase tracking-wide text-muted2">
+                    {TYPE_LABEL[word.word_type]}
+                  </p>
+                )}
                 <p className="mt-2 text-xs italic text-muted2">
                   Dotknij, aby zobaczyć
                 </p>

@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { PartyPopper } from "lucide-react";
+import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getQueryClient } from "@/lib/query-client";
 import { ReviewModeSwitch } from "@/components/flashcard/ReviewModeSwitch";
 import { DailyGoalRing } from "@/components/flashcard/DailyGoalRing";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
+import {
+  WORD_GOAL_KEY,
+  WORD_GOAL_COLUMNS,
+  toWordGoalData,
+} from "@/hooks/useWordGoal";
 import type { Word } from "@/types";
 import { Card } from "@/components/ui/card";
 
@@ -27,6 +34,7 @@ export default async function ReviewPage() {
 
   let dueCards: SavedWordWithWord[] = [];
   let extraCards: SavedWordWithWord[] = [];
+  const queryClient = getQueryClient();
 
   if (user) {
     const { data } = await supabase
@@ -44,6 +52,14 @@ export default async function ReviewPage() {
     );
 
     extraCards = await buildExtraCards(supabase, user.id, now);
+
+    // Prime the daily-goal ring so it renders filled on first paint instead of
+    // flashing its loading skeleton while the client fetches the profile.
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select(WORD_GOAL_COLUMNS)
+      .maybeSingle();
+    queryClient.setQueryData(WORD_GOAL_KEY, toWordGoalData(profile));
   }
 
   // Nothing to review *and* nothing to learn ahead — the only true dead end.
@@ -74,16 +90,18 @@ export default async function ReviewPage() {
   const continuation = dueCards.length > 0 ? extraCards : [];
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold">Powtórki</h1>
-      {dueCards.length === 0 && (
-        <p className="text-sm text-muted2">
-          Brak zaległych powtórek — uczysz się do przodu.
-        </p>
-      )}
-      <DailyGoalRing />
-      <ReviewModeSwitch cards={initialCards} extra={continuation} />
-    </div>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <div className="space-y-4">
+        <h1 className="text-lg font-bold">Powtórki</h1>
+        {dueCards.length === 0 && (
+          <p className="text-sm text-muted2">
+            Brak zaległych powtórek — uczysz się do przodu.
+          </p>
+        )}
+        <DailyGoalRing />
+        <ReviewModeSwitch cards={initialCards} extra={continuation} />
+      </div>
+    </HydrationBoundary>
   );
 }
 
