@@ -19,7 +19,7 @@ export const metadata = { title: "Powtórki · Fluent" };
 
 /** Dictionary columns needed to render a flashcard. */
 const WORD_COLS =
-  "id, display, article, word_type, translation_pl, example_de, example_pl";
+  "id, display, article, word_type, translation_pl, example_de, example_pl, mnemonic";
 
 /** How many "study ahead" / new cards to offer once due cards run out. */
 const EXTRA_LIMIT = 15;

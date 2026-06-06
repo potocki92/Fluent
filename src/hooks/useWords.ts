@@ -16,7 +16,7 @@ const PAGE_SIZE = 30;
 
 /** Only the columns the list/detail UI needs — avoids shipping `source`/`created_at`. */
 const WORD_COLUMNS =
-  "id, lemma, display, article, word_type, gender, translation_pl, example_de, example_pl, cefr";
+  "id, lemma, display, article, word_type, gender, translation_pl, example_de, example_pl, cefr, mnemonic";
 
 const CEFR_VALUES = new Set<Exclude<CefrLevel, "A1+">>(["A1", "A2", "B1", "B2"]);
 const TYPE_VALUES = new Set<WordType>(["noun", "verb", "other"]);

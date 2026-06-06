@@ -212,6 +212,10 @@ alter table public.words add column if not exists plural   text;
 alter table public.words add column if not exists aux      text;
 alter table public.words add column if not exists synonyms text[];
 alter table public.words add column if not exists ipa      text;
+-- mnemonic: keyword-method association shown on flashcards. Shared per word and
+-- edited through the dictionary, so the existing "words admin update" policy
+-- already covers writes — no extra RLS needed.
+alter table public.words add column if not exists mnemonic text;
 create index if not exists words_topic_idx on public.words(topic);
 
 -- AUTO-CREATE PROFILE ON SIGNUP

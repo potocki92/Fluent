@@ -37,6 +37,7 @@ export type Database = {
           aux: "haben" | "sein" | null;
           synonyms: string[] | null;
           ipa: string | null;
+          mnemonic: string | null;
           created_at: string;
         };
         Insert: {
@@ -56,6 +57,7 @@ export type Database = {
           aux?: "haben" | "sein" | null;
           synonyms?: string[] | null;
           ipa?: string | null;
+          mnemonic?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["words"]["Insert"]>;
