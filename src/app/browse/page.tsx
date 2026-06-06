@@ -37,7 +37,9 @@ export default async function BrowsePage({
   const queryClient = getQueryClient();
   const supabase = await createServerSupabaseClient();
 
-  await Promise.all([
+  // Best-effort prefetch: failures degrade to the client hooks fetching on
+  // mount, so a prefetch error never crashes the Server Component render.
+  await Promise.allSettled([
     queryClient.prefetchInfiniteQuery({
       queryKey: ["words", filters],
       queryFn: ({ pageParam }) =>
