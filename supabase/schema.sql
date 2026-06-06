@@ -24,10 +24,16 @@ create table if not exists public.words (
 create index if not exists words_cefr_idx   on public.words(cefr);
 create index if not exists words_type_idx   on public.words(word_type);
 -- Btree on lemma backs the dictionary's default `order by lemma` + range
--- pagination; the trgm GIN below only serves ILIKE search, not ordering.
+-- pagination; the trgm GIN indexes below serve substring ILIKE search.
 create index if not exists words_lemma_idx  on public.words(lemma);
-create index if not exists words_lemma_trgm on public.words
-  using gin (lower(lemma) gin_trgm_ops);
+-- Trigram indexes back `col ILIKE '%term%'` across every column the dictionary
+-- and admin search query. The old index was on `lower(lemma)`, which the
+-- planner can't use for `lemma ILIKE …`; gin_trgm_ops on the raw column can
+-- (trigram matching is already case-insensitive for ILIKE).
+drop index if exists public.words_lemma_trgm;
+create index if not exists words_lemma_trgm       on public.words using gin (lemma gin_trgm_ops);
+create index if not exists words_display_trgm     on public.words using gin (display gin_trgm_ops);
+create index if not exists words_translation_trgm on public.words using gin (translation_pl gin_trgm_ops);
 
 -- TEXTS (reading passages)
 create table if not exists public.texts (

@@ -5,19 +5,31 @@ import type { SavedWord, Word } from "@/types";
 
 export type SavedWordWithWord = SavedWord & { word: Word };
 
-/** Fetch the current user's saved words joined with the dictionary entry. */
+/** TanStack key for the user's saved words — shared so the server can prime it. */
+export const SAVED_WORDS_KEY = ["saved_words"] as const;
+
+/**
+ * Columns the dictionary UI needs from `saved_words`. The list only derives the
+ * status dot / mastery progress from the scheduling fields, so the dictionary
+ * row itself is *not* joined — that join shipped a full word per saved entry for
+ * data the UI never reads.
+ */
+export const SAVED_WORD_COLUMNS =
+  "user_id, word_id, interval, repetitions, ease_factor, due_at, is_mastered, saved_at";
+
+/** Fetch the current user's saved words (scheduling fields only, no join). */
 export function useSavedWords() {
   return useQuery({
-    queryKey: ["saved_words"],
-    queryFn: async (): Promise<SavedWordWithWord[]> => {
+    queryKey: SAVED_WORDS_KEY,
+    queryFn: async (): Promise<SavedWord[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from("saved_words")
-        .select("*, word:words(*)")
+        .select(SAVED_WORD_COLUMNS)
         .order("due_at", { ascending: true });
 
       if (error) throw error;
-      return (data ?? []) as unknown as SavedWordWithWord[];
+      return (data ?? []) as SavedWord[];
     },
   });
 }
