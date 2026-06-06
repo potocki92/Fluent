@@ -5,6 +5,7 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Lightbulb } from "lucide-react";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { MnemonicDialog } from "@/components/words/MnemonicDialog";
 import { MasteryBar } from "@/components/flashcard/MasteryBar";
@@ -61,6 +62,7 @@ export function ReviewSession({
   cards: SavedWordWithWord[];
   extra?: SavedWordWithWord[];
 }) {
+  const queryClient = useQueryClient();
   const [deck, setDeck] = useState(cards);
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -84,6 +86,10 @@ export function ReviewSession({
           ...r,
           { wordId: current.word_id, grade, mastered: isMastered },
         ]);
+        // The action bumped today's review count and the vocabulary streak in
+        // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
+        // update live instead of staying frozen until the next page load.
+        void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
         // Only advance once the schedule is persisted — otherwise the card stays
         // so the user can retry instead of silently losing progress.
         setFlipped(false);
@@ -94,7 +100,7 @@ export function ReviewSession({
         setBusy(false);
       }
     },
-    [current, busy],
+    [current, busy, queryClient],
   );
 
   // Read the German word aloud the moment the card is revealed.
