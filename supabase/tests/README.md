@@ -22,13 +22,17 @@ PGHOST=localhost PGPORT=54322 PGUSER=postgres ./supabase/tests/run.sh
 
 The runner exercises three things:
 
-1. **bootstrap** — `schema.sql` on an empty database, then the suite;
+1. **bootstrap** — `schema.sql` on an empty database, then both suites;
 2. **upgrade** — the pre-migration schema (`fixtures/pre_migration_schema.sql`),
-   then the migration on top, then the same suite. This is what proves the
-   migration works on an already-provisioned project, not only a fresh one;
-3. **idempotency** — re-applying both scripts changes nothing.
+   then every migration in order, then the same suites. This is what proves the
+   migrations work on an already-provisioned project, not only a fresh one;
+3. **idempotency** — re-applying every script changes nothing.
 
-## What is asserted
+Both suites run against the same database, in order:
+`01_test_session_security.sql` exercises the test lifecycle and leaves `attempts`
+behind, which `02_learning_engine_security.sql` relies on to check the backfill.
+
+## What is asserted — test sessions (01)
 
 | # | Invariant |
 | - | --------- |
@@ -42,6 +46,19 @@ The runner exercises three things:
 | 8 | Calibration answers are replayable in order; an item cannot be answered twice; finalize is idempotent and labels the level as `placement`. |
 | 9 | A manually chosen level is accepted but clamped and stamped `manual`. |
 | 10 | `bump_word_review()` advances only the caller's counters. |
+
+## What is asserted — learning engine (02)
+
+| # | Invariant |
+| - | --------- |
+| L1 | The skill/concept catalogs are readable by a learner and editable only by an admin — someone who can rewrite the taxonomy can rewrite what their own weaknesses are called. |
+| L2 | A learner cannot forge a learning event or a review event, nor set their own skill, concept or word mastery. `apply_learning_evidence` and `apply_word_review_counter` are revoked from *every* role; `apply_review` is reachable only by `service_role`; every new `SECURITY DEFINER` function pins `search_path`. |
+| L3 | One graded card writes the review event, the SM-2 schedule, the daily counter, the learning event and the word knowledge **together**; a receptive review never creates active knowledge; a replayed `interaction_id` changes nothing; a failure partway through rolls all of it back. |
+| L4 | A write computed from a stale state version is rejected (`FL423`) rather than silently overwriting a concurrent update. |
+| L5 | Finalizing a test writes evidence for the tagged skill and concepts, invents no concept for an untagged question, exposes the tags through `questions_public` (never the raw tables), and produces nothing on a replay. |
+| L6 | User A can read their own learning history and knowledge state, and none of user B's. |
+| L7 | Historical `attempts` are backfilled as `legacy_backfill` evidence, an answer already recorded natively is not duplicated, re-running the backfill adds nothing — and no review history is fabricated from SM-2 state. |
+| L8 | Every item tag points at a catalog row, and placement items keep the mapping their coarse `skill` implies (a multiple-choice vocabulary item is *receptive*, never active). |
 
 ## Note on the shim
 
