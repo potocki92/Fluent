@@ -1,8 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 
 import { abilityToCefr } from "@/lib/cefr";
@@ -17,19 +15,27 @@ function emojiFor(pct: number): string {
   return "💪";
 }
 
-function Results() {
-  const search = useSearchParams();
-  const correct = Number(search.get("correct") ?? 0);
-  const total = Number(search.get("total") ?? 0);
-  const abilityBefore = Number(search.get("abilityBefore") ?? 0);
-  const abilityAfter = Number(search.get("abilityAfter") ?? abilityBefore);
-
+/**
+ * Presentational result screen. Every number is passed in by the route, which
+ * read it from the completed session row — this component computes only what is
+ * derived from those numbers (percentage, CEFR band, delta) and never fetches.
+ */
+export function TestResult({
+  correct,
+  total,
+  abilityBefore,
+  abilityAfter,
+}: {
+  correct: number;
+  total: number;
+  abilityBefore: number;
+  abilityAfter: number;
+}) {
   const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
   const delta = Math.round(abilityAfter - abilityBefore);
   const cefrBefore = abilityToCefr(abilityBefore);
   const cefrAfter = abilityToCefr(abilityAfter);
   const cefrChanged = cefrBefore !== cefrAfter;
-  const nextLevel = abilityToCefr(abilityAfter);
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center">
@@ -73,20 +79,12 @@ function Results() {
           asChild
           className="w-full bg-gold text-[#1a202c] hover:bg-gold-dark"
         >
-          <Link href="/learn">Następny tekst (poziom {nextLevel})</Link>
+          <Link href="/learn">Następny tekst (poziom {cefrAfter})</Link>
         </Button>
         <Button asChild variant="ghost" className="w-full">
           <Link href="/stats">Moje statystyki</Link>
         </Button>
       </div>
     </div>
-  );
-}
-
-export default function ResultsPage() {
-  return (
-    <Suspense fallback={<p className="text-sm text-muted2">Ładowanie…</p>}>
-      <Results />
-    </Suspense>
   );
 }

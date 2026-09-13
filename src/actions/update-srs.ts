@@ -52,10 +52,11 @@ export async function updateSrs(
   });
   if (uError) throw uError;
 
-  // Track daily review count and vocabulary streak.
-  const { data: count } = await supabase.rpc("bump_word_review", {
-    p_user_id: user.id,
-  });
+  // Track daily review count and vocabulary streak. `bump_word_review` derives
+  // the user from auth.uid() — the old `p_user_id` variant ran as SECURITY
+  // DEFINER while trusting the caller's uuid, so it could advance ANOTHER
+  // learner's counters.
+  const { data: count } = await supabase.rpc("bump_word_review");
 
   return {
     dueAt: result.dueAt,

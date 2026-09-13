@@ -189,6 +189,8 @@ export type Database = {
           answered: number;
           cefr_estimate: string | null;
           promotion_streak: number;
+          /** Provenance of the displayed level — see `profiles_level_source_check`. */
+          level_source: "default" | "manual" | "placement" | "test";
           streak_days: number;
           last_active: string | null;
           daily_word_goal: number;
@@ -207,6 +209,7 @@ export type Database = {
           answered?: number;
           cefr_estimate?: string | null;
           promotion_streak?: number;
+          level_source?: "default" | "manual" | "placement" | "test";
           streak_days?: number;
           last_active?: string | null;
           daily_word_goal?: number;
@@ -229,6 +232,8 @@ export type Database = {
           ability_before: number;
           ability_after: number;
           response_ms: number | null;
+          /** Null on rows written before test sessions existed. */
+          test_session_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -240,6 +245,7 @@ export type Database = {
           ability_before: number;
           ability_after: number;
           response_ms?: number | null;
+          test_session_id?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["attempts"]["Insert"]>;
@@ -266,6 +272,7 @@ export type Database = {
           correct: number;
           total: number;
           completed_at: string;
+          test_session_id: string | null;
         };
         Insert: {
           user_id: string;
@@ -274,6 +281,7 @@ export type Database = {
           correct: number;
           total: number;
           completed_at?: string;
+          test_session_id?: string | null;
         };
         Update: Partial<
           Database["public"]["Tables"]["text_completions"]["Insert"]
@@ -318,6 +326,162 @@ export type Database = {
           },
         ];
       };
+      test_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          text_id: number;
+          status: "in_progress" | "completed" | "abandoned";
+          started_at: string;
+          completed_at: string | null;
+          ability_before: number;
+          rd_before: number;
+          /** Written exactly once, by `finalize_test_session`. */
+          ability_after: number | null;
+          rd_after: number | null;
+          correct: number | null;
+          total: number | null;
+          score_ratio: number | null;
+          passed: boolean | null;
+        };
+        /**
+         * Sessions are never written from the client — there is no RLS write
+         * policy and every mutation goes through a SECURITY DEFINER function or
+         * the service role. `Insert`/`Update` exist only so the generated shape
+         * is complete.
+         */
+        Insert: {
+          id?: string;
+          user_id: string;
+          text_id: number;
+          status?: "in_progress" | "completed" | "abandoned";
+          started_at?: string;
+          completed_at?: string | null;
+          ability_before: number;
+          rd_before: number;
+          ability_after?: number | null;
+          rd_after?: number | null;
+          correct?: number | null;
+          total?: number | null;
+          score_ratio?: number | null;
+          passed?: boolean | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["test_sessions"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "test_sessions_text_id_fkey";
+            columns: ["text_id"];
+            referencedRelation: "texts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      test_session_items: {
+        Row: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          /** Snapshotted at start, so mid-test edits cannot change the score. */
+          item_difficulty: number;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          response_ms: number | null;
+          /** Null until answered; set once and never cleared. */
+          answered_at: string | null;
+        };
+        Insert: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
+          selected_idx?: number | null;
+          is_correct?: boolean | null;
+          response_ms?: number | null;
+          answered_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["test_session_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "test_session_items_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "test_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "test_session_items_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calibration_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          status: "in_progress" | "completed" | "abandoned";
+          started_at: string;
+          completed_at: string | null;
+          ability_after: number | null;
+          rd_after: number | null;
+          items: number | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          status?: "in_progress" | "completed" | "abandoned";
+          started_at?: string;
+          completed_at?: string | null;
+          ability_after?: number | null;
+          rd_after?: number | null;
+          items?: number | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["calibration_sessions"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      calibration_session_items: {
+        Row: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
+          selected_idx: number;
+          is_correct: boolean;
+          response_ms: number | null;
+          answered_at: string;
+        };
+        Insert: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
+          selected_idx: number;
+          is_correct: boolean;
+          response_ms?: number | null;
+          answered_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["calibration_session_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "calibration_session_items_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "calibration_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calibration_session_items_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "calibration_questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       questions_public: {
@@ -352,36 +516,115 @@ export type Database = {
       };
     };
     Functions: {
-      update_streak: {
-        Args: { p_user_id: string };
-        Returns: undefined;
-      };
       bump_word_review: {
-        Args: { p_user_id: string };
+        Args: Record<string, never>;
         Returns: number;
       };
-      grade_question: {
-        Args: { p_question_id: number; p_selected_idx: number };
-        Returns: { is_correct: boolean; correct_idx: number }[];
-      };
-      grade_calibration: {
-        Args: { p_question_id: number; p_selected_idx: number };
+      set_manual_level: {
+        Args: { p_ability: number; p_rd: number };
         Returns: {
-          is_correct: boolean;
-          correct_idx: number;
-          difficulty: number;
+          ability: number;
+          rd: number;
+          answered: number;
+          cefr_estimate: string | null;
         }[];
       };
-      grade_test: {
-        Args: {
-          p_text_id: number;
-          p_question_ids: number[];
-          p_selected_idxs: number[];
-        };
+      start_test_session: {
+        Args: { p_text_id: number };
+        Returns: string;
+      };
+      get_test_session: {
+        Args: { p_session_id: string };
         Returns: {
           question_id: number;
+          item_position: number;
+          prompt: string;
+          options: string[];
+          item_difficulty: number;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          answered_at: string | null;
+        }[];
+      };
+      answer_test_question: {
+        Args: {
+          p_session_id: string;
+          p_question_id: number;
+          p_selected_idx: number;
+          p_response_ms: number | null;
+        };
+        Returns: {
+          is_answer_correct: boolean;
+          answer_key_idx: number;
+          already_answered: boolean;
+        }[];
+      };
+      /** service_role only — EXECUTE is revoked from anon/authenticated. */
+      finalize_test_session: {
+        Args: {
+          p_session_id: string;
+          p_user_id: string;
+          p_ability_before: number;
+          p_ability_after: number;
+          p_rd_after: number;
+          p_cefr_estimate: string;
+          p_promotion_streak: number;
+          p_passed: boolean;
+        };
+        Returns: {
+          correct_count: number;
+          total_count: number;
+          ability_start: number;
+          ability_end: number;
+          rd_end: number;
+          test_passed: boolean;
+          profile_answered: number;
+          already_finalized: boolean;
+        }[];
+      };
+      start_calibration_session: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
+      answer_calibration_question: {
+        Args: {
+          p_session_id: string;
+          p_question_id: number;
+          p_selected_idx: number;
+          p_response_ms: number | null;
+        };
+        Returns: {
+          is_answer_correct: boolean;
+          answer_key_idx: number;
+          item_difficulty: number;
+          already_answered: boolean;
+        }[];
+      };
+      get_calibration_session_answers: {
+        Args: { p_session_id: string };
+        Returns: {
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
           is_correct: boolean;
-          difficulty: number;
+        }[];
+      };
+      /** service_role only — EXECUTE is revoked from anon/authenticated. */
+      finalize_calibration_session: {
+        Args: {
+          p_session_id: string;
+          p_user_id: string;
+          p_ability: number;
+          p_rd: number;
+          p_cefr_estimate: string;
+        };
+        Returns: {
+          ability_value: number;
+          rd_value: number;
+          profile_answered: number;
+          cefr_value: string | null;
+          item_count: number;
+          already_finalized: boolean;
         }[];
       };
     };

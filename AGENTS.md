@@ -35,11 +35,20 @@ Respect the existing `src/`-rooted structure:
 - `src/app/` — Next App Router routes, layouts, metadata. Flat routing (no route groups).
 - `src/components/` — UI grouped by area: `ui/` (shadcn primitives), `auth/`, `layout/`, `flashcard/`, `charts/`, `words/`, `texts/`, `level/`.
 - `src/hooks/` — TanStack Query data hooks (`useTexts`, `useWords`, `useSavedWords`, `useDueWords`) and the Zustand store (`useAbility`).
-- `src/actions/` — server actions (`"use server"`): `submit-answer.ts`, `save-word.ts`, `update-srs.ts`.
-- `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`), `utils.ts` (`cn`), and the Supabase seam in `src/lib/supabase/{client,server,middleware}.ts`.
+- `src/actions/` — server actions (`"use server"`): the test lifecycle
+  (`start-test-session.ts`, `answer-test-question.ts`, `finalize-test-session.ts`),
+  the placement lifecycle (`start-`/`answer-`/`finalize-calibration-*.ts`),
+  `save-word.ts`, `update-srs.ts`.
+- `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
+  `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
+  Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
 - `src/proxy.ts` — Next 16 middleware entry (`proxy`), delegates to `updateSession`.
-- `supabase/schema.sql` — database schema.
+- `supabase/schema.sql` — database schema (one-paste bootstrap). Incremental history
+  lives in `supabase/migrations/`; the two are kept identical by
+  `node supabase/sync-schema.mjs`. Database security tests: `supabase/tests/`.
+- `docs/architecture/` — ADRs. Read `test-sessions.md` before touching the test,
+  calibration or progress-write paths.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
 
 Do NOT move the project to root-level folders or out of `src/`. There is no `features/`, `store/`, or `data/` directory — do not assume them.
@@ -76,6 +85,16 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
 - Session refresh: `updateSession` in `src/lib/supabase/middleware.ts`, wired through `src/proxy.ts`.
 - Read paths: TanStack Query hooks call the browser client directly.
 - Write paths: server actions (`src/actions/*`) use the server client — typically auth check (`supabase.auth.getUser()`), load, domain logic from `src/lib/`, persist (`insert`/`update`/`delete`/`rpc`), return a typed result.
+- **Progress is server-owned.** `attempts`, `text_completions`, the session tables and
+  the progress columns of `profiles` have no client write path, by design. Do not add
+  one. New progress writes belong inside the existing SECURITY DEFINER functions, or a
+  new one that derives its user from `auth.uid()` and has `EXECUTE` granted narrowly.
+- `src/lib/supabase/service.ts` (service role) bypasses RLS entirely. Import it only
+  from `"use server"` modules, only for the finalize RPCs, and only after the acting
+  user has been established from the cookie-bound client.
+- Expected failures in these flows are RETURNED as `ActionResult<T>` from
+  `src/lib/errors.ts`, never thrown — Next redacts thrown Server Action errors in
+  production, so a thrown error cannot be branched on by the UI.
 - Type all Supabase access with the `Database` type from `src/types/database.ts`.
 - When changing schema, update `supabase/schema.sql`. Do not commit secrets; env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 
@@ -127,6 +146,9 @@ Before considering a task complete, run the most relevant available checks:
 - `npm run lint` (ESLint).
 - `npm run build` when the change touches routing, Next config, server/client boundaries, metadata, server actions, or shared UI.
 - `npm run test` (Vitest, `vitest run`) when domain logic in `src/lib/` changes; add/update colocated `*.test.ts`.
+- `supabase/tests/run.sh` when RLS, grants, migrations or any SQL function changes.
+  It needs only a PostgreSQL superuser connection (`PGHOST`/`PGPORT`/`PGUSER`), not a
+  Supabase project, and verifies the bootstrap path, the upgrade path and idempotency.
 
 The only test/build scripts that exist are `dev`, `build`, `start`, `lint`, `test`, `test:watch`. Do not invent results for scripts that do not exist.
 
@@ -141,7 +163,11 @@ Do not:
 - bypass strict TypeScript or add `any` as a shortcut
 - silence ESLint without fixing the cause
 - hardcode colors when a token exists, or change global design tokens casually
-- duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR)
+- duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR) — including
+  re-implementing them in PL/pgSQL; the database owns transactions, `src/lib/` owns
+  the arithmetic
+- let the client decide anything authoritative: which questions a test contains, what
+  a score is, or what a learner's ability becomes
 - change Next/React APIs based only on model memory — check the local Next docs
 - perform broad refactors or rewrite unrelated files while doing a small task
 
