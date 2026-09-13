@@ -13,6 +13,9 @@ import { Card } from "@/components/ui/card";
 
 export const metadata = { title: "Statystyki · Fluent" };
 
+/** How many of the learner's latest attempts the progress chart plots. */
+const CHART_POINTS = 50;
+
 export default async function StatsPage() {
   const supabase = await createServerSupabaseClient();
   const {
@@ -23,13 +26,18 @@ export default async function StatsPage() {
     ? supabase.from("profiles").select("*").eq("id", user.id).maybeSingle()
     : Promise.resolve({ data: null });
 
+  // The chart plots the learner's MOST RECENT attempts. Ordering ascending and
+  // then limiting took the OLDEST 50 instead, so past 50 answers the graph
+  // froze on ancient history. Take the newest rows, then reverse for display so
+  // the line still reads left-to-right in time order.
   const attemptsPromise = user
     ? supabase
         .from("attempts")
         .select("ability_after, created_at")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: true })
-        .limit(50)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(CHART_POINTS)
     : Promise.resolve({ data: [] as AbilityChartAttempt[] });
 
   const savedCountPromise = user
@@ -62,7 +70,9 @@ export default async function StatsPage() {
   const ability = Number(profile?.ability ?? 1000);
   const answered = profile?.answered ?? 0;
   const streak = profile?.streak_days ?? 0;
-  const chartAttempts = (attempts ?? []) as AbilityChartAttempt[];
+  const chartAttempts = ((attempts ?? []) as AbilityChartAttempt[])
+    .slice()
+    .reverse();
 
   return (
     <div className="space-y-4">
