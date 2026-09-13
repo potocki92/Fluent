@@ -22,6 +22,9 @@ function item(id: number, difficulty: number): CalibrationQuestion {
     difficulty,
     cefr: "A2",
     skill: "vocab",
+    skill_code: "receptive_vocabulary",
+    tested_word_id: null,
+    concepts: [],
     created_at: "",
   };
 }

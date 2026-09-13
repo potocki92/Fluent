@@ -16,11 +16,13 @@ export function useCalibrationQuestions() {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from("calibration_questions_public")
-        .select("id, prompt, options, difficulty, cefr, skill, created_at")
+        .select(
+          "id, prompt, options, difficulty, cefr, skill, created_at, skill_code, tested_word_id, concepts",
+        )
         .order("difficulty", { ascending: true });
 
       if (error) throw error;
-      return (data ?? []) as unknown as CalibrationQuestion[];
+      return (data ?? []) as CalibrationQuestion[];
     },
   });
 }

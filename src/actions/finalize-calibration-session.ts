@@ -4,6 +4,14 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import { replayCalibration } from "@/lib/calibration-test";
 import { abilityToCefr } from "@/lib/cefr";
+import {
+  evidenceJson,
+  foldEvidence,
+  EMPTY_EVIDENCE_PAYLOAD,
+} from "@/lib/learning/aggregate";
+import { calibrationAnswerEvidence, type LearningEvidence } from "@/lib/learning/evidence";
+import { loadCalibrationTags, UNTAGGED } from "@/lib/learning/item-tags";
+import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import type { AbilityState } from "@/types";
 
@@ -51,6 +59,20 @@ export async function finalizeCalibrationSession(
   );
   const cefrEstimate = abilityToCefr(replayed.ability);
 
+  // A placement answer is evidence like any other: a grammar item that went
+  // wrong tells us about grammar whether it was asked during a test or during
+  // placement. What does NOT change is what the placement test is FOR — it still
+  // sets the learner's level exactly as before. This only stops its answers from
+  // being thrown away afterwards.
+  const evidence = await buildCalibrationEvidence(supabase, sessionId, answers);
+  const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
+    (snapshotError) => {
+      console.error("[fluent:knowledge] snapshot load failed", snapshotError);
+      return null;
+    },
+  );
+  const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+
   let service;
   try {
     service = createServiceRoleSupabaseClient();
@@ -68,6 +90,7 @@ export async function finalizeCalibrationSession(
     p_ability: replayed.ability,
     p_rd: replayed.rd,
     p_cefr_estimate: cefrEstimate,
+    p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
   });
 
   const result = data?.[0];
@@ -82,4 +105,50 @@ export async function finalizeCalibrationSession(
     answered: result.profile_answered,
     cefrEstimate: (result.cefr_value ?? cefrEstimate) as AbilityState["cefrEstimate"],
   };
+}
+
+/** One stored placement answer, as `get_calibration_session_answers` returns it. */
+interface StoredCalibrationAnswer {
+  question_id: number;
+  is_correct: boolean;
+  response_ms: number | null;
+  answered_at: string;
+}
+
+/**
+ * Turn stored placement answers into learning evidence.
+ *
+ * An item whose tags cannot be read is attributed to NO skill: unlike a reading
+ * question, a placement item could be about vocabulary or grammar, and guessing
+ * would put the wrong evidence under the wrong dimension. The answer is still
+ * recorded as history — it just teaches the model nothing.
+ */
+async function buildCalibrationEvidence(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  sessionId: string,
+  answers: readonly StoredCalibrationAnswer[],
+): Promise<LearningEvidence[]> {
+  if (answers.length === 0) return [];
+
+  const tags = await loadCalibrationTags(
+    supabase,
+    answers.map((answer) => answer.question_id),
+  ).catch((error) => {
+    console.error("[fluent:knowledge] calibration tags unavailable", error);
+    return new Map<number, never>();
+  });
+
+  return answers.map((answer) => {
+    const itemTags = tags.get(answer.question_id) ?? UNTAGGED;
+    return calibrationAnswerEvidence({
+      sessionId,
+      questionId: answer.question_id,
+      skillCode: itemTags.skillCode,
+      conceptCodes: itemTags.conceptCodes,
+      testedWordId: itemTags.testedWordId,
+      isCorrect: answer.is_correct,
+      responseMs: answer.response_ms,
+      occurredAt: answer.answered_at,
+    });
+  });
 }
