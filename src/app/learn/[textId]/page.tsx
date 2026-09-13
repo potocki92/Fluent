@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { markTextOpened } from "@/actions/today-plan";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ReadingText } from "@/components/texts/ReadingText";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,12 @@ export default async function ReadingPage({
     .maybeSingle();
 
   if (!text) notFound();
+
+  // The "continue what you started" signal. Nothing else in Fluent records that
+  // a passage was READ rather than tested on, which is exactly the learner the
+  // planner most needs to recognise. Best effort — failing to note it must never
+  // stop someone reading.
+  await markTextOpened(id);
 
   return (
     <article className="space-y-4">

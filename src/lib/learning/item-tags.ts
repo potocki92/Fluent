@@ -27,6 +27,8 @@ export interface ItemTags {
   conceptCodes: readonly ConceptCode[];
   /** Non-null only when the item genuinely tests this dictionary word. */
   testedWordId: number | null;
+  /** The passage the item hangs off, when it has one. Placement items do not. */
+  textId: number | null;
 }
 
 /**
@@ -38,6 +40,7 @@ export const DEFAULT_TEST_TAGS: ItemTags = {
   skillCode: "reading_comprehension",
   conceptCodes: [],
   testedWordId: null,
+  textId: null,
 };
 
 /** A placement item whose tags are unknown is attributed to no skill at all. */
@@ -45,6 +48,7 @@ export const UNTAGGED: ItemTags = {
   skillCode: null,
   conceptCodes: [],
   testedWordId: null,
+  textId: null,
 };
 
 interface TagRow {
@@ -52,6 +56,7 @@ interface TagRow {
   skill_code: string | null;
   tested_word_id: number | null;
   concepts: string[] | null;
+  text_id?: number | null;
 }
 
 function toTags(row: TagRow): ItemTags {
@@ -59,6 +64,7 @@ function toTags(row: TagRow): ItemTags {
     skillCode: isSkillCode(row.skill_code) ? row.skill_code : null,
     conceptCodes: (row.concepts ?? []).filter(isConceptCode),
     testedWordId: row.tested_word_id,
+    textId: row.text_id ?? null,
   };
 }
 
@@ -70,7 +76,7 @@ export async function loadQuestionTags(
   if (questionIds.length === 0) return new Map();
   const { data, error } = await supabase
     .from("questions_public")
-    .select("id, skill_code, tested_word_id, concepts")
+    .select("id, text_id, skill_code, tested_word_id, concepts")
     .in("id", [...questionIds]);
   if (error) throw error;
   return new Map((data ?? []).map((row) => [row.id, toTags(row as TagRow)]));

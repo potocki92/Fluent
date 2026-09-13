@@ -24,7 +24,11 @@ const WORD_COLS =
 /** How many "study ahead" / new cards to offer once due cards run out. */
 const EXTRA_LIMIT = 15;
 
-export default async function ReviewPage() {
+export default async function ReviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ words?: string }>;
+}) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -32,9 +36,34 @@ export default async function ReviewPage() {
 
   const now = new Date().toISOString();
 
+  // Today's "nowe słówka" activity passes the exact words it recommended. Serving
+  // whatever the deck would otherwise have picked would mean the plan item could
+  // never register as done — completion is measured against THESE word ids.
+  const { words: requestedWords } = await searchParams;
+  const planWordIds = parseWordIds(requestedWords);
+
   let dueCards: SavedWordWithWord[] = [];
   let extraCards: SavedWordWithWord[] = [];
   const queryClient = getQueryClient();
+
+  if (user && planWordIds.length > 0) {
+    const planned = await buildPlannedCards(supabase, user.id, planWordIds, now);
+    if (planned.length > 0) {
+      await primeWordGoal(supabase, queryClient);
+      return (
+        <HydrationBoundary state={dehydrate(queryClient)}>
+          <div className="space-y-4">
+            <h1 className="text-lg font-bold">Nowe słówka</h1>
+            <p className="text-sm text-muted2">
+              Zestaw z Twojego dzisiejszego planu.
+            </p>
+            <DailyGoalRing />
+            <ReviewModeSwitch cards={planned} extra={[]} />
+          </div>
+        </HydrationBoundary>
+      );
+    }
+  }
 
   if (user) {
     const { data } = await supabase
@@ -53,19 +82,7 @@ export default async function ReviewPage() {
 
     extraCards = await buildExtraCards(supabase, user.id, now);
 
-    // Prime the daily-goal ring so it renders filled on first paint instead of
-    // flashing its loading skeleton while the client fetches the profile. Best
-    // effort: on any failure DailyGoalRing just falls back to its client fetch
-    // rather than crashing the Server Component render.
-    try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select(WORD_GOAL_COLUMNS)
-        .maybeSingle();
-      queryClient.setQueryData(WORD_GOAL_KEY, toWordGoalData(profile));
-    } catch {
-      // ignore — client-side useWordGoal will fetch on mount
-    }
+    await primeWordGoal(supabase, queryClient);
   }
 
   // Nothing to review *and* nothing to learn ahead — the only true dead end.
@@ -109,6 +126,77 @@ export default async function ReviewPage() {
       </div>
     </HydrationBoundary>
   );
+}
+
+/** `?words=12,34,56` → the ids, ignoring anything malformed. */
+function parseWordIds(value: string | undefined): number[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .slice(0, 20);
+}
+
+/**
+ * Prime the daily-goal ring so it renders filled on first paint instead of
+ * flashing its loading skeleton while the client fetches the profile. Best
+ * effort: on any failure DailyGoalRing just falls back to its client fetch
+ * rather than crashing the Server Component render.
+ */
+async function primeWordGoal(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  queryClient: ReturnType<typeof getQueryClient>,
+): Promise<void> {
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select(WORD_GOAL_COLUMNS)
+      .maybeSingle();
+    queryClient.setQueryData(WORD_GOAL_KEY, toWordGoalData(profile));
+  } catch {
+    // ignore — client-side useWordGoal will fetch on mount
+  }
+}
+
+/**
+ * The exact words today's plan recommended, as a deck.
+ *
+ * A word already in the deck keeps its real SM-2 state; one the learner has
+ * never saved starts from a fresh schedule and is enrolled by its first grade,
+ * exactly as the "ucz się dalej" cards always were.
+ */
+async function buildPlannedCards(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  userId: string,
+  wordIds: readonly number[],
+  now: string,
+): Promise<SavedWordWithWord[]> {
+  const [{ data: words }, { data: saved }] = await Promise.all([
+    supabase.from("words").select(WORD_COLS).in("id", [...wordIds]),
+    supabase
+      .from("saved_words")
+      .select("*")
+      .eq("user_id", userId)
+      .in("word_id", [...wordIds]),
+  ]);
+
+  const schedules = new Map((saved ?? []).map((row) => [row.word_id, row]));
+
+  return ((words ?? []) as unknown as Word[]).map((word) => {
+    const schedule = schedules.get(word.id);
+    return {
+      user_id: userId,
+      word_id: word.id,
+      interval: schedule?.interval ?? 0,
+      repetitions: schedule?.repetitions ?? 0,
+      ease_factor: schedule?.ease_factor ?? 2.5,
+      due_at: schedule?.due_at ?? now,
+      is_mastered: schedule?.is_mastered ?? false,
+      saved_at: schedule?.saved_at ?? now,
+      word,
+    } as unknown as SavedWordWithWord;
+  });
 }
 
 /**

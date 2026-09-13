@@ -208,6 +208,10 @@ export type Database = {
           word_streak_days: number;
           words_reviewed_today: number;
           last_word_review: string | null;
+          /** IANA zone deciding when the learner's day starts. See `learning_day`. */
+          timezone: string;
+          /** Daily learning budget in minutes — the unit a plan is built in. */
+          daily_learning_minutes: number;
           created_at: string;
           updated_at: string;
         };
@@ -227,6 +231,8 @@ export type Database = {
           word_streak_days?: number;
           words_reviewed_today?: number;
           last_word_review?: string | null;
+          timezone?: string;
+          daily_learning_minutes?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -871,6 +877,199 @@ export type Database = {
           },
         ];
       };
+      /**
+       * "This learner opened this passage" — the minimal reading state the Today
+       * planner needs to recommend finishing something rather than starting
+       * something. Not a reader session; see the Today engine migration.
+       */
+      text_progress: {
+        Row: {
+          user_id: string;
+          text_id: number;
+          first_opened_at: string;
+          last_opened_at: string;
+          open_count: number;
+        };
+        Insert: {
+          user_id: string;
+          text_id: number;
+          first_opened_at?: string;
+          last_opened_at?: string;
+          open_count?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["text_progress"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "text_progress_text_id_fkey";
+            columns: ["text_id"];
+            referencedRelation: "texts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** One learning day's plan. Unique per (user, learning_date). */
+      daily_plans: {
+        Row: {
+          id: string;
+          user_id: string;
+          /** The LEARNER's date, from `profiles.timezone` — never `current_date`. */
+          learning_date: string;
+          timezone: string;
+          status: "pending" | "in_progress" | "completed";
+          target_minutes: number;
+          estimated_minutes: number;
+          algorithm_version: string;
+          evidence_level: "none" | "low" | "medium" | "high";
+          created_at: string;
+          started_at: string | null;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          learning_date: string;
+          timezone: string;
+          status?: "pending" | "in_progress" | "completed";
+          target_minutes: number;
+          estimated_minutes?: number;
+          algorithm_version: string;
+          evidence_level?: "none" | "low" | "medium" | "high";
+          created_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["daily_plans"]["Insert"]>;
+        Relationships: [];
+      };
+      /** One activity of a plan, snapshotted with the reason it was chosen. */
+      daily_plan_items: {
+        Row: {
+          id: string;
+          plan_id: string;
+          item_position: number;
+          item_type:
+            | "placement"
+            | "review_due"
+            | "weakness_practice"
+            | "continue_text"
+            | "new_text"
+            | "new_vocabulary";
+          status: "pending" | "in_progress" | "completed" | "skipped";
+          estimated_minutes: number;
+          priority_score: number;
+          reason_code: string;
+          reason_data: Json;
+          signals: Json;
+          target_count: number;
+          completed_count: number;
+          text_id: number | null;
+          concept_code: string | null;
+          word_ids: number[];
+          payload: Json;
+          started_at: string | null;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          plan_id: string;
+          item_position: number;
+          item_type: string;
+          status?: "pending" | "in_progress" | "completed" | "skipped";
+          estimated_minutes: number;
+          priority_score?: number;
+          reason_code: string;
+          reason_data?: Json;
+          signals?: Json;
+          target_count?: number;
+          completed_count?: number;
+          text_id?: number | null;
+          concept_code?: string | null;
+          word_ids?: number[];
+          payload?: Json;
+          started_at?: string | null;
+          completed_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["daily_plan_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "daily_plan_items_plan_id_fkey";
+            columns: ["plan_id"];
+            referencedRelation: "daily_plans";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** One weakness drill, modelled on `test_sessions` but never Elo-scored. */
+      practice_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          concept_code: string;
+          plan_item_id: string | null;
+          status: "in_progress" | "completed" | "abandoned";
+          started_at: string;
+          completed_at: string | null;
+          correct: number | null;
+          total: number | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          concept_code: string;
+          plan_item_id?: string | null;
+          status?: "in_progress" | "completed" | "abandoned";
+          started_at?: string;
+          completed_at?: string | null;
+          correct?: number | null;
+          total?: number | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["practice_sessions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "practice_sessions_plan_item_id_fkey";
+            columns: ["plan_item_id"];
+            referencedRelation: "daily_plan_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      practice_session_items: {
+        Row: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          response_ms: number | null;
+          answered_at: string | null;
+        };
+        Insert: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          item_difficulty: number;
+          selected_idx?: number | null;
+          is_correct?: boolean | null;
+          response_ms?: number | null;
+          answered_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["practice_session_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "practice_session_items_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "practice_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       questions_public: {
@@ -907,6 +1106,18 @@ export type Database = {
           skill_code: string | null;
           tested_word_id: number | null;
           concepts: string[];
+        };
+        Relationships: [];
+      };
+      /**
+       * How many published questions exist per concept. The planner refuses to
+       * propose a drill with nothing behind it; admins read the same view to see
+       * where the item bank has holes.
+       */
+      concept_practice_pool: {
+        Row: {
+          concept_code: string;
+          question_count: number;
         };
         Relationships: [];
       };
@@ -1054,6 +1265,94 @@ export type Database = {
           ease_factor: number;
           reviewed_today: number;
           already_applied: boolean;
+        }[];
+      };
+      /** Records that the learner opened a passage. Derives the user from auth.uid(). */
+      mark_text_opened: {
+        Args: { p_text_id: number };
+        Returns: undefined;
+      };
+      /**
+       * Writes one learning day's plan. service_role only — it accepts computed
+       * priorities, so a browser must never be able to reach it.
+       */
+      create_daily_plan: {
+        Args: {
+          p_user_id: string;
+          p_learning_date: string;
+          p_timezone: string;
+          p_target_minutes: number;
+          p_algorithm_version: string;
+          p_evidence_level: string;
+          p_items: Json;
+          p_replace_onboarding?: boolean;
+        };
+        Returns: string;
+      };
+      /**
+       * Recomputes every item's progress from the tables that recorded the
+       * underlying activity. Idempotent by construction; there is no
+       * "mark complete" write path anywhere in Fluent.
+       */
+      sync_daily_plan: {
+        Args: { p_plan_id: string };
+        Returns: {
+          item_id: string;
+          item_status: string;
+          completed_count: number;
+          plan_status: string;
+        }[];
+      };
+      /** "Not today." Sets `skipped`, never `completed`. */
+      skip_daily_plan_item: {
+        Args: { p_item_id: string };
+        Returns: string;
+      };
+      start_practice_session: {
+        Args: {
+          p_concept_code: string;
+          p_plan_item_id: string | null;
+          p_limit: number;
+        };
+        Returns: string;
+      };
+      get_practice_session: {
+        Args: { p_session_id: string };
+        Returns: {
+          question_id: number;
+          item_position: number;
+          prompt: string;
+          options: string[];
+          item_difficulty: number;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          answered_at: string | null;
+        }[];
+      };
+      answer_practice_question: {
+        Args: {
+          p_session_id: string;
+          p_question_id: number;
+          p_selected_idx: number;
+          p_response_ms: number | null;
+        };
+        Returns: {
+          is_answer_correct: boolean;
+          answer_key_idx: number;
+          already_answered: boolean;
+        }[];
+      };
+      /** service_role only — EXECUTE is revoked from anon/authenticated. */
+      finalize_practice_session: {
+        Args: {
+          p_session_id: string;
+          p_user_id: string;
+          p_evidence: Json;
+        };
+        Returns: {
+          correct_count: number;
+          total_count: number;
+          already_finalized: boolean;
         }[];
       };
     };

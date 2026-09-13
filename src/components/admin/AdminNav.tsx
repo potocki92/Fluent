@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/admin/words", label: "Słownik" },
   { href: "/admin/suggestions", label: "Zgłoszenia" },
   { href: "/admin/learning", label: "Model wiedzy" },
+  { href: "/admin/planner", label: "Planner" },
 ];
 
 /** Detect the active section. `/admin` matches only itself (not sub-routes). */

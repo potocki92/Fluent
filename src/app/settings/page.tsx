@@ -5,6 +5,8 @@ import { useProfile } from "@/hooks/useProfile";
 import { CalibrationControls } from "@/components/level/CalibrationControls";
 import { LevelRing } from "@/components/level/LevelRing";
 import { WordGoalControl } from "@/components/flashcard/WordGoalControl";
+import { LearningTimeControl } from "@/components/today/LearningTimeControl";
+import { TimezoneControl } from "@/components/today/TimezoneControl";
 import { Card } from "@/components/ui/card";
 
 export default function SettingsPage() {
@@ -32,6 +34,8 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <LearningTimeControl />
+      <TimezoneControl />
       <WordGoalControl />
       <CalibrationControls />
     </div>
