@@ -27,17 +27,20 @@ export function CalibrationControls({ className }: { className?: string }) {
     setSelected(level);
     setMessage(null);
     startTransition(async () => {
-      try {
-        const next = await calibrateLevel(level);
-        setAbility(next);
-        setMessage(
-          "Poziom startowy zaktualizowany. Kolejne testy doprecyzują wynik.",
-        );
-      } catch {
-        setMessage(
-          "Nie udało się zapisać kalibracji. Zaloguj się i spróbuj ponownie.",
-        );
+      const next = await calibrateLevel(level);
+      if (!next.ok) {
+        setMessage(next.message);
+        return;
       }
+      setAbility({
+        ability: next.ability,
+        rd: next.rd,
+        answered: next.answered,
+        cefrEstimate: next.cefrEstimate,
+      });
+      setMessage(
+        "Poziom startowy zaktualizowany. Kolejne testy doprecyzują wynik.",
+      );
     });
   }
 

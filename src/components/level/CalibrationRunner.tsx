@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
-import { gradeCalibrationAnswer } from "@/actions/grade-calibration";
-import { finishCalibration } from "@/actions/finish-calibration";
+import { startCalibrationSession } from "@/actions/start-calibration-session";
+import { answerCalibrationQuestion } from "@/actions/answer-calibration-question";
+import { finalizeCalibrationSession } from "@/actions/finalize-calibration-session";
 import { useCalibrationQuestions } from "@/hooks/useCalibrationQuestions";
 import { useAbility } from "@/hooks/useAbility";
 import { updateAbility, type AbilityRating } from "@/lib/elo";
 import {
-  finalizeRating,
   INITIAL_RATING,
   MAX_ITEMS,
   pickNextQuestion,
@@ -23,28 +23,43 @@ import { QuestionCard } from "@/components/texts/QuestionCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { AbilityState, CalibrationQuestion } from "@/types";
-import type { GradeCalibrationResult } from "@/actions/grade-calibration";
 
 const REVEAL_MS = 1200;
 
+interface ItemFeedback {
+  isCorrect: boolean;
+  correctIdx: number;
+}
+
 /**
- * Adaptive German placement test. Items are picked near the running ability
- * estimate, each answer is folded in with the shared Elo update, and the test
- * stops once the estimate settles. The final level is written to the profile.
+ * Adaptive German placement test.
+ *
+ * The browser still chooses which item to ask next — that is a UX decision, not
+ * a security one, since picking an easy item only makes the estimate worse for
+ * the learner. The running `rating` below exists purely to drive that choice and
+ * the progress the learner sees.
+ *
+ * What it is NOT is the result. Every answer is committed to a server-side
+ * placement session, and `finalizeCalibrationSession` replays those stored
+ * answers through the same Elo update to produce the level that is written to
+ * the profile. The client sends a session id and nothing else, so the previous
+ * "post me your ability and rd" hole is closed while the on-screen experience is
+ * unchanged.
  */
 export function CalibrationRunner() {
   const { data: pool, isLoading } = useCalibrationQuestions();
   const setAbility = useAbility((s) => s.setAbility);
 
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [rating, setRating] = useState<AbilityRating>(INITIAL_RATING);
   const [asked, setAsked] = useState<number[]>([]);
   const [deltas, setDeltas] = useState<number[]>([]);
   const [current, setCurrent] = useState<CalibrationQuestion | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  const [result, setResult] = useState<GradeCalibrationResult | null>(null);
+  const [feedback, setFeedback] = useState<ItemFeedback | null>(null);
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState<AbilityState | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Shuffle the current item's options so the correct answer is not always under
   // the same letter. Re-shuffled whenever a new item is shown. `order[displayed]`
@@ -54,68 +69,95 @@ export function CalibrationRunner() {
     [current],
   );
 
-  // Seed the first question once the pool has loaded.
-  const started = useRef(false);
+  const questionShownAt = useRef<number>(0);
+  const startedRef = useRef(false);
+
+  // Open the session and seed the first item once the pool has loaded.
   useEffect(() => {
-    if (started.current || !pool || pool.length === 0) return;
-    started.current = true;
-    setCurrent(pickNextQuestion(pool, INITIAL_RATING.ability, new Set()));
+    if (startedRef.current || !pool || pool.length === 0) return;
+    startedRef.current = true;
+
+    void (async () => {
+      const started = await startCalibrationSession();
+      if (!started.ok) {
+        setError(started.message);
+        return;
+      }
+      setSessionId(started.sessionId);
+      setCurrent(pickNextQuestion(pool, INITIAL_RATING.ability, new Set()));
+      questionShownAt.current = Date.now();
+    })();
   }, [pool]);
 
-  async function choose(idx: number) {
-    if (!pool || !current || !view || pending || result) return;
-    setSelected(idx);
+  const finish = useCallback(
+    async (session: string) => {
+      const result = await finalizeCalibrationSession(session);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      // Drop the action-result envelope; only the ability snapshot belongs in
+      // the store.
+      const snapshot: AbilityState = {
+        ability: result.ability,
+        rd: result.rd,
+        answered: result.answered,
+        cefrEstimate: result.cefrEstimate,
+      };
+      setAbility(snapshot);
+      setDone(snapshot);
+    },
+    [setAbility],
+  );
+
+  async function choose(displayedIdx: number) {
+    if (!pool || !current || !view || !sessionId || pending || feedback) return;
+    setSelected(displayedIdx);
     setPending(true);
-    // `idx` is the displayed position; grade against the stored option order.
-    const originalIdx = view.order[idx];
-    try {
-      const res = await gradeCalibrationAnswer({
-        questionId: current.id,
-        selectedIdx: originalIdx,
-      });
-      setResult(res);
 
-      const nextRating = updateAbility(rating, res.difficulty, res.isCorrect, {
-        answered: asked.length,
-      });
-      const nextAsked = [...asked, current.id];
-      const nextDeltas = [...deltas, nextRating.ability - rating.ability];
+    const answered = await answerCalibrationQuestion({
+      sessionId,
+      questionId: current.id,
+      selectedIdx: view.order[displayedIdx],
+      responseMs: Date.now() - questionShownAt.current,
+    });
 
-      const askedSet = new Set(nextAsked);
-      const upcoming = pickNextQuestion(pool, nextRating.ability, askedSet);
-      const finished = shouldStop(nextAsked.length, nextDeltas) || !upcoming;
-
-      window.setTimeout(async () => {
-        setRating(nextRating);
-        setAsked(nextAsked);
-        setDeltas(nextDeltas);
-
-        if (finished) {
-          try {
-            const final = finalizeRating(nextRating);
-            const snapshot = await finishCalibration({
-              ability: final.ability,
-              rd: final.rd,
-              items: nextAsked.length,
-            });
-            setAbility(snapshot);
-            setDone(snapshot);
-          } catch {
-            setError(true);
-          }
-          return;
-        }
-
-        setCurrent(upcoming);
-        setSelected(null);
-        setResult(null);
-        setPending(false);
-      }, REVEAL_MS);
-    } catch {
-      setError(true);
+    if (!answered.ok) {
+      setError(answered.message);
       setPending(false);
       setSelected(null);
+      return;
     }
+
+    setFeedback({ isCorrect: answered.isCorrect, correctIdx: answered.correctIdx });
+
+    // Advance the on-screen estimate. This mirrors the replay the server will
+    // run over the same stored answers, so the learner sees the level they
+    // watched being built.
+    const nextRating = updateAbility(rating, answered.difficulty, answered.isCorrect, {
+      answered: asked.length,
+    });
+    const nextAsked = [...asked, current.id];
+    const nextDeltas = [...deltas, nextRating.ability - rating.ability];
+    const upcoming = pickNextQuestion(pool, nextRating.ability, new Set(nextAsked));
+    const finished = shouldStop(nextAsked.length, nextDeltas) || !upcoming;
+
+    window.setTimeout(() => {
+      setRating(nextRating);
+      setAsked(nextAsked);
+      setDeltas(nextDeltas);
+
+      if (finished) {
+        void finish(sessionId);
+        return;
+      }
+
+      setCurrent(upcoming);
+      setSelected(null);
+      setFeedback(null);
+      setPending(false);
+      questionShownAt.current = Date.now();
+    }, REVEAL_MS);
   }
 
   if (isLoading) {
@@ -137,9 +179,7 @@ export function CalibrationRunner() {
   if (error) {
     return (
       <Card className="items-center gap-3 bg-[#2d3748] p-5 text-center">
-        <p className="text-sm text-red">
-          Coś poszło nie tak. Zaloguj się i spróbuj ponownie.
-        </p>
+        <p className="text-sm text-red">{error}</p>
         <Button asChild variant="ghost">
           <Link href="/learn">Wróć do nauki</Link>
         </Button>
@@ -172,7 +212,13 @@ export function CalibrationRunner() {
     );
   }
 
-  if (!current) return null;
+  if (!current) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted2">
+        <Loader2 className="size-4 animate-spin" /> Przygotowujemy test…
+      </p>
+    );
+  }
 
   const step = asked.length + 1;
 
@@ -200,11 +246,11 @@ export function CalibrationRunner() {
         options={view?.items ?? current.options}
         selected={selected}
         result={
-          result && view
+          feedback && view
             ? {
-                isCorrect: result.isCorrect,
+                isCorrect: feedback.isCorrect,
                 // Map the stored correct index to its displayed position.
-                correctIdx: view.order.indexOf(result.correctIdx),
+                correctIdx: view.order.indexOf(feedback.correctIdx),
               }
             : null
         }

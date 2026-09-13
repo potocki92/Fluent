@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { isTextTooHard } from "@/lib/cefr";
-import type { Question, Text } from "@/types";
+import type { Text } from "@/types";
 
 /** Fetch the list of reading passages, ordered by difficulty. */
 export function useTexts() {
@@ -38,29 +38,6 @@ export function useText(textId: number) {
 
       if (error) throw error;
       return data;
-    },
-    enabled: Number.isFinite(textId),
-  });
-}
-
-/**
- * Fetch the comprehension questions for a text from the answer-free
- * `questions_public` view. `correct_idx` is not exposed there at all — grading
- * goes through the `submit-answer` / `complete-test` Server Actions.
- */
-export function useQuestions(textId: number) {
-  return useQuery({
-    queryKey: ["questions", textId],
-    queryFn: async (): Promise<Question[]> => {
-      const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from("questions_public")
-        .select("id, text_id, prompt, options, difficulty")
-        .eq("text_id", textId)
-        .order("id", { ascending: true });
-
-      if (error) throw error;
-      return (data ?? []) as unknown as Question[];
     },
     enabled: Number.isFinite(textId),
   });

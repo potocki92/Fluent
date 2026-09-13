@@ -17,7 +17,9 @@ export function useCompletedTexts(): UseQueryResult<TextCompletion[]> {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from("text_completions")
-        .select("user_id, text_id, passed, correct, total, completed_at")
+        .select(
+          "user_id, text_id, passed, correct, total, completed_at, test_session_id",
+        )
         .order("completed_at", { ascending: false });
 
       if (error) throw error;
