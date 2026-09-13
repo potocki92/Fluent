@@ -28,7 +28,11 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `test_sessions` · `test_session_items` | One graded reading test. The server snapshots which questions it is scored on; each item holds exactly one answer. See [Test session lifecycle](#test-session-lifecycle). |
 | `calibration_sessions` · `calibration_session_items` | The same for the adaptive placement test, so its result can be replayed server-side. |
 | `text_completions` | Per-learner, per-text result (latest wins) — drives the "read & passed" section. |
-| `saved_words` | Bookmarked vocabulary with SM-2 SRS state (`interval`, `repetitions`, `ease_factor`, `due_at`, `is_mastered`). |
+| `saved_words` | Bookmarked vocabulary with SM-2 SRS state (`interval`, `repetitions`, `ease_factor`, `due_at`, `is_mastered`). **Scheduling only** — what the learner knows lives in `user_word_knowledge`. |
+| `skills` · `concepts` | Reference catalogs: the eight skill dimensions and the ~30 weakness concepts (`preposition_case`, `article_gender`, …), each with a Polish label. Public-read, admin-write. |
+| `learning_events` | Append-only evidence log — one row per learning interaction (test answer, placement answer, review), never rewritten. See [Learning engine](#learning-engine). |
+| `review_events` | Full spaced-repetition history: rating, mode, direction, and the SM-2 state **before and after** each graded card. |
+| `user_skill_state` · `user_concept_state` · `user_word_knowledge` | Aggregated knowledge: an estimate plus, separately, how much evidence stands behind it. Derived from the event log; the app reads these, never the log. |
 
 All tables have Row Level Security enabled. `words`/`texts` are public-read;
 `questions`/`calibration_questions` are admin-only (learners read the answer-free
@@ -183,6 +187,47 @@ for a level you proved.
 Design rationale and the alternatives considered are in
 [`docs/architecture/test-sessions.md`](./docs/architecture/test-sessions.md).
 
+## Learning engine
+
+An Elo rating says *how well* a learner is doing. It cannot say **what they
+know** — whether they recognise a word but could never produce it, whether they
+keep losing Dativ after prepositions, or how long ago any of it was last true.
+The learning engine records that, in two layers kept strictly apart:
+
+- **Evidence** (`learning_events`, `review_events`) — append-only, one row per
+  interaction, never rewritten. This is what a better memory model can be fitted
+  to later; if all we stored was `interval = 21`, that decision would be blind.
+- **Knowledge** (`user_skill_state`, `user_concept_state`,
+  `user_word_knowledge`) — a small aggregate the app can read on every render
+  without touching a history that grows without bound.
+
+Four things it deliberately refuses to do:
+
+1. **Claim knowledge it has no evidence for.** Eight skills are catalogued;
+   exactly three are measured today (reading comprehension, receptive vocabulary,
+   grammar). Speaking is `unknown`, not a level inferred from reading.
+2. **Turn recognition into production.** Recognising *Schwert* on a flashcard —
+   however confidently graded — feeds only the **receptive** channel. The
+   **active** channel stays untouched until an exercise actually asks the learner
+   to produce the word. (None does yet, so active vocabulary reads as unknown.)
+3. **Invent a weakness.** A wrong answer counts against the concepts its item is
+   *tagged* with, and nothing else. And one mistake is never a weakness: a
+   concept needs repeated, well-evidenced failures before it can be ranked.
+4. **Let one answer look like proof.** Each state carries a `score` *and* a
+   separate `confidence`; below a floor the model reports "za mało danych"
+   instead of a level. The scores are an internal heuristic (`knowledge_v1`) and
+   are **not** CEFR — the Elo rating remains the only thing that claims a level.
+
+Evidence can only be created by the engine: no learner-writable path exists to
+any of these tables, `apply_review` is service-role only, and
+`apply_learning_evidence` is revoked from every role. One interaction is one
+transaction, and one deterministic `event_key` per interaction means a double tap
+or a retried request settles the same review rather than a second one.
+
+Full rationale — the V1 algorithm, the evidence weights, the receptive/active
+split, idempotency, and what could and could not be backfilled — is in
+[`docs/architecture/learning-engine.md`](./docs/architecture/learning-engine.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -227,8 +272,17 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
 - **`src/lib/errors.ts`** — the error taxonomy for those flows. Expected failures are
   returned, not thrown (Next redacts thrown Server Action errors in production);
   technical detail is logged server-side and the learner sees one Polish sentence.
-- **`src/actions/update-srs.ts`** — applies an SM-2 review to a saved word and persists
-  the new schedule.
+- **`src/actions/update-srs.ts`** — grades one review card. A single atomic call
+  writes the `review_events` row (SM-2 state before → after), moves the schedule,
+  advances the daily counter and records the learning evidence; an
+  `interactionId` minted per card makes a double tap settle the same review.
+- **`src/lib/learning/`** — the knowledge domain, all pure and unit-tested:
+  `skills.ts` / `concepts.ts` (the catalogs), `evidence.ts` (what each interaction
+  proves, and what it is worth), `knowledge-model.ts` (the V1 score/confidence
+  algorithm), `aggregate.ts` (folding evidence into state), `queries.ts` (the
+  read layer — `getUserSkillProfile`, `getUserWeakestConcepts`,
+  `getUserWordKnowledge`). The arithmetic never touches Supabase; the database
+  owns transactions, `src/lib/` owns the maths.
 - Server data is fetched through TanStack Query hooks in `src/hooks/`; client-only
   ability state lives in the Zustand store `useAbility`.
 
