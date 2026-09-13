@@ -8,7 +8,7 @@
  * duplicated.
  */
 
-import { RD_MIN } from "@/lib/elo";
+import { RD_MIN, updateAbility } from "@/lib/elo";
 import type { AbilityRating } from "@/lib/elo";
 import type { CalibrationQuestion } from "@/types";
 
@@ -80,4 +80,40 @@ export function finalizeRating(rating: AbilityRating): AbilityRating {
     ability: Math.round(rating.ability),
     rd: Math.max(RD_MIN, Math.min(rating.rd, FINAL_RD)),
   };
+}
+
+/** One stored answer of a placement session, as recorded server-side. */
+export interface CalibrationAnswer {
+  itemDifficulty: number;
+  isCorrect: boolean;
+}
+
+/**
+ * Recompute a placement result from the answers the learner actually gave.
+ *
+ * This is what makes the adaptive test trustworthy. The browser still drives
+ * item *selection* (which is not security-sensitive — picking an easy item only
+ * makes the estimate worse for the learner), but the resulting rating is never
+ * taken from the browser: the server replays every stored answer through the
+ * same {@link updateAbility} the client used, in the order they were given, and
+ * writes the result of that replay.
+ *
+ * Because both sides run identical arithmetic over identical inputs, the replay
+ * reproduces the estimate the learner watched being built — while a forged
+ * "my ability is 2000" has nowhere to enter.
+ *
+ * @param answers stored answers, ordered by `item_position`
+ */
+export function replayCalibration(
+  answers: readonly CalibrationAnswer[],
+): AbilityRating {
+  let rating = INITIAL_RATING;
+  answers.forEach((answer, index) => {
+    // `answered` is the count BEFORE this answer, matching how the running
+    // estimate was built item by item.
+    rating = updateAbility(rating, answer.itemDifficulty, answer.isCorrect, {
+      answered: index,
+    });
+  });
+  return finalizeRating(rating);
 }
