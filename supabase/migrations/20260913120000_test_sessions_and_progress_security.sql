@@ -991,6 +991,14 @@ $$;
 -- The stored answers of a placement session, in the order they were given —
 -- everything the server needs to REPLAY the adaptive rating from scratch instead
 -- of believing a number the browser computed.
+-- Dropped first so this migration stays re-runnable. A later migration widens
+-- this function's RETURNS TABLE with the answer timestamps the learning engine
+-- needs; re-running the whole history (or `schema.sql`, which concatenates it)
+-- would then ask `create or replace` to narrow the return type again, which
+-- Postgres refuses. Dropping by argument signature removes whichever version is
+-- present, and the later migration puts its own back.
+drop function if exists public.get_calibration_session_answers(uuid);
+
 create or replace function public.get_calibration_session_answers(p_session_id uuid)
 returns table (
   question_id     bigint,

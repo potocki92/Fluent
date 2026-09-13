@@ -132,6 +132,10 @@ export type Database = {
           options: string[];
           correct_idx: number;
           difficulty: number;
+          /** Which skill the item exercises. Defaults to reading comprehension. */
+          skill_code: string;
+          /** Set only when the item was written to test one dictionary word. */
+          tested_word_id: number | null;
           created_at: string;
         };
         Insert: {
@@ -141,6 +145,8 @@ export type Database = {
           options: string[];
           correct_idx: number;
           difficulty?: number;
+          skill_code?: string;
+          tested_word_id?: number | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["questions"]["Insert"]>;
@@ -162,6 +168,9 @@ export type Database = {
           difficulty: number;
           cefr: "A1" | "A2" | "B1" | "B2";
           skill: "vocab" | "grammar" | null;
+          /** Learning-engine skill code, backfilled from the coarse `skill`. */
+          skill_code: string | null;
+          tested_word_id: number | null;
           created_at: string;
         };
         Insert: {
@@ -172,6 +181,8 @@ export type Database = {
           difficulty: number;
           cefr: "A1" | "A2" | "B1" | "B2";
           skill?: "vocab" | "grammar" | null;
+          skill_code?: string | null;
+          tested_word_id?: number | null;
           created_at?: string;
         };
         Update: Partial<
@@ -482,6 +493,384 @@ export type Database = {
           },
         ];
       };
+      // ─── Learning engine ───────────────────────────────────────────────
+      skills: {
+        Row: {
+          code: string;
+          label_pl: string;
+          description: string;
+          is_assessed: boolean;
+          sort_order: number;
+        };
+        Insert: {
+          code: string;
+          label_pl: string;
+          description: string;
+          is_assessed?: boolean;
+          sort_order?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["skills"]["Insert"]>;
+        Relationships: [];
+      };
+      concepts: {
+        Row: {
+          code: string;
+          skill_code: string;
+          category: "grammar" | "vocabulary" | "reading" | "listening";
+          label_pl: string;
+          description: string;
+          sort_order: number;
+        };
+        Insert: {
+          code: string;
+          skill_code: string;
+          category: "grammar" | "vocabulary" | "reading" | "listening";
+          label_pl: string;
+          description: string;
+          sort_order?: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["concepts"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "concepts_skill_code_fkey";
+            columns: ["skill_code"];
+            referencedRelation: "skills";
+            referencedColumns: ["code"];
+          },
+        ];
+      };
+      question_concepts: {
+        Row: { question_id: number; concept_code: string };
+        Insert: { question_id: number; concept_code: string };
+        Update: Partial<
+          Database["public"]["Tables"]["question_concepts"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "question_concepts_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calibration_question_concepts: {
+        Row: { question_id: number; concept_code: string };
+        Insert: { question_id: number; concept_code: string };
+        Update: Partial<
+          Database["public"]["Tables"]["calibration_question_concepts"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "calibration_question_concepts_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "calibration_questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * Append-only evidence log. There is no RLS write policy: rows are
+       * created only by the SECURITY DEFINER functions, so `Insert`/`Update`
+       * exist here only to keep the generated shape complete.
+       */
+      learning_events: {
+        Row: {
+          id: number;
+          user_id: string;
+          event_key: string;
+          event_type: string;
+          occurred_at: string;
+          skill_code: string | null;
+          response_mode: string;
+          retrieval_type: string;
+          is_correct: boolean | null;
+          response_ms: number | null;
+          hints_used: number;
+          source_kind: string;
+          origin: "native" | "legacy_backfill" | "import";
+          text_id: number | null;
+          question_id: number | null;
+          calibration_question_id: number | null;
+          word_id: number | null;
+          test_session_id: string | null;
+          calibration_session_id: string | null;
+          review_event_id: number | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: number;
+          user_id: string;
+          event_key: string;
+          event_type: string;
+          occurred_at?: string;
+          skill_code?: string | null;
+          response_mode: string;
+          retrieval_type: string;
+          is_correct?: boolean | null;
+          response_ms?: number | null;
+          hints_used?: number;
+          source_kind: string;
+          origin?: "native" | "legacy_backfill" | "import";
+          text_id?: number | null;
+          question_id?: number | null;
+          calibration_question_id?: number | null;
+          word_id?: number | null;
+          test_session_id?: string | null;
+          calibration_session_id?: string | null;
+          review_event_id?: number | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["learning_events"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "learning_events_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      learning_event_concepts: {
+        Row: { event_id: number; concept_code: string };
+        Insert: { event_id: number; concept_code: string };
+        Update: Partial<
+          Database["public"]["Tables"]["learning_event_concepts"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "learning_event_concepts_event_id_fkey";
+            columns: ["event_id"];
+            referencedRelation: "learning_events";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** Full spaced-repetition history: one row per graded card, before→after. */
+      review_events: {
+        Row: {
+          id: number;
+          user_id: string;
+          word_id: number;
+          reviewed_at: string;
+          interaction_id: string;
+          rating: "again" | "hard" | "good" | "easy";
+          mode: "flashcard" | "quiz" | "typed_recall" | "listening";
+          direction: "de_to_pl" | "pl_to_de";
+          repetitions_before: number | null;
+          interval_before: number | null;
+          ease_before: number | null;
+          due_before: string | null;
+          repetitions_after: number;
+          interval_after: number;
+          ease_after: number;
+          due_after: string;
+          response_ms: number | null;
+          source_kind: string;
+          origin: "native" | "legacy_backfill" | "import";
+        };
+        Insert: {
+          id?: number;
+          user_id: string;
+          word_id: number;
+          reviewed_at?: string;
+          interaction_id: string;
+          rating: "again" | "hard" | "good" | "easy";
+          mode: "flashcard" | "quiz" | "typed_recall" | "listening";
+          direction: "de_to_pl" | "pl_to_de";
+          repetitions_before?: number | null;
+          interval_before?: number | null;
+          ease_before?: number | null;
+          due_before?: string | null;
+          repetitions_after: number;
+          interval_after: number;
+          ease_after: number;
+          due_after: string;
+          response_ms?: number | null;
+          source_kind?: string;
+          origin?: "native" | "legacy_backfill" | "import";
+        };
+        Update: Partial<Database["public"]["Tables"]["review_events"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "review_events_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_skill_state: {
+        Row: {
+          user_id: string;
+          skill_code: string;
+          /** 0–1 heuristic estimate — NOT a CEFR level. Null means no evidence. */
+          score: number | null;
+          confidence: number;
+          evidence_weight: number;
+          success_weight: number;
+          evidence_count: number;
+          successful_evidence: number;
+          failed_evidence: number;
+          source_kinds: string[];
+          first_evidence_at: string | null;
+          last_evidence_at: string | null;
+          model_version: string;
+          /** Optimistic-concurrency token; see `apply_learning_evidence`. */
+          version: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          skill_code: string;
+          score?: number | null;
+          confidence?: number;
+          evidence_weight?: number;
+          success_weight?: number;
+          evidence_count?: number;
+          successful_evidence?: number;
+          failed_evidence?: number;
+          source_kinds?: string[];
+          first_evidence_at?: string | null;
+          last_evidence_at?: string | null;
+          model_version?: string;
+          version?: number;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_skill_state"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "user_skill_state_skill_code_fkey";
+            columns: ["skill_code"];
+            referencedRelation: "skills";
+            referencedColumns: ["code"];
+          },
+        ];
+      };
+      user_concept_state: {
+        Row: {
+          user_id: string;
+          concept_code: string;
+          score: number | null;
+          confidence: number;
+          evidence_weight: number;
+          success_weight: number;
+          evidence_count: number;
+          successful_evidence: number;
+          failed_evidence: number;
+          source_kinds: string[];
+          first_evidence_at: string | null;
+          last_evidence_at: string | null;
+          last_success_at: string | null;
+          last_failure_at: string | null;
+          model_version: string;
+          version: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          concept_code: string;
+          score?: number | null;
+          confidence?: number;
+          evidence_weight?: number;
+          success_weight?: number;
+          evidence_count?: number;
+          successful_evidence?: number;
+          failed_evidence?: number;
+          source_kinds?: string[];
+          first_evidence_at?: string | null;
+          last_evidence_at?: string | null;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          model_version?: string;
+          version?: number;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["user_concept_state"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "user_concept_state_concept_code_fkey";
+            columns: ["concept_code"];
+            referencedRelation: "concepts";
+            referencedColumns: ["code"];
+          },
+        ];
+      };
+      /**
+       * Knowledge of a word — separate from `saved_words`, which only schedules
+       * it. The two channels never feed each other.
+       */
+      user_word_knowledge: {
+        Row: {
+          user_id: string;
+          word_id: number;
+          first_seen_at: string | null;
+          last_seen_at: string | null;
+          last_success_at: string | null;
+          last_failure_at: string | null;
+          exposure_count: number;
+          successful_retrievals: number;
+          failed_retrievals: number;
+          receptive_score: number | null;
+          receptive_confidence: number;
+          receptive_evidence_weight: number;
+          receptive_success_weight: number;
+          receptive_evidence_count: number;
+          receptive_last_at: string | null;
+          active_score: number | null;
+          active_confidence: number;
+          active_evidence_weight: number;
+          active_success_weight: number;
+          active_evidence_count: number;
+          active_last_at: string | null;
+          source_kinds: string[];
+          model_version: string;
+          version: number;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          word_id: number;
+          first_seen_at?: string | null;
+          last_seen_at?: string | null;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          exposure_count?: number;
+          successful_retrievals?: number;
+          failed_retrievals?: number;
+          receptive_score?: number | null;
+          receptive_confidence?: number;
+          receptive_evidence_weight?: number;
+          receptive_success_weight?: number;
+          receptive_evidence_count?: number;
+          receptive_last_at?: string | null;
+          active_score?: number | null;
+          active_confidence?: number;
+          active_evidence_weight?: number;
+          active_success_weight?: number;
+          active_evidence_count?: number;
+          active_last_at?: string | null;
+          source_kinds?: string[];
+          model_version?: string;
+          version?: number;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["user_word_knowledge"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "user_word_knowledge_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       questions_public: {
@@ -492,6 +881,10 @@ export type Database = {
           options: string[];
           difficulty: number;
           created_at: string;
+          skill_code: string;
+          tested_word_id: number | null;
+          /** Concept codes this item exercises; empty when untagged. */
+          concepts: string[];
         };
         Relationships: [
           {
@@ -511,6 +904,9 @@ export type Database = {
           cefr: "A1" | "A2" | "B1" | "B2";
           skill: "vocab" | "grammar" | null;
           created_at: string;
+          skill_code: string | null;
+          tested_word_id: number | null;
+          concepts: string[];
         };
         Relationships: [];
       };
@@ -570,6 +966,8 @@ export type Database = {
           p_cefr_estimate: string;
           p_promotion_streak: number;
           p_passed: boolean;
+          /** Learning evidence applied in the same transaction. */
+          p_evidence: Json;
         };
         Returns: {
           correct_count: number;
@@ -607,6 +1005,8 @@ export type Database = {
           item_position: number;
           item_difficulty: number;
           is_correct: boolean;
+          response_ms: number | null;
+          answered_at: string;
         }[];
       };
       /** service_role only — EXECUTE is revoked from anon/authenticated. */
@@ -617,6 +1017,7 @@ export type Database = {
           p_ability: number;
           p_rd: number;
           p_cefr_estimate: string;
+          p_evidence: Json;
         };
         Returns: {
           ability_value: number;
@@ -625,6 +1026,34 @@ export type Database = {
           cefr_value: string | null;
           item_count: number;
           already_finalized: boolean;
+        }[];
+      };
+      /**
+       * One review interaction, applied atomically: review event, SM-2 schedule,
+       * daily counter and learning evidence. service_role only — it takes a user
+       * id, so a role a browser can hold must never reach it.
+       */
+      apply_review: {
+        Args: {
+          p_user_id: string;
+          p_interaction_id: string;
+          p_word_id: number;
+          p_rating: "again" | "hard" | "good" | "easy";
+          p_mode: "flashcard" | "quiz" | "typed_recall" | "listening";
+          p_direction: "de_to_pl" | "pl_to_de";
+          p_response_ms: number | null;
+          p_srs: Json;
+          p_evidence: Json;
+        };
+        Returns: {
+          review_event_id: number;
+          due_at: string;
+          is_mastered: boolean;
+          interval_days: number;
+          repetitions: number;
+          ease_factor: number;
+          reviewed_today: number;
+          already_applied: boolean;
         }[];
       };
     };

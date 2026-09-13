@@ -59,20 +59,18 @@ export type QuestionWithAnswer = Tables["questions"]["Row"] & {
 };
 
 /**
- * A standalone placement-test item as sent to the client. `correct_idx` is
- * omitted: it is revealed only by `answer_calibration_question`, for an item in
- * the caller's own placement session, once their answer to it is committed.
+ * A standalone placement-test item as sent to the client — the row of the
+ * answer-free `calibration_questions_public` view, so `correct_idx` is not
+ * merely omitted here, it is absent from the read surface. The key is revealed
+ * only by `answer_calibration_question`, for an item in the caller's own
+ * placement session, once their answer to it is committed.
  *
  * Reading-test questions have no equivalent type here — they reach the client
  * only as part of a session, typed by `TestSessionQuestion` in
  * `@/actions/start-test-session`.
  */
-export type CalibrationQuestion = Omit<
-  Tables["calibration_questions"]["Row"],
-  "correct_idx"
-> & {
-  options: string[];
-};
+export type CalibrationQuestion =
+  Database["public"]["Views"]["calibration_questions_public"]["Row"];
 
 /** A learner profile holding the Elo ability estimate. */
 export type Profile = Tables["profiles"]["Row"];

@@ -40,6 +40,8 @@ Respect the existing `src/`-rooted structure:
   the placement lifecycle (`start-`/`answer-`/`finalize-calibration-*.ts`),
   `save-word.ts`, `update-srs.ts`.
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
+  `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
+  `knowledge-model.ts`, `aggregate.ts`, `queries.ts` — all pure, no Supabase),
   `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
   Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
@@ -48,7 +50,8 @@ Respect the existing `src/`-rooted structure:
   lives in `supabase/migrations/`; the two are kept identical by
   `node supabase/sync-schema.mjs`. Database security tests: `supabase/tests/`.
 - `docs/architecture/` — ADRs. Read `test-sessions.md` before touching the test,
-  calibration or progress-write paths.
+  calibration or progress-write paths, and `learning-engine.md` before touching
+  learning events, review history or any knowledge/skill/concept state.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
 
 Do NOT move the project to root-level folders or out of `src/`. There is no `features/`, `store/`, or `data/` directory — do not assume them.
@@ -85,10 +88,18 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
 - Session refresh: `updateSession` in `src/lib/supabase/middleware.ts`, wired through `src/proxy.ts`.
 - Read paths: TanStack Query hooks call the browser client directly.
 - Write paths: server actions (`src/actions/*`) use the server client — typically auth check (`supabase.auth.getUser()`), load, domain logic from `src/lib/`, persist (`insert`/`update`/`delete`/`rpc`), return a typed result.
-- **Progress is server-owned.** `attempts`, `text_completions`, the session tables and
-  the progress columns of `profiles` have no client write path, by design. Do not add
-  one. New progress writes belong inside the existing SECURITY DEFINER functions, or a
-  new one that derives its user from `auth.uid()` and has `EXECUTE` granted narrowly.
+- **Progress is server-owned.** `attempts`, `text_completions`, the session tables,
+  the learning-engine tables (`learning_events`, `review_events`, `user_*_state`,
+  `user_word_knowledge`) and the progress columns of `profiles` have no client write
+  path, by design. Do not add one. New progress writes belong inside the existing
+  SECURITY DEFINER functions, or a new one that derives its user from `auth.uid()`
+  and has `EXECUTE` granted narrowly.
+- **Knowledge is evidence-backed.** A skill, concept or word state is only ever
+  written as the result of a real answer, through `apply_learning_evidence`. Never
+  infer one dimension from another (reading does not imply speaking), never
+  attribute a wrong answer to a concept the item is not tagged with, and never let
+  a recognition exercise feed active vocabulary. When there is no evidence, the
+  answer is "unknown" — not a default score.
 - `src/lib/supabase/service.ts` (service role) bypasses RLS entirely. Import it only
   from `"use server"` modules, only for the finalize RPCs, and only after the acting
   user has been established from the cookie-bound client.

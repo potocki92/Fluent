@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Lightbulb } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { MnemonicDialog } from "@/components/words/MnemonicDialog";
@@ -70,22 +71,50 @@ export function ReviewSession({
   const [exitDir, setExitDir] = useState(1);
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // True once the "ucz się dalej" extras have been folded into the deck.
   const [extended, setExtended] = useState(false);
+  // One idempotency token per card presentation, plus when it appeared. The
+  // token is what stops a double tap from advancing the schedule twice; the
+  // timestamp is analytics only and is never allowed to affect the grade. Both
+  // are seeded in an effect rather than in render, which must stay pure.
+  const interactionId = useRef("");
+  const shownAt = useRef(0);
 
   const current = deck[index];
   const finished = index >= deck.length;
+
+  useEffect(() => {
+    interactionId.current = newInteractionId();
+    shownAt.current = Date.now();
+  }, [index]);
 
   const rate = useCallback(
     async (grade: ReviewGrade) => {
       if (!current || busy) return;
       setBusy(true);
       setExitDir(grade === "again" ? -1 : 1);
+      setError(null);
       try {
-        const { isMastered } = await updateSrs(current.word_id, grade);
+        const result = await updateSrs({
+          wordId: current.word_id,
+          grade,
+          // Stable for as long as this card is on screen, so a double tap or a
+          // retried request settles the same review instead of a second one.
+          interactionId: ensureInteractionId(interactionId),
+          mode: "flashcard",
+          // The learner reads the German and recalls the Polish: recognition,
+          // and therefore receptive evidence only.
+          direction: "de_to_pl",
+          responseMs: Date.now() - shownAt.current,
+        });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
         setResults((r) => [
           ...r,
-          { wordId: current.word_id, grade, mastered: isMastered },
+          { wordId: current.word_id, grade, mastered: result.isMastered },
         ]);
         // The action bumped today's review count and the vocabulary streak in
         // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
@@ -97,6 +126,7 @@ export function ReviewSession({
         setIndex((i) => i + 1);
       } catch (err) {
         console.error("Failed to update SRS:", err);
+        setError("Coś poszło nie tak. Spróbuj ponownie za chwilę.");
       } finally {
         setBusy(false);
       }
@@ -293,6 +323,11 @@ export function ReviewSession({
               </button>
             ))}
           </div>
+          {error && (
+            <p role="alert" className="text-center text-xs text-red">
+              {error}
+            </p>
+          )}
           <p className="hidden text-center text-xs text-muted2 sm:block">
             Spacja — odwróć · 1–4 — oceń
           </p>

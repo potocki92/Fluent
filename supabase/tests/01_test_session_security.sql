@@ -89,15 +89,15 @@ end $$;
 do $$
 begin
   if has_function_privilege('authenticated',
-       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean)',
+       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean, jsonb)',
        'execute')
   or has_function_privilege('anon',
-       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean)',
+       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean, jsonb)',
        'execute') then
     raise exception 'FAIL: finalize_test_session is executable by a client role';
   end if;
   if not has_function_privilege('service_role',
-       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean)',
+       'public.finalize_test_session(uuid, uuid, numeric, numeric, numeric, text, int, boolean, jsonb)',
        'execute') then
     raise exception 'FAIL: finalize_test_session is not executable by service_role';
   end if;
@@ -291,7 +291,7 @@ begin
    where user_id = '11111111-1111-1111-1111-111111111111' and status = 'in_progress';
   begin
     perform public.finalize_test_session(
-      v_session, '11111111-1111-1111-1111-111111111111', 1000, 1050, 300, 'A1', 0, true);
+      v_session, '11111111-1111-1111-1111-111111111111', 1000, 1050, 300, 'A1', 0, true, '{}'::jsonb);
     raise exception 'FAIL: an incomplete session could be finalized';
   exception when sqlstate 'FL412' then null;
   end;
@@ -327,7 +327,7 @@ begin
 
   select * into v_first from public.finalize_test_session(
     v_session, '11111111-1111-1111-1111-111111111111',
-    v_before, v_before + 40, 300, 'A1', 0, true);
+    v_before, v_before + 40, 300, 'A1', 0, true, '{}'::jsonb);
 
   -- 2 of 3 correct (Q1 was answered wrong, Q2 and Q3 right).
   if v_first.correct_count <> 2 or v_first.total_count <> 3 then
@@ -363,7 +363,7 @@ begin
   -- Case 3/4: a concurrent second finalize, or a refresh of the results page.
   select * into v_second from public.finalize_test_session(
     v_session, '11111111-1111-1111-1111-111111111111',
-    v_before, v_before + 999, 300, 'B2', 3, true);
+    v_before, v_before + 999, 300, 'B2', 3, true, '{}'::jsonb);
 
   if not v_second.already_finalized then
     raise exception 'FAIL: the second finalize was not recognised as a replay';
@@ -399,7 +399,7 @@ begin
   set role service_role;
   begin
     perform public.finalize_test_session(
-      v_session, '11111111-1111-1111-1111-111111111111', 1, 1500, 300, 'B1', 0, true);
+      v_session, '11111111-1111-1111-1111-111111111111', 1, 1500, 300, 'B1', 0, true, '{}'::jsonb);
     raise exception 'FAIL: a stale ability_before was accepted';
   exception when sqlstate 'FL423' then null;
   end;
@@ -413,7 +413,7 @@ begin
    where user_id = '11111111-1111-1111-1111-111111111111' and text_id = 9002;
   begin
     perform public.finalize_test_session(
-      v_session, '22222222-2222-2222-2222-222222222222', 1000, 1100, 300, 'A1', 0, true);
+      v_session, '22222222-2222-2222-2222-222222222222', 1000, 1100, 300, 'A1', 0, true, '{}'::jsonb);
     raise exception 'FAIL: a session was finalized for the wrong user';
   exception when sqlstate 'FL403' then null;
   end;
@@ -457,7 +457,7 @@ begin
 
   select * into v_result from public.finalize_test_session(
     v_session, '11111111-1111-1111-1111-111111111111',
-    v_before, v_before + 15, 290, 'A1', 0, true);
+    v_before, v_before + 15, 290, 'A1', 0, true, '{}'::jsonb);
 
   if v_result.correct_count <> 3 then
     raise exception 'FAIL: retake scored %/3', v_result.correct_count;
@@ -534,7 +534,7 @@ begin
    where user_id = '22222222-2222-2222-2222-222222222222' and status = 'in_progress';
 
   select * into v_first from public.finalize_calibration_session(
-    v_session, '22222222-2222-2222-2222-222222222222', 1320, 150, 'A2');
+    v_session, '22222222-2222-2222-2222-222222222222', 1320, 150, 'A2', '{}'::jsonb);
   if v_first.already_finalized or v_first.item_count <> 3 then
     raise exception 'FAIL: unexpected calibration finalize %', v_first;
   end if;
@@ -544,7 +544,7 @@ begin
   end if;
 
   select * into v_second from public.finalize_calibration_session(
-    v_session, '22222222-2222-2222-2222-222222222222', 1999, 50, 'B2');
+    v_session, '22222222-2222-2222-2222-222222222222', 1999, 50, 'B2', '{}'::jsonb);
   if not v_second.already_finalized then
     raise exception 'FAIL: calibration finalize is not idempotent';
   end if;

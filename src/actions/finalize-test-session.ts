@@ -5,6 +5,14 @@ import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import { scoreTest } from "@/lib/elo";
 import { abilityToCefr, gatePromotion } from "@/lib/cefr";
 import { scoreSessionItems, type StoredSessionItem } from "@/lib/test-session";
+import {
+  evidenceJson,
+  foldEvidence,
+  EMPTY_EVIDENCE_PAYLOAD,
+} from "@/lib/learning/aggregate";
+import { testAnswerEvidence, type LearningEvidence } from "@/lib/learning/evidence";
+import { DEFAULT_TEST_TAGS, loadQuestionTags } from "@/lib/learning/item-tags";
+import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 
 export interface FinalizedTestSession {
@@ -20,8 +28,13 @@ export interface FinalizedTestSession {
   alreadyFinalized: boolean;
 }
 
-/** A stale profile read is retried once before giving up. */
-const MAX_ATTEMPTS = 2;
+/**
+ * A stale read is retried before giving up. Two things can now move under us —
+ * the profile and the learner's knowledge state — so the loop gets one more
+ * attempt than it needed when only the rating was at stake. It is still a
+ * lost-update guard, not a retry loop: the last failure is reported.
+ */
+const MAX_ATTEMPTS = 3;
 
 /**
  * Turn a fully answered session into the learner's new state.
@@ -69,7 +82,9 @@ export async function finalizeTestSession(
     //    session id belonging to someone else simply does not resolve.
     const { data: session, error: sessionError } = await supabase
       .from("test_sessions")
-      .select("id, status, ability_before, rd_before, ability_after, rd_after, correct, total, passed")
+      .select(
+        "id, text_id, status, ability_before, rd_before, ability_after, rd_after, correct, total, passed",
+      )
       .eq("id", sessionId)
       .maybeSingle();
     if (sessionError) {
@@ -82,13 +97,14 @@ export async function finalizeTestSession(
     // 2. The committed answers, which are the only input to the score.
     const { data: rows, error: itemsError } = await supabase
       .from("test_session_items")
-      .select("question_id, item_difficulty, is_correct, answered_at")
+      .select("question_id, item_difficulty, is_correct, answered_at, response_ms")
       .eq("session_id", sessionId);
     if (itemsError) {
       return failFrom(itemsError, `finalizeTestSession: load items ${sessionId}`);
     }
 
-    const items: StoredSessionItem[] = (rows ?? []).map((row) => ({
+    const answers = rows ?? [];
+    const items: StoredSessionItem[] = answers.map((row) => ({
       questionId: row.question_id,
       itemDifficulty: row.item_difficulty,
       isCorrect: row.is_correct,
@@ -129,7 +145,22 @@ export async function finalizeTestSession(
       profile.promotion_streak,
     );
 
-    // 4. Commit. Everything below this line either all happens or none of it does.
+    // 4. Learning evidence. One observation per answered question, attributed to
+    //    what the item is tagged as exercising — and to nothing else. Folded
+    //    against the state just read, so the whole test moves each state row
+    //    once instead of five times.
+    const evidence = await buildTestEvidence(supabase, sessionId, session.text_id, answers);
+    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
+      (snapshotError) => {
+        // Reported, never swallowed: a knowledge write that silently stopped
+        // happening would look exactly like a learner who stopped learning.
+        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
+        return null;
+      },
+    );
+    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+
+    // 5. Commit. Everything below this line either all happens or none of it does.
     const { data, error } = await service.rpc("finalize_test_session", {
       p_session_id: sessionId,
       p_user_id: user.id,
@@ -139,6 +170,7 @@ export async function finalizeTestSession(
       p_cefr_estimate: abilityToCefr(gated.ability),
       p_promotion_streak: gated.streak,
       p_passed: test.passed,
+      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
     });
 
     const result = data?.[0];
@@ -163,4 +195,55 @@ export async function finalizeTestSession(
   }
 
   return fail("stale_state", `finalizeTestSession: gave up retrying ${sessionId}`);
+}
+
+/** One answered session item, as read back for evidence. */
+interface AnsweredItem {
+  question_id: number;
+  is_correct: boolean | null;
+  answered_at: string | null;
+  response_ms: number | null;
+}
+
+/**
+ * Turn a session's committed answers into learning evidence.
+ *
+ * Unanswered items produce nothing — an item with no answer is not an
+ * observation. Neither is an item whose tags could not be read: those fall back
+ * to the skill the column itself defaults to and carry no concepts, so a failed
+ * tag lookup costs precision, never correctness.
+ */
+async function buildTestEvidence(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  sessionId: string,
+  textId: number,
+  answers: readonly AnsweredItem[],
+): Promise<LearningEvidence[]> {
+  const answered = answers.filter(
+    (row) => row.answered_at !== null && row.is_correct !== null,
+  );
+  if (answered.length === 0) return [];
+
+  const tags = await loadQuestionTags(
+    supabase,
+    answered.map((row) => row.question_id),
+  ).catch((error) => {
+    console.error("[fluent:knowledge] question tags unavailable", error);
+    return new Map<number, never>();
+  });
+
+  return answered.map((row) => {
+    const itemTags = tags.get(row.question_id) ?? DEFAULT_TEST_TAGS;
+    return testAnswerEvidence({
+      sessionId,
+      questionId: row.question_id,
+      textId,
+      skillCode: itemTags.skillCode ?? "reading_comprehension",
+      conceptCodes: itemTags.conceptCodes,
+      testedWordId: itemTags.testedWordId,
+      isCorrect: row.is_correct === true,
+      responseMs: row.response_ms,
+      occurredAt: row.answered_at as string,
+    });
+  });
 }

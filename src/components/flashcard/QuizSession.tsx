@@ -5,6 +5,7 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import { useQuizDeck } from "@/hooks/useQuizDeck";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
@@ -41,11 +42,15 @@ export function QuizSession({
   const [exitDir, setExitDir] = useState(1);
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // null = unanswered, number = index of chosen option
   const [chosen, setChosen] = useState<number | null>(null);
   // True once the "ucz się dalej" extras have been folded into the deck.
   const [extended, setExtended] = useState(false);
   const shownAt = useRef<number>(0);
+  // One idempotency token per question presentation, so a double tap (or a
+  // retried request) settles the same review rather than a second one.
+  const interactionId = useRef("");
 
   // word id -> SM-2 interval, to drive the per-card mastery bar.
   const intervalById = useMemo(
@@ -60,6 +65,7 @@ export function QuizSession({
   useEffect(() => {
     if (current) {
       shownAt.current = Date.now();
+      interactionId.current = newInteractionId();
       speakGerman(current.word.display);
     }
   }, [current]);
@@ -78,11 +84,27 @@ export function QuizSession({
 
       setExitDir(correct ? 1 : -1);
       setBusy(true);
+      setError(null);
       try {
-        const { isMastered } = await updateSrs(current.wordId, grade);
+        const result = await updateSrs({
+          wordId: current.wordId,
+          grade,
+          interactionId: ensureInteractionId(interactionId),
+          mode: "quiz",
+          // German prompt, Polish options: picking the right one is recognition,
+          // so this feeds receptive vocabulary and never the active channel.
+          direction: "de_to_pl",
+          responseMs: elapsed,
+        });
+        if (!result.ok) {
+          setError(result.message);
+          setChosen(null);
+          setBusy(false);
+          return;
+        }
         setResults((r) => [
           ...r,
-          { wordId: current.wordId, grade, mastered: isMastered },
+          { wordId: current.wordId, grade, mastered: result.isMastered },
         ]);
         // The action bumped today's review count and the vocabulary streak in
         // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
@@ -96,6 +118,7 @@ export function QuizSession({
         }, 900);
       } catch (err) {
         console.error("Failed to update SRS:", err);
+        setError("Coś poszło nie tak. Spróbuj ponownie za chwilę.");
         setChosen(null);
         setBusy(false);
       }
@@ -244,6 +267,11 @@ export function QuizSession({
                 );
               })}
             </div>
+            {error && (
+              <p role="alert" className="w-full text-center text-xs text-red">
+                {error}
+              </p>
+            )}
             <p className="hidden w-full text-center text-xs text-muted2 sm:block">
               1–4 — wybierz odpowiedź
             </p>
