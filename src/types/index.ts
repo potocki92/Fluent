@@ -53,24 +53,19 @@ export interface QuestionInput {
   correct_idx: number;
 }
 
-/**
- * A comprehension question as sent to the client.
- * `correct_idx` is intentionally omitted — it is only known server-side and is
- * applied inside the `submit-answer` Server Action.
- */
-export type Question = Omit<Tables["questions"]["Row"], "correct_idx"> & {
-  options: string[];
-};
-
 /** Full question row including the answer key (server-only). */
 export type QuestionWithAnswer = Tables["questions"]["Row"] & {
   options: string[];
 };
 
 /**
- * A standalone placement-test item as sent to the client. Like {@link Question},
- * `correct_idx` is omitted — grading happens in the `grade-calibration` Server
- * Action.
+ * A standalone placement-test item as sent to the client. `correct_idx` is
+ * omitted: it is revealed only by `answer_calibration_question`, for an item in
+ * the caller's own placement session, once their answer to it is committed.
+ *
+ * Reading-test questions have no equivalent type here — they reach the client
+ * only as part of a session, typed by `TestSessionQuestion` in
+ * `@/actions/start-test-session`.
  */
 export type CalibrationQuestion = Omit<
   Tables["calibration_questions"]["Row"],
@@ -82,8 +77,17 @@ export type CalibrationQuestion = Omit<
 /** A learner profile holding the Elo ability estimate. */
 export type Profile = Tables["profiles"]["Row"];
 
+/** Where a learner's displayed level came from — claimed, placed, or earned. */
+export type LevelSource = Profile["level_source"];
+
 /** An immutable record of a single answered question. */
 export type Attempt = Tables["attempts"]["Row"];
+
+/** One graded reading test, from `in_progress` to its immutable result. */
+export type TestSession = Tables["test_sessions"]["Row"];
+
+/** A single question inside a test session, holding at most one answer. */
+export type TestSessionItem = Tables["test_session_items"]["Row"];
 
 /** A saved dictionary word together with its SM-2 scheduling state. */
 export type SavedWord = Tables["saved_words"]["Row"];
