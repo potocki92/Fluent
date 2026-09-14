@@ -28,12 +28,13 @@ The runner exercises three things:
    migrations work on an already-provisioned project, not only a fresh one;
 3. **idempotency** — re-applying every script changes nothing.
 
-All three suites run against the same database, in order:
+All four suites run against the same database, in order:
 `01_test_session_security.sql` exercises the test lifecycle and leaves `attempts`
 behind, which `02_learning_engine_security.sql` relies on to check the backfill;
-`03_today_engine_security.sql` then builds plans and drills on top of both.
-Because they share a database, each suite uses its own id range (9xxx / 8xxx /
-7xxx) and its own learners.
+`03_today_engine_security.sql` then builds plans and drills on top of both; and
+`04_reader_story_security.sql` builds library content, reads it, and puts a
+reading task into a plan. Because they share a database, each suite uses its own
+id range and its own learners.
 
 ## What is asserted — test sessions (01)
 
@@ -85,3 +86,18 @@ Because they share a database, each suite uses its own id range (9xxx / 8xxx /
 project. A hosted Supabase database already provides these objects, with more
 behaviour than is reproduced here — the shim exists so these invariants can be
 checked in CI without provisioning a project.
+
+## What is asserted — reader & story engine (04)
+
+| # | Invariant |
+| - | --------- |
+| R1 | Content is written only by the pipeline's transaction, and **reprocessing a chapter replaces it rather than duplicating it** — same paragraph, sentence, occurrence and vocabulary counts after two runs, and the same positions, because reading progress points at those positions. A chapter's totals are derived, and the item's totals are derived from its chapters. |
+| R2 | A **private import is invisible** to another learner at every level of the tree — item, chapter, sentence, occurrence. Published content is read-only to a learner: no update to an item, no update to a sentence, no inserted paragraph, and `replace_chapter_content` is unreachable from a browser role. |
+| R3 | The **owner** of a private import can read it. |
+| R4 | An **anonymous visitor** sees published content and nothing private. |
+| R5 | Reading progress has **no client write path** (neither progress nor sessions can be forged). Opening a chapter creates the row; a second tab shares one session; reaching the last paragraph is 100%; **scrolling back moves the bookmark and not the progress**; one report may never claim an hour of reading. |
+| R6 | Finishing a chapter is **refused from halfway through** and **idempotent** after it succeeds — completed exactly once, with the reading time intact. |
+| R7 | A retried lookup is **one** lookup: one row, one learning event. A different word in the same sitting is a second unique lookup, and the chapter's lookup counter — one half of the lookup *rate* — moves. |
+| R8 | A saved word **keeps the sentence it came from**, copied rather than referenced; re-saving keeps the first place it was met; and the origin cannot be forged onto a sentence the word never appeared in. |
+| R9 | A reading task in a plan is **measured, never asserted**: opening a chapter makes it `in_progress` and never `completed`, a short sitting does not satisfy an eight-minute task, doing the reading does, and reconciling again changes nothing. |
+| R10 | Every passage became a library item, one-to-one, each with a chapter — which is what lets `/learn/[textId]` redirect deterministically. `backfill_library_from_texts` catches up passages written after the migration. |

@@ -14,11 +14,20 @@ import { cn } from "@/lib/utils";
  * day, and five items in a phone-width bar leaves no room for a Polish label.
  */
 const NAV = [
-  { href: "/today", label: "Dzisiaj", icon: Sun },
-  { href: "/learn", label: "Czytaj", icon: BookOpen },
-  { href: "/review", label: "Powtórki", icon: Layers },
-  { href: "/stats", label: "Postęp", icon: BarChart3 },
+  { href: "/today", label: "Dzisiaj", icon: Sun, also: [] as string[] },
+  // "Czytaj" is the LIBRARY now. `/learn` still exists — it is the graded
+  // passages and their comprehension tests — but reading itself has one home,
+  // and every published passage is in the library too (see `legacy_text_id`).
+  { href: "/library", label: "Czytaj", icon: BookOpen, also: ["/learn"] },
+  { href: "/review", label: "Powtórki", icon: Layers, also: [] as string[] },
+  { href: "/stats", label: "Postęp", icon: BarChart3, also: [] as string[] },
 ];
+
+function isActive(pathname: string, href: string, also: string[]): boolean {
+  return [href, ...also].some(
+    (base) => pathname === base || pathname.startsWith(`${base}/`),
+  );
+}
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -26,8 +35,8 @@ export function BottomNav() {
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#374151] bg-[#2d3748]/95 backdrop-blur">
       <ul className="mx-auto flex max-w-2xl items-stretch justify-around px-2">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`);
+        {NAV.map(({ href, label, icon: Icon, also }) => {
+          const active = isActive(pathname, href, also);
           return (
             <li key={href} className="flex-1">
               <Link

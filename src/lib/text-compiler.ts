@@ -11,6 +11,7 @@
  * and all source text is escaped, so this never injects raw admin HTML.
  */
 
+import { dictionaryKeysFor } from "@/lib/content/dictionary-match";
 import {
   baseFormCandidates,
   foldUmlauts,
@@ -99,23 +100,18 @@ export function markdownToHtml(raw: string): string {
 
 /**
  * Build a lookup from a normalised (lowercased, umlaut-folded) key to the
- * canonical lemma. Both the lemma and the noun of `display` are indexed — the
- * last word, since `display` carries the article first ("die Autobahn" is
- * reachable via "autobahn"). Earlier entries win on collision, keeping the
- * result deterministic.
+ * canonical lemma. The keys themselves come from
+ * `@/lib/content/dictionary-match`, which is the single definition of "what is
+ * this dictionary entry reachable by" — the reader pipeline resolves tokens with
+ * exactly the same keys, so a word that is glossable in the reader is glossable
+ * here too. Earlier entries win on collision, keeping the result deterministic.
  */
 export function buildDictIndex(entries: DictEntry[]): Map<string, string> {
   const index = new Map<string, string>();
 
   for (const { lemma, display } of entries) {
-    const keys = new Set<string>();
-    keys.add(foldUmlauts(lemma.toLowerCase()));
-    const displayWords = display.toLowerCase().match(WORD_RE) ?? [];
-    const lastDisplayWord = displayWords[displayWords.length - 1];
-    if (lastDisplayWord) keys.add(foldUmlauts(lastDisplayWord));
-
-    for (const key of keys) {
-      if (key && !index.has(key)) index.set(key, lemma);
+    for (const key of dictionaryKeysFor(lemma, display)) {
+      if (!index.has(key)) index.set(key, lemma);
     }
   }
 

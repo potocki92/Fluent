@@ -24,7 +24,12 @@ export function planItemHref(item: TodayPlanItem): string {
         : "/review";
     case "continue_text":
     case "new_text":
+      // `/learn/[id]` redirects into the reader once the passage has been
+      // processed, so this one href is correct either side of the migration.
       return item.textId ? `/learn/${item.textId}` : "/learn";
+    case "continue_chapter":
+    case "new_chapter":
+      return chapterHref(item);
     case "new_vocabulary":
       // The exact words are passed through, so that finishing them satisfies
       // THIS item rather than whatever the review deck would have served.
@@ -32,6 +37,24 @@ export function planItemHref(item: TodayPlanItem): string {
         ? `/review?words=${item.wordIds.join(",")}`
         : "/review";
   }
+}
+
+/**
+ * Where a reading activity goes.
+ *
+ * The slug and the chapter position were SNAPSHOTTED onto the item when the plan
+ * was built, so yesterday's plan still links to the chapter it recommended even
+ * if the book has since been renamed — and so rendering the plan needs no join.
+ * Without both, the fallback is the library rather than a 404.
+ */
+function chapterHref(item: TodayPlanItem): string {
+  const slug = typeof item.payload.slug === "string" ? item.payload.slug : null;
+  const position =
+    typeof item.payload.chapterPosition === "number"
+      ? item.payload.chapterPosition
+      : null;
+  if (!slug || position === null) return "/library";
+  return `/library/${slug}/${position}`;
 }
 
 /** The first activity still to do — what the one big button opens. */

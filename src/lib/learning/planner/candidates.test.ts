@@ -1,14 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CHAPTER_LEVEL_FAR,
+  CHAPTER_LEVEL_MATCH,
+  CHAPTER_LEVEL_NEAR,
   DEFAULT_READING_MINUTES,
   EVIDENCE_LEVEL_THRESHOLDS,
+  MAX_CHAPTER_SEGMENT_MINUTES,
+  MIN_CHAPTER_SEGMENT_MINUTES,
   MAX_READING_MINUTES,
   MAX_REVIEW_BATCH,
   MIN_READING_MINUTES,
   MIN_REVIEW_BATCH,
 } from "@/lib/learning/planner/constants";
 import {
+  chapterLevelSignal,
+  chapterSegmentMinutes,
+  chapterTargetSeconds,
   evidenceLevelFor,
   readingMinutes,
   reviewBatchSize,
@@ -107,5 +115,48 @@ describe("placementCandidates", () => {
     expect(placementCandidates(ctx({ levelSource: "placement" }))).toHaveLength(0);
     expect(placementCandidates(ctx({ levelSource: "manual" }))).toHaveLength(0);
     expect(placementCandidates(ctx({ levelSource: "test" }))).toHaveLength(0);
+  });
+});
+
+describe("reading a chapter", () => {
+  it("asks for a SEGMENT, never for a whole 15 000-word chapter", () => {
+    // "Przeczytaj rozdział 12" in a twelve-minute plan is a task the learner
+    // cannot finish, which teaches them the plan does not mean anything.
+    expect(chapterSegmentMinutes(90, 12)).toBeLessThanOrEqual(
+      MAX_CHAPTER_SEGMENT_MINUTES,
+    );
+    expect(chapterSegmentMinutes(90, 12)).toBeGreaterThanOrEqual(
+      MIN_CHAPTER_SEGMENT_MINUTES,
+    );
+  });
+
+  it("never asks for more time than the chapter itself holds", () => {
+    // A five-minute chapter is a five-minute task, not a four-minute floor and
+    // not an eight-minute one the learner could never satisfy.
+    expect(chapterSegmentMinutes(5, 60)).toBe(5);
+    expect(chapterSegmentMinutes(2, 12)).toBe(2);
+  });
+
+  it("scales the slice with the learner's daily budget", () => {
+    expect(chapterSegmentMinutes(60, 30)).toBeGreaterThan(
+      chapterSegmentMinutes(60, 10),
+    );
+  });
+
+  it("turns a slice into the seconds that satisfy it", () => {
+    const minutes = chapterSegmentMinutes(60, 20);
+    const seconds = chapterTargetSeconds(minutes);
+    // Less than the full estimate — finishing the plan's reading task is about
+    // doing the reading, not about outlasting the estimate.
+    expect(seconds).toBeLessThan(minutes * 60);
+    expect(seconds).toBeGreaterThan(0);
+  });
+
+  it("matches a chapter's band against the learner's, coarsely and honestly", () => {
+    expect(chapterLevelSignal("A2", 1350)).toBe(CHAPTER_LEVEL_MATCH);
+    expect(chapterLevelSignal("B1", 1350)).toBe(CHAPTER_LEVEL_NEAR);
+    expect(chapterLevelSignal("B2", 1100)).toBe(CHAPTER_LEVEL_FAR);
+    // No estimate is not the same as a bad one.
+    expect(chapterLevelSignal(null, 1350)).toBe(CHAPTER_LEVEL_NEAR);
   });
 });

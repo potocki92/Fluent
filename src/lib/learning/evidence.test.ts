@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   calibrationAnswerEvidence,
+  chapterReadingEvidence,
+  readingLookupEvidence,
   reviewEvidence,
   reviewEvidenceWeight,
   reviewRetrievalType,
@@ -10,6 +12,7 @@ import {
   vocabularySkillFor,
   RESPONSE_MODE_WEIGHT,
 } from "./evidence";
+import { LOOKUP_EVIDENCE_DISCOUNT } from "@/lib/reading/constants";
 
 const NOW = "2026-01-01T12:00:00.000Z";
 
@@ -200,5 +203,78 @@ describe("calibrationAnswerEvidence", () => {
 
     expect(item.skillCode).toBeNull();
     expect(item.conceptCodes).toEqual([]);
+  });
+});
+
+describe("reading evidence", () => {
+  const lookup = readingLookupEvidence({
+    interactionId: "int-1",
+    wordId: 42,
+    libraryItemId: "11111111-1111-1111-1111-111111111111",
+    chapterId: "22222222-2222-2222-2222-222222222222",
+    sentenceId: 7,
+    occurrenceId: 9,
+    readingSessionId: "33333333-3333-3333-3333-333333333333",
+    occurredAt: NOW,
+  });
+
+  it("A LOOKUP IS NOT A FAILED TEST — it is worth a fraction of one", () => {
+    expect(lookup.weight).toBeCloseTo(
+      RESPONSE_MODE_WEIGHT.passive * LOOKUP_EVIDENCE_DISCOUNT,
+      6,
+    );
+    // A multiple-choice answer is worth several lookups. That ratio is the whole
+    // claim: one tap barely moves the estimate, five move it clearly.
+    expect(lookup.weight * 5).toBeLessThan(RESPONSE_MODE_WEIGHT.multiple_choice * 2);
+    expect(lookup.responseMode).toBe("passive");
+  });
+
+  it("attributes a lookup to the word, and to no concept at all", () => {
+    // A lookup says the word was unknown. It says nothing about WHY, so
+    // inventing a concept weakness from a gesture is exactly what it must not do.
+    expect(lookup.conceptCodes).toEqual([]);
+    expect(lookup.skillCode).toBe("receptive_vocabulary");
+    expect(lookup.vocabularyChannel).toBe("receptive");
+    expect(lookup.wordId).toBe(42);
+    expect(lookup.isCorrect).toBe(false);
+  });
+
+  it("carries the place in the book it happened at", () => {
+    expect(lookup.chapterId).toBe("22222222-2222-2222-2222-222222222222");
+    expect(lookup.sentenceId).toBe(7);
+    expect(lookup.wordOccurrenceId).toBe(9);
+    expect(lookup.sourceKind).toBe("reader");
+  });
+
+  it("keys on the interaction, so a retry settles the same lookup", () => {
+    const retry = readingLookupEvidence({
+      interactionId: "int-1",
+      wordId: 42,
+      libraryItemId: "11111111-1111-1111-1111-111111111111",
+      chapterId: "22222222-2222-2222-2222-222222222222",
+      sentenceId: 7,
+      occurrenceId: 9,
+      readingSessionId: "33333333-3333-3333-3333-333333333333",
+      occurredAt: "2026-02-02T00:00:00.000Z",
+    });
+    expect(retry.eventKey).toBe(lookup.eventKey);
+  });
+
+  it("records finishing a chapter as history that scores NOTHING", () => {
+    const completed = chapterReadingEvidence({
+      event: "completed",
+      readingSessionId: "33333333-3333-3333-3333-333333333333",
+      libraryItemId: "11111111-1111-1111-1111-111111111111",
+      chapterId: "22222222-2222-2222-2222-222222222222",
+      activeSeconds: 840,
+      occurredAt: NOW,
+    });
+
+    // Having read a chapter is not evidence that its language was understood.
+    expect(completed.weight).toBe(0);
+    expect(completed.skillCode).toBeNull();
+    expect(completed.conceptCodes).toEqual([]);
+    expect(completed.wordId).toBeNull();
+    expect(completed.vocabularyChannel).toBeNull();
   });
 });

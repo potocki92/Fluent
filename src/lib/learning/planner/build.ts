@@ -17,6 +17,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  chapterCandidates,
   evidenceLevelFor,
   placementCandidates,
   readingCandidates,
@@ -71,11 +72,12 @@ export async function buildDailyPlanDraft(
   // most-opened screen in the app; five sequential round trips would be felt.
   const weaknesses = await getTopWeaknesses(WEAKNESS_CANDIDATES, input.now);
 
-  const [reviews, weaknessDrills, reading, vocabulary, observations] =
+  const [reviews, weaknessDrills, reading, chapters, vocabulary, observations] =
     await Promise.all([
       reviewCandidates(ctx),
       weaknessCandidates(ctx, weaknesses),
       readingCandidates(ctx),
+      chapterCandidates(ctx),
       vocabularyCandidates(ctx),
       countObservations(ctx),
     ]);
@@ -84,6 +86,7 @@ export async function buildDailyPlanDraft(
     ...reviews,
     ...weaknessDrills,
     ...reading,
+    ...chapters,
     ...vocabulary,
   ];
 
@@ -123,6 +126,9 @@ export function draftItemRows(draft: DailyPlanDraft): Record<string, unknown>[] 
     signals: item.signals,
     target_count: item.targetCount,
     text_id: item.textId ?? null,
+    library_item_id: item.libraryItemId ?? null,
+    chapter_id: item.chapterId ?? null,
+    target_seconds: item.targetSeconds ?? null,
     concept_code: item.conceptCode ?? null,
     word_ids: item.wordIds ?? [],
     payload: item.payload ?? {},

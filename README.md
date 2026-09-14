@@ -1,9 +1,9 @@
 # Fluent
 
-A German learning app for Polish speakers. Learn by reading German passages,
-taking adaptive comprehension tests (ability tracked with an Elo-style rating),
-practising the grammar you keep getting wrong, and reviewing vocabulary with SM-2
-spaced-repetition flashcards.
+A German learning app for Polish speakers. Learn by reading real German texts —
+stories, books and graded passages — taking adaptive comprehension tests (ability
+tracked with an Elo-style rating), practising the grammar you keep getting wrong,
+and reviewing vocabulary with SM-2 spaced-repetition flashcards.
 
 The home screen is **Dzisiaj**: a plan Fluent builds for you each day out of what
 it knows about your learning, with one button that starts it.
@@ -14,7 +14,8 @@ This is the single most important thing to understand about the codebase. Every
 feature either feeds this cycle or reads from it.
 
 ```
-        You answer something — in a test, a review, or a drill
+   You answer something — in a test, a review, or a drill …
+   … or you read a chapter, and check a word you did not know
                               │
                               ▼
   LEARNING DATA ENGINE   one immutable learning_event per interaction,
@@ -31,13 +32,36 @@ feature either feeds this cycle or reads from it.
   DAILY PLAN             one per learning day, stable, with a reason per task
                               │
                               ▼
-  LEARNING SESSIONS      reviews · weakness drills · reading
+  LEARNING SESSIONS      reviews · weakness drills · reading a chapter
                               │
                               ▼
   NEW EVIDENCE ──────────────► the knowledge model updates
                               │
                               ▼
                     Tomorrow's plan is better than today's
+```
+
+Reading is a full participant in that cycle, not a preface to it:
+
+```
+  LIBRARY          library_items → chapters
+                              │
+                              ▼
+  STRUCTURED       paragraphs → sentences → word_occurrences
+  CONTENT          (plain text and positions, never an HTML blob)
+                              │
+                              ▼
+  READER           resume where you stopped · tap a word · progress that
+                   never goes backwards · active reading time
+                              │
+                              ▼
+  LEARNING EVENTS  a lookup is weak evidence, not a failed test
+                              │
+                              ▼
+  KNOWLEDGE MODEL  user_word_knowledge gets more accurate
+                              │
+                              ▼
+  TODAY ENGINE     can plan the next chapter better
 ```
 
 Two properties hold all the way round it:
@@ -81,6 +105,12 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `daily_plans` · `daily_plan_items` | One learning day's plan, unique per (learner, day), with the reason and priority signals behind each activity snapshotted. See [Today engine](#today-engine). |
 | `practice_sessions` · `practice_session_items` | One weakness drill. Modelled on `test_sessions` — server-picked items, one answer each — but never Elo-scored. |
 | `text_progress` | "This learner opened this passage." The minimal reading state the planner needs to recommend *finishing* something rather than starting something. |
+| `library_items` · `chapters` | Everything readable — a story, a book, an article, or one of the graded passages (`legacy_text_id` maps it back to `texts`). `rights` decides who may see it at all; a `private_import` is owner-only. See [Reader & story engine](#reader--story-engine). |
+| `paragraphs` · `sentences` · `word_occurrences` | A chapter's structure as **plain text and positions**, not markup. A sentence is what contextual help will attach to; an occurrence is "this word, in this sentence, here". |
+| `chapter_vocabulary` | The chapter's distinct dictionary words with frequencies, aggregated once at processing time — what vocabulary coverage is computed from. |
+| `reading_progress` | Where a learner is in a chapter. `resume_*` follows them both ways; `furthest_*` only ever increases and is the only input to progress. |
+| `reading_sessions` | One sitting with a chapter: **active** reading seconds, lookups, saved words. Not wall-clock time. |
+| `reading_lookups` | Which word, in which sentence, in which chapter, when — the reading-behaviour record behind "you have checked *Schwert* five times". |
 
 All tables have Row Level Security enabled. `words`/`texts` are public-read;
 `questions`/`calibration_questions` are admin-only (learners read the answer-free
@@ -111,7 +141,13 @@ learner who owns it** — see [Who may write what](#who-may-write-what).
 5. **Seed the demo texts**: `node import/seed-texts.mjs`
    (seeds the 3 demo texts — *Im Supermarkt* / *Beim Arzt* / *Umzug* — and their
    questions). Requires `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the environment.
-6. **Import the dictionary**: `node import/translate-import.mjs`
+6. **Seed the sample story** (optional): paste
+   [`supabase/seed-library-sample.sql`](./supabase/seed-library-sample.sql) into
+   the SQL editor. It adds *Der Schlüssel*, an original three-chapter story
+   written for this repo, so the Book Engine has something book-shaped to run
+   against. Then open `/admin/library` and press **Przetwórz oczekujące** — that
+   runs the content pipeline over it and over every migrated passage.
+7. **Import the dictionary**: `node import/translate-import.mjs`
    (translates the DTZ wordlist into Polish with example sentences via Claude;
    requires `ANTHROPIC_API_KEY`, costs ~$3 one-time for the full list). Runs in
    batches and is safe to re-run — already-translated rows are skipped.
@@ -124,8 +160,9 @@ learner who owns it** — see [Who may write what](#who-may-write-what).
    > **Note:** `import/dtz_words_seed.json` in this repo is a small representative
    > sample (~20 words) so the pipeline is runnable end-to-end. Supply the full
    > 2588-row DTZ headword list (same shape) to import the complete dictionary.
-7. **Run the dev server**: `npm run dev`, then open http://localhost:3000
-   (the root redirects to `/today`). Routes: `/today`, `/learn`, `/review`,
+8. **Run the dev server**: `npm run dev`, then open http://localhost:3000
+   (the root redirects to `/today`). Routes: `/today`, `/library`,
+   `/library/[slug]`, `/library/[slug]/[chapter]`, `/learn`, `/review`,
    `/practice/[concept]`, `/browse`, `/stats`, `/settings`.
 
 ### Scripts
@@ -219,7 +256,8 @@ the level they watched being built while a forged one has nowhere to enter.
 | Learner may edit | Server-owned — written only by the learning engine |
 | ---------------- | -------------------------------------------------- |
 | `profiles.display_name`, `daily_word_goal`, `daily_learning_minutes`, `timezone` | `profiles.ability`, `rd`, `answered`, `cefr_estimate`, `promotion_streak`, `level_source`, `streak_days`, `last_active`, `words_reviewed_today`, `word_streak_days`, `last_word_review` |
-| `saved_words` (their own review deck) | `attempts`, `text_completions`, `test_sessions`, `test_session_items`, `calibration_sessions`, `calibration_session_items`, `daily_plans`, `daily_plan_items`, `practice_sessions`, `practice_session_items`, `text_progress` — readable by their owner, writable by nobody else |
+| `saved_words` (their own review deck) | `attempts`, `text_completions`, `test_sessions`, `test_session_items`, `calibration_sessions`, `calibration_session_items`, `daily_plans`, `daily_plan_items`, `practice_sessions`, `practice_session_items`, `text_progress`, `reading_progress`, `reading_sessions`, `reading_lookups` — readable by their owner, writable by nobody else |
+| `profiles.reader_preferences` (typography and theme) | `library_items`, `chapters`, `paragraphs`, `sentences`, `word_occurrences`, `chapter_vocabulary` — public content is readable, and writable only by admins through the processing pipeline |
 
 Three mechanisms enforce this, not one: the progress tables have **no insert/update
 RLS policy** at all; a `BEFORE UPDATE` trigger on `profiles` rejects a browser write
@@ -325,6 +363,88 @@ Design rationale — the priority formula in full, weakness ranking, the budget,
 the timezone rules, derived completion and how to change the algorithm later — is
 in [`docs/architecture/today-engine.md`](./docs/architecture/today-engine.md).
 
+## Reader & story engine
+
+A reading passage used to be one column: `texts.body`, an HTML string with
+`<mark data-lemma="X">` annotations, parsed in the browser with `DOMParser` on
+every render. For a 200-word A1 passage that is fine. As a foundation for books
+it fails in ways that no amount of styling fixes — there is nothing to point at,
+so a resume position or a contextual gloss has nowhere to attach; the book is one
+value, so opening chapter 12 of a 300 000-word novel loads 300 000 words; and
+nothing is observable, so none of it can reach the knowledge model.
+
+Phase 4 separates **content structure** from **rendered HTML**:
+
+```
+library_items → chapters → paragraphs → sentences → word_occurrences
+```
+
+- **The prose is server-rendered.** `ReaderProse` emits ordinary elements with
+  `data-*` attributes, so the chapter is real document text in the first
+  response — selectable, findable with the browser's own search, correct without
+  JavaScript. There is no `DOMParser` and no per-word React component; one
+  delegated listener in `ReaderShell` handles every word in a 15 000-word
+  chapter.
+- **Resume and furthest are different facts.** Scrolling back to re-read the
+  opening moves the bookmark and leaves the progress bar alone. `greatest(...)`
+  inside `record_reading_progress` is what makes that a database guarantee rather
+  than a React one — two tabs can report different positions and only the
+  database sees both.
+- **Finishing a chapter is an act.** A sticky footer can put the last paragraph
+  on screen without anyone having read it, so completion is an explicit button
+  *and* `complete_reading_chapter` refuses below the threshold regardless.
+- **Active reading time is active.** A tab open for two hours is not two hours of
+  reading. The clock runs only while the document is visible and something
+  happened recently, and the database caps what any one report may claim.
+- **A lookup is not a failed test.** Tapping *Schwert* is real evidence that the
+  word was not known, and much weaker than getting it wrong in a graded item —
+  people also tap to confirm a guess, or by accident. It is recorded at 0.1, a
+  sixth of a multiple-choice answer, with **no concept attributed**: a lookup says
+  the word was unknown, not why. Five lookups across five chapters move the model
+  clearly; one barely moves it at all.
+- **A saved word remembers its sentence.** Saving *Schwert* while reading
+  "Er zog sein Schwert." copies that sentence onto the card, so deleting the book
+  later cannot quietly empty it.
+- **Coverage refuses to guess.** "Znasz 91% słownictwa" is a great feature and a
+  terrible lie when Fluent knows twenty of a chapter's eight hundred words. Below
+  the evidence floor the reader says the estimate is not available yet.
+
+### The content pipeline
+
+```
+raw source → normalize → paragraphs → sentences → tokenize → dictionary → persist
+```
+
+Pure, deterministic and unit-tested in `src/lib/content/`: the same source and
+dictionary always produce the same structure, down to every position — which is
+what lets a chapter be reprocessed without moving anyone's bookmark.
+`CONTENT_PROCESSOR_VERSION` and a content hash together decide whether a
+reprocess would change anything at all; when it would not, nothing is written.
+
+German sentence splitting is not `text.split(".")`: abbreviations (*z. B.*,
+*Dr. Müller*), ordinals (*am 3. Mai*), decimals and dialogue
+(*»Warum?« fragte sie.* is **one** sentence) each shred a naive splitter on the
+first page of a real book.
+
+Processing also produces a quality report — paragraph/sentence/word counts, the
+share of content words the dictionary can gloss, and the most frequent words it
+**cannot**, which is what turns a bad match rate into a task. `/admin/library`
+shows all of it and is where content is created and processed.
+
+### What the old reader keeps
+
+Nothing was renumbered. Every `texts` row became a library item with one chapter
+(`library_items.legacy_text_id`), so questions, attempts, completions, test
+sessions and today's plans all keep working against the ids they already hold.
+`/learn/[textId]` redirects into the reader once its chapter has been processed
+and renders the legacy body until then — so an already-provisioned project
+upgrades with no content freeze.
+
+Design rationale in full — the rights model, resume vs furthest, the lookup
+weight, processor versioning, the accessibility tradeoff and the transition plan
+— is in
+[`docs/architecture/reader-story-engine.md`](./docs/architecture/reader-story-engine.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -394,6 +514,25 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
   read layer — `getUserSkillProfile`, `getUserWeakestConcepts`,
   `getUserWordKnowledge`). The arithmetic never touches Supabase; the database
   owns transactions, `src/lib/` owns the maths.
+- **`src/lib/content/`** — the content pipeline, pure and deterministic:
+  `normalize.ts` (markup and invisible characters out), `paragraphs.ts`,
+  `sentences.ts` (German-aware splitting), `tokenize.ts`,
+  `dictionary-match.ts` (token → `word_id`, sharing the de-inflection rules with
+  the passage compiler), `process.ts` (the pipeline), `version.ts` (the stamp
+  every chapter records).
+- **`src/lib/reading/`** — the reader's domain: `constants.ts` (every threshold,
+  in one place), `progress.ts` (resume vs furthest, and the arithmetic behind
+  both), `coverage.ts` (vocabulary coverage, including its refusal to guess),
+  `preferences.ts` (typography and theme).
+- **`src/lib/library/queries.ts`** — the read layer. Every query is scoped to one
+  chapter or one item; a chapter is three bounded queries, never a join per
+  paragraph.
+- **`src/actions/reading.ts`** — the reader's write paths. All of them go through
+  SECURITY DEFINER functions that derive the learner from `auth.uid()`; a lookup
+  writes its reading record and its learning evidence in one transaction.
+- **`src/components/reader/`** — `ReaderProse` (server-rendered prose),
+  `ReaderShell` (one delegated listener, progress, the active-reading clock,
+  typography), `WordGlossSheet`, `ReaderSettingsSheet`, `ChapterCompleteCard`.
 - Server data is fetched through TanStack Query hooks in `src/hooks/`; client-only
   ability state lives in the Zustand store `useAbility`.
 

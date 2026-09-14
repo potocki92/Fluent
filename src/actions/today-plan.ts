@@ -31,6 +31,8 @@ export interface TodayPlanItem {
   reasonCode: PlanReasonCode;
   reasonData: PlanReasonData;
   textId: number | null;
+  libraryItemId: string | null;
+  chapterId: string | null;
   conceptCode: ConceptCode | null;
   wordIds: number[];
   /** Snapshotted display detail — titles, labels, previews. */
@@ -60,7 +62,7 @@ const PLAN_COLUMNS =
   "id, learning_date, timezone, status, target_minutes, estimated_minutes, algorithm_version, evidence_level";
 
 const ITEM_COLUMNS =
-  "id, item_position, item_type, status, estimated_minutes, target_count, completed_count, priority_score, reason_code, reason_data, signals, text_id, concept_code, word_ids, payload";
+  "id, item_position, item_type, status, estimated_minutes, target_count, completed_count, priority_score, reason_code, reason_data, signals, text_id, library_item_id, chapter_id, concept_code, word_ids, payload";
 
 /**
  * Today's plan — created on the first visit of the learner's day, reconciled on
@@ -229,6 +231,8 @@ type ItemRow = {
   reason_data: Json;
   signals: Json;
   text_id: number | null;
+  library_item_id: string | null;
+  chapter_id: string | null;
   concept_code: string | null;
   word_ids: number[] | null;
   payload: Json;
@@ -346,6 +350,8 @@ function toItem(row: ItemRow): TodayPlanItem {
     reasonCode: row.reason_code as PlanReasonCode,
     reasonData: (row.reason_data ?? {}) as PlanReasonData,
     textId: row.text_id,
+    libraryItemId: row.library_item_id,
+    chapterId: row.chapter_id,
     conceptCode: row.concept_code as ConceptCode | null,
     wordIds: row.word_ids ?? [],
     payload: (row.payload ?? {}) as Record<string, unknown>,
