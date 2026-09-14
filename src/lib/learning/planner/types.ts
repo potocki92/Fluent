@@ -29,7 +29,11 @@ export type PlanItemType =
   | "weakness_practice"
   | "continue_text"
   | "new_text"
-  | "new_vocabulary";
+  | "new_vocabulary"
+  // Reading real content — a chapter of a book or a story, as opposed to a
+  // graded passage with a test behind it.
+  | "continue_chapter"
+  | "new_chapter";
 
 /**
  * The coarse kind of work an activity is, used only for balance.
@@ -51,6 +55,8 @@ export const CATEGORY_OF: Readonly<Record<PlanItemType, PlanCategory>> = {
   weakness_practice: "weakness",
   continue_text: "comprehension",
   new_text: "comprehension",
+  continue_chapter: "comprehension",
+  new_chapter: "comprehension",
   new_vocabulary: "vocabulary",
 };
 
@@ -74,6 +80,18 @@ export interface PlanCandidate {
   signals: PrioritySignals;
   reason: PlanReason;
   textId?: number | null;
+  libraryItemId?: string | null;
+  chapterId?: string | null;
+  /**
+   * Active reading seconds that satisfy this activity.
+   *
+   * Reading tasks are the one kind whose completion is not a count of things
+   * done — "czytaj przez około 8 minut" is satisfied by eight minutes, not by
+   * finishing a chapter that happens to be three times that long. The planner
+   * computes it from `src/lib/reading/constants.ts` and `sync_daily_plan` only
+   * compares against it.
+   */
+  targetSeconds?: number | null;
   conceptCode?: ConceptCode | null;
   /** Snapshot of the exact words recommended, for `new_vocabulary`. */
   wordIds?: readonly number[];

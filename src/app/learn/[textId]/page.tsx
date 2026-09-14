@@ -1,13 +1,30 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { markTextOpened } from "@/actions/today-plan";
+import { getReaderRouteForText } from "@/lib/library/queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ReadingText } from "@/components/texts/ReadingText";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
+/**
+ * The compatibility seam between the old passage reader and the library.
+ *
+ * ONE READER, NOT TWO. Keeping a separate "passage reader" and "book reader"
+ * that do the same job would mean every reading feature built from here on has
+ * to be built twice, and one of the two would always be behind. So a passage
+ * that has been processed into a chapter redirects INTO the reader, and the
+ * `texts` row it came from keeps its id, its questions, its completions and its
+ * place in today's plan (`library_items.legacy_text_id` is the mapping).
+ *
+ * The fallback below is what makes that safe to deploy. A project upgrading to
+ * Phase 4 has passages whose structured content has not been built yet, and they
+ * keep rendering exactly as they did — the legacy body, the legacy gate, the
+ * legacy test button — until an admin processes them. No content freeze, and no
+ * learner is blocked on a migration.
+ */
 export default async function ReadingPage({
   params,
 }: {
@@ -26,6 +43,14 @@ export default async function ReadingPage({
     .maybeSingle();
 
   if (!text) notFound();
+
+  const readerRoute = await getReaderRouteForText(supabase, id);
+  if (readerRoute) {
+    // Recorded before the redirect: the planner's "continue what you started"
+    // signal is about the passage, whichever screen renders it.
+    await markTextOpened(id);
+    redirect(`/library/${readerRoute.slug}/${readerRoute.position}`);
+  }
 
   // The "continue what you started" signal. Nothing else in Fluent records that
   // a passage was READ rather than tested on, which is exactly the learner the

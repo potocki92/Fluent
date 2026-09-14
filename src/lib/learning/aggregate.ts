@@ -287,6 +287,11 @@ function eventRow(item: LearningEvidence): Record<string, unknown> {
     word_id: item.wordId,
     test_session_id: item.testSessionId,
     calibration_session_id: item.calibrationSessionId,
+    library_item_id: item.libraryItemId,
+    chapter_id: item.chapterId,
+    sentence_id: item.sentenceId,
+    word_occurrence_id: item.wordOccurrenceId,
+    reading_session_id: item.readingSessionId,
     concepts: item.conceptCodes,
   };
 }

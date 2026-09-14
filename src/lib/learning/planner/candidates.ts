@@ -27,14 +27,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { abilityToCefr } from "@/lib/cefr";
 import type { ConceptCode } from "@/lib/learning/concepts";
 import {
+  CHAPTER_BUDGET_SHARE,
+  CHAPTER_LEVEL_FAR,
+  CHAPTER_LEVEL_MATCH,
+  CHAPTER_LEVEL_NEAR,
   DEFAULT_READING_MINUTES,
   EVIDENCE_LEVEL_THRESHOLDS,
   KNOWN_WORD_CONFIDENCE,
   KNOWN_WORD_SCORE,
   MAX_NEW_WORDS,
+  MAX_CHAPTER_SEGMENT_MINUTES,
   MAX_PRACTICE_QUESTIONS,
   MAX_READING_MINUTES,
   MAX_REVIEW_BATCH,
+  MIN_CHAPTER_SEGMENT_MINUTES,
   MIN_NEW_WORDS,
   MIN_PRACTICE_QUESTIONS,
   MIN_READING_MINUTES,
@@ -57,6 +63,7 @@ import {
 } from "@/lib/learning/planner/priority";
 import { reason } from "@/lib/learning/planner/reasons";
 import type { EvidenceLevel, PlanCandidate } from "@/lib/learning/planner/types";
+import { READING_SEGMENT_COMPLETION_SHARE } from "@/lib/reading/constants";
 import type { RankedWeakness } from "@/lib/learning/weakness";
 import type { Database } from "@/types/database";
 import type { StoredCefrLevel } from "@/types";
@@ -439,7 +446,264 @@ export async function readingCandidates(ctx: PlannerContext): Promise<PlanCandid
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. NEW VOCABULARY
+// 5. READING A CHAPTER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** CEFR bands, in order, so "one band away" is arithmetic rather than a table. */
+const CEFR_ORDER = ["A1", "A2", "B1", "B2"] as const;
+
+/**
+ * How well a chapter's level fits the learner.
+ *
+ * Coarse on purpose: a library item carries a CEFR estimate, not an Elo rating,
+ * because nobody has calibrated a novel against an item bank. Pretending to Elo
+ * precision here would be inventing a signal — see the rule at the top of this
+ * file.
+ */
+export function chapterLevelSignal(
+  chapterCefr: string | null,
+  ability: number,
+): number {
+  if (!chapterCefr) return CHAPTER_LEVEL_NEAR;
+  const learner = abilityToCefr(ability).replace("+", "") as StoredCefrLevel;
+  const distance = Math.abs(
+    CEFR_ORDER.indexOf(chapterCefr as StoredCefrLevel) - CEFR_ORDER.indexOf(learner),
+  );
+  if (distance === 0) return CHAPTER_LEVEL_MATCH;
+  if (distance === 1) return CHAPTER_LEVEL_NEAR;
+  return CHAPTER_LEVEL_FAR;
+}
+
+/**
+ * How long a reading activity should be, and what counts as having done it.
+ *
+ * A CHAPTER IS NOT A UNIT OF TIME. A graded passage is read in one sitting, so
+ * "read this passage" is a sensible task. A chapter can be 15 000 words, and
+ * putting "read chapter 12" in a twelve-minute plan would be a task the learner
+ * cannot finish — which is worse than no task, because it teaches them the plan
+ * does not mean anything. So the activity is a SEGMENT: as much of the chapter
+ * as fits, capped, and the chapter is finished whenever the learner finishes it.
+ */
+export function chapterSegmentMinutes(
+  chapterMinutes: number,
+  targetMinutes: number,
+): number {
+  const affordable = Math.round(targetMinutes * CHAPTER_BUDGET_SHARE);
+  const slice = Math.max(
+    MIN_CHAPTER_SEGMENT_MINUTES,
+    Math.min(MAX_CHAPTER_SEGMENT_MINUTES, affordable),
+  );
+  // A chapter shorter than the slice is finished, not padded: asking for eight
+  // minutes of a five-minute chapter would make the task impossible to satisfy.
+  return Math.max(1, Math.min(chapterMinutes, slice));
+}
+
+/** Active reading seconds that satisfy a segment. See `sync_daily_plan`. */
+export function chapterTargetSeconds(segmentMinutes: number): number {
+  return Math.round(segmentMinutes * 60 * READING_SEGMENT_COMPLETION_SHARE);
+}
+
+interface ChapterRow {
+  id: string;
+  library_item_id: string;
+  position: number;
+  title: string | null;
+  word_count: number;
+  estimated_reading_minutes: number;
+  status: string;
+}
+
+/**
+ * Reading a book: the chapter already begun, then the next one.
+ *
+ * WHY LEGACY PASSAGES ARE EXCLUDED. Every `texts` row now also exists as a
+ * one-chapter library item, so a migrated passage would otherwise produce TWO
+ * candidates for the same content — one from `readingCandidates` and one from
+ * here — and a plan with the same task twice is a bug the learner can see. The
+ * passage generator keeps them, because it also knows about their comprehension
+ * tests and completions; this generator is for content that is genuinely a book.
+ *
+ * CONTINUING BEATS STARTING, strongly. Someone three chapters into a story has
+ * already made the hard decision; the useful thing a plan can do is put them
+ * back in it.
+ */
+export async function chapterCandidates(
+  ctx: PlannerContext,
+): Promise<PlanCandidate[]> {
+  const { data: progress } = await ctx.supabase
+    .from("reading_progress")
+    .select("chapter_id, library_item_id, progress_ratio, completed_at, last_read_at")
+    .eq("user_id", ctx.userId)
+    .order("last_read_at", { ascending: false })
+    .limit(30);
+
+  const rows = progress ?? [];
+  const openChapterIds = rows
+    .filter((row) => !row.completed_at)
+    .map((row) => row.chapter_id);
+  const readItemIds = [...new Set(rows.map((row) => row.library_item_id))];
+  const completedChapterIds = new Set(
+    rows.filter((row) => row.completed_at).map((row) => row.chapter_id),
+  );
+
+  // Books only: `legacy_text_id is null` is the de-duplication described above.
+  const { data: items } = await ctx.supabase
+    .from("library_items")
+    .select("id, slug, title, cefr_estimate")
+    .eq("status", "published")
+    .is("archived_at", null)
+    .is("legacy_text_id", null)
+    .limit(60);
+
+  const itemById = new Map((items ?? []).map((item) => [item.id, item]));
+  if (itemById.size === 0) return [];
+
+  const { data: chapters } = await ctx.supabase
+    .from("chapters")
+    .select(
+      "id, library_item_id, position, title, word_count, estimated_reading_minutes, status",
+    )
+    .in("library_item_id", [...itemById.keys()])
+    .eq("status", "ready")
+    .order("position", { ascending: true })
+    .limit(500);
+
+  const byItem = new Map<string, ChapterRow[]>();
+  for (const chapter of (chapters ?? []) as ChapterRow[]) {
+    byItem.set(chapter.library_item_id, [
+      ...(byItem.get(chapter.library_item_id) ?? []),
+      chapter,
+    ]);
+  }
+
+  const candidates: PlanCandidate[] = [];
+
+  // 1. The chapter in progress, most recently read first.
+  for (const chapterId of openChapterIds) {
+    const row = rows.find((entry) => entry.chapter_id === chapterId);
+    const item = row ? itemById.get(row.library_item_id) : undefined;
+    const chapter = item
+      ? byItem.get(item.id)?.find((entry) => entry.id === chapterId)
+      : undefined;
+    if (!row || !item || !chapter) continue;
+
+    const minutes = chapterSegmentMinutes(
+      chapter.estimated_reading_minutes,
+      ctx.targetMinutes,
+    );
+    candidates.push({
+      type: "continue_chapter",
+      estimatedMinutes: minutes,
+      targetCount: 1,
+      targetSeconds: chapterTargetSeconds(minutes),
+      libraryItemId: item.id,
+      chapterId: chapter.id,
+      signals: signals({
+        continuation: continuationSignal({
+          hasOpenTestSession: false,
+          lastOpenedAt: row.last_read_at,
+          now: ctx.now,
+        }),
+        difficultyMatch: chapterLevelSignal(item.cefr_estimate, ctx.ability),
+      }),
+      reason: reason("chapter_started", {
+        itemTitle: item.title,
+        chapterPosition: chapter.position,
+      }),
+      payload: chapterPayload(item, chapter, Number(row.progress_ratio)),
+    });
+    break;
+  }
+
+  // 2. The next chapter of something already being read.
+  for (const itemId of readItemIds) {
+    const item = itemById.get(itemId);
+    if (!item) continue;
+    const next = byItem
+      .get(itemId)
+      ?.find(
+        (chapter) =>
+          !completedChapterIds.has(chapter.id) &&
+          !openChapterIds.includes(chapter.id),
+      );
+    if (!next) continue;
+
+    const minutes = chapterSegmentMinutes(
+      next.estimated_reading_minutes,
+      ctx.targetMinutes,
+    );
+    candidates.push({
+      type: "new_chapter",
+      estimatedMinutes: minutes,
+      targetCount: 1,
+      targetSeconds: chapterTargetSeconds(minutes),
+      libraryItemId: item.id,
+      chapterId: next.id,
+      signals: signals({
+        difficultyMatch: chapterLevelSignal(item.cefr_estimate, ctx.ability),
+      }),
+      reason: reason("chapter_next", { chapterPosition: next.position }),
+      payload: chapterPayload(item, next, 0),
+    });
+    break;
+  }
+
+  if (candidates.length > 0) return candidates;
+
+  // 3. Nothing started at all: the best-fitting first chapter in the library.
+  const fresh = [...itemById.values()]
+    .map((item) => ({
+      item,
+      chapter: byItem.get(item.id)?.[0],
+      fit: chapterLevelSignal(item.cefr_estimate, ctx.ability),
+    }))
+    .filter((entry) => entry.chapter !== undefined)
+    .sort((a, b) => b.fit - a.fit)[0];
+
+  if (!fresh?.chapter) return [];
+
+  const minutes = chapterSegmentMinutes(
+    fresh.chapter.estimated_reading_minutes,
+    ctx.targetMinutes,
+  );
+  return [
+    {
+      type: "new_chapter",
+      estimatedMinutes: minutes,
+      targetCount: 1,
+      targetSeconds: chapterTargetSeconds(minutes),
+      libraryItemId: fresh.item.id,
+      chapterId: fresh.chapter.id,
+      signals: signals({ difficultyMatch: fresh.fit }),
+      reason: reason("chapter_first", { itemTitle: fresh.item.title }),
+      payload: chapterPayload(fresh.item, fresh.chapter, 0),
+    },
+  ];
+}
+
+/**
+ * Everything the plan card needs to render WITHOUT a join.
+ *
+ * The slug and position are snapshotted here for the same reason every other
+ * plan item snapshots its labels: yesterday's plan must keep saying what it said
+ * yesterday, and the href must keep working after a rename.
+ */
+function chapterPayload(
+  item: { slug: string; title: string },
+  chapter: ChapterRow,
+  progressRatio: number,
+): Record<string, unknown> {
+  return {
+    slug: item.slug,
+    itemTitle: item.title,
+    chapterPosition: chapter.position,
+    chapterTitle: chapter.title,
+    progressRatio,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. NEW VOCABULARY
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** How many dictionary rows to look at when assembling a batch. */

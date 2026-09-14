@@ -212,6 +212,8 @@ export type Database = {
           timezone: string;
           /** Daily learning budget in minutes — the unit a plan is built in. */
           daily_learning_minutes: number;
+          /** Reader typography and theme. Learner-owned, like `daily_word_goal`. */
+          reader_preferences: Json;
           created_at: string;
           updated_at: string;
         };
@@ -233,6 +235,7 @@ export type Database = {
           last_word_review?: string | null;
           timezone?: string;
           daily_learning_minutes?: number;
+          reader_preferences?: Json;
           created_at?: string;
           updated_at?: string;
         };
@@ -322,6 +325,17 @@ export type Database = {
           due_at: string;
           is_mastered: boolean;
           saved_at: string;
+          /**
+           * Where the card was met. Written once, by `save_word_from_reader`.
+           * `origin_context` holds the SENTENCE TEXT, not a reference to it, so a
+           * deleted book or a reprocessed chapter cannot empty the card.
+           */
+          origin_library_item_id: string | null;
+          origin_chapter_id: string | null;
+          origin_sentence_id: number | null;
+          origin_occurrence_id: number | null;
+          origin_context: string | null;
+          origin_surface: string | null;
         };
         Insert: {
           user_id: string;
@@ -332,6 +346,12 @@ export type Database = {
           due_at?: string;
           is_mastered?: boolean;
           saved_at?: string;
+          origin_library_item_id?: string | null;
+          origin_chapter_id?: string | null;
+          origin_sentence_id?: number | null;
+          origin_occurrence_id?: number | null;
+          origin_context?: string | null;
+          origin_surface?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["saved_words"]["Insert"]>;
         Relationships: [
@@ -878,6 +898,413 @@ export type Database = {
         ];
       };
       /**
+       * A readable thing: a story, a book, an article, or one of the graded
+       * passages that existed before the library did (`legacy_text_id`).
+       */
+      library_items: {
+        Row: {
+          id: string;
+          slug: string;
+          title: string;
+          subtitle: string | null;
+          author: string | null;
+          language: string;
+          description: string | null;
+          cover_url: string | null;
+          content_type: "story" | "book" | "article" | "lesson";
+          /** Decides who may see it at all. `private_import` is owner-only. */
+          rights: "first_party" | "public_domain" | "licensed" | "private_import";
+          rights_note: string | null;
+          /** Set if and only if `rights = 'private_import'`. */
+          owner_user_id: string | null;
+          source_type: string | null;
+          source_url: string | null;
+          status: "draft" | "processing" | "ready" | "published" | "failed";
+          cefr_estimate: "A1" | "A2" | "B1" | "B2" | null;
+          word_count: number;
+          chapter_count: number;
+          /** Soft delete: withdrawn without destroying anyone's reading history. */
+          archived_at: string | null;
+          published_at: string | null;
+          created_at: string;
+          updated_at: string;
+          /** The `texts` row this item was migrated from, if any. */
+          legacy_text_id: number | null;
+        };
+        Insert: {
+          id?: string;
+          slug: string;
+          title: string;
+          subtitle?: string | null;
+          author?: string | null;
+          language?: string;
+          description?: string | null;
+          cover_url?: string | null;
+          content_type?: "story" | "book" | "article" | "lesson";
+          rights?: "first_party" | "public_domain" | "licensed" | "private_import";
+          rights_note?: string | null;
+          owner_user_id?: string | null;
+          source_type?: string | null;
+          source_url?: string | null;
+          status?: "draft" | "processing" | "ready" | "published" | "failed";
+          cefr_estimate?: "A1" | "A2" | "B1" | "B2" | null;
+          word_count?: number;
+          chapter_count?: number;
+          archived_at?: string | null;
+          published_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          legacy_text_id?: number | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["library_items"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "library_items_legacy_text_id_fkey";
+            columns: ["legacy_text_id"];
+            referencedRelation: "texts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** One chapter — the unit of reading, of loading, and of progress. */
+      chapters: {
+        Row: {
+          id: string;
+          library_item_id: string;
+          /** 1-based, unique within the item, and part of the URL. */
+          position: number;
+          title: string | null;
+          subtitle: string | null;
+          /** The raw text this chapter was built from; reprocessing reads it. */
+          source_text: string;
+          word_count: number;
+          paragraph_count: number;
+          sentence_count: number;
+          estimated_reading_minutes: number;
+          cefr_estimate: "A1" | "A2" | "B1" | "B2" | null;
+          status: "draft" | "processing" | "ready" | "failed";
+          /** Which pipeline built the structure. See `CONTENT_PROCESSOR_VERSION`. */
+          processor_version: string | null;
+          content_hash: string | null;
+          processed_at: string | null;
+          processing_error: string | null;
+          /** Share of content words the dictionary can gloss, 0–1. */
+          dictionary_match_rate: number | null;
+          unmatched_sample: Json;
+          vocabulary_stats: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          library_item_id: string;
+          position: number;
+          title?: string | null;
+          subtitle?: string | null;
+          source_text?: string;
+          word_count?: number;
+          paragraph_count?: number;
+          sentence_count?: number;
+          estimated_reading_minutes?: number;
+          cefr_estimate?: "A1" | "A2" | "B1" | "B2" | null;
+          status?: "draft" | "processing" | "ready" | "failed";
+          processor_version?: string | null;
+          content_hash?: string | null;
+          processed_at?: string | null;
+          processing_error?: string | null;
+          dictionary_match_rate?: number | null;
+          unmatched_sample?: Json;
+          vocabulary_stats?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["chapters"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "chapters_library_item_id_fkey";
+            columns: ["library_item_id"];
+            referencedRelation: "library_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** A paragraph of plain text. Positions are stable; progress points at them. */
+      paragraphs: {
+        Row: {
+          id: number;
+          chapter_id: string;
+          position: number;
+          kind: "paragraph" | "heading" | "list_item";
+          text: string;
+          word_count: number;
+          metadata: Json;
+        };
+        Insert: {
+          id?: number;
+          chapter_id: string;
+          position: number;
+          kind?: "paragraph" | "heading" | "list_item";
+          text: string;
+          word_count?: number;
+          metadata?: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["paragraphs"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "paragraphs_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * One sentence. The anchor contextual help will attach to — translation,
+       * simplification and grammar notes are reserved here and stay null.
+       */
+      sentences: {
+        Row: {
+          id: number;
+          paragraph_id: number;
+          chapter_id: string;
+          position: number;
+          chapter_position: number;
+          text: string;
+          char_start: number;
+          char_end: number;
+          word_count: number;
+          translation_pl: string | null;
+          simplified_de: string | null;
+          grammar_notes: Json | null;
+          metadata: Json;
+        };
+        Insert: {
+          id?: number;
+          paragraph_id: number;
+          chapter_id: string;
+          position: number;
+          chapter_position: number;
+          text: string;
+          char_start?: number;
+          char_end?: number;
+          word_count?: number;
+          translation_pl?: string | null;
+          simplified_de?: string | null;
+          grammar_notes?: Json | null;
+          metadata?: Json;
+        };
+        Update: Partial<Database["public"]["Tables"]["sentences"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "sentences_paragraph_id_fkey";
+            columns: ["paragraph_id"];
+            referencedRelation: "paragraphs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** "This word, in this sentence, here." The datum behind the old `<mark>`. */
+      word_occurrences: {
+        Row: {
+          id: number;
+          sentence_id: number;
+          chapter_id: string;
+          position: number;
+          surface: string;
+          normalized: string;
+          lemma: string;
+          word_id: number | null;
+          char_start: number;
+          char_end: number;
+          metadata: Json;
+        };
+        Insert: {
+          id?: number;
+          sentence_id: number;
+          chapter_id: string;
+          position: number;
+          surface: string;
+          normalized: string;
+          lemma: string;
+          word_id?: number | null;
+          char_start?: number;
+          char_end?: number;
+          metadata?: Json;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["word_occurrences"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "word_occurrences_sentence_id_fkey";
+            columns: ["sentence_id"];
+            referencedRelation: "sentences";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** The chapter's distinct dictionary words, aggregated at processing time. */
+      chapter_vocabulary: {
+        Row: {
+          chapter_id: string;
+          word_id: number;
+          occurrence_count: number;
+          first_paragraph_position: number;
+          first_sentence_position: number;
+        };
+        Insert: {
+          chapter_id: string;
+          word_id: number;
+          occurrence_count?: number;
+          first_paragraph_position?: number;
+          first_sentence_position?: number;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_vocabulary"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_vocabulary_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * Where a learner is in a chapter.
+       *
+       * `resume_*` follows them in both directions; `furthest_*` only ever
+       * increases and is the only input to `progress_ratio` and completion.
+       * Read-only to its owner — every write goes through a SECURITY DEFINER
+       * function.
+       */
+      reading_progress: {
+        Row: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          started_at: string;
+          last_read_at: string;
+          completed_at: string | null;
+          resume_paragraph_position: number;
+          resume_sentence_position: number | null;
+          furthest_paragraph_position: number;
+          progress_ratio: number;
+          active_seconds: number;
+          lookup_count: number;
+          session_count: number;
+        };
+        Insert: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          started_at?: string;
+          last_read_at?: string;
+          completed_at?: string | null;
+          resume_paragraph_position?: number;
+          resume_sentence_position?: number | null;
+          furthest_paragraph_position?: number;
+          progress_ratio?: number;
+          active_seconds?: number;
+          lookup_count?: number;
+          session_count?: number;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["reading_progress"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "reading_progress_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** One sitting with a chapter. `active_seconds` is active, not wall, time. */
+      reading_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          started_at: string;
+          last_active_at: string;
+          ended_at: string | null;
+          status: "in_progress" | "ended";
+          active_seconds: number;
+          words_progressed: number;
+          progress_before: number;
+          progress_after: number;
+          lookup_count: number;
+          unique_lookup_count: number;
+          sentence_help_count: number;
+          saved_word_count: number;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          started_at?: string;
+          last_active_at?: string;
+          ended_at?: string | null;
+          status?: "in_progress" | "ended";
+          active_seconds?: number;
+          words_progressed?: number;
+          progress_before?: number;
+          progress_after?: number;
+          lookup_count?: number;
+          unique_lookup_count?: number;
+          sentence_help_count?: number;
+          saved_word_count?: number;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["reading_sessions"]["Insert"]
+        >;
+        Relationships: [];
+      };
+      /** Which word, in which sentence, in which chapter, when. */
+      reading_lookups: {
+        Row: {
+          id: number;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          session_id: string | null;
+          sentence_id: number | null;
+          occurrence_id: number | null;
+          word_id: number;
+          /** Minted per tap; the unique key that makes a retry a no-op. */
+          interaction_id: string;
+          looked_up_at: string;
+        };
+        Insert: {
+          id?: number;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          session_id?: string | null;
+          sentence_id?: number | null;
+          occurrence_id?: number | null;
+          word_id: number;
+          interaction_id: string;
+          looked_up_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["reading_lookups"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "reading_lookups_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
        * "This learner opened this passage" — the minimal reading state the Today
        * planner needs to recommend finishing something rather than starting
        * something. Not a reader session; see the Today engine migration.
@@ -953,7 +1380,9 @@ export type Database = {
             | "weakness_practice"
             | "continue_text"
             | "new_text"
-            | "new_vocabulary";
+            | "new_vocabulary"
+            | "continue_chapter"
+            | "new_chapter";
           status: "pending" | "in_progress" | "completed" | "skipped";
           estimated_minutes: number;
           priority_score: number;
@@ -966,6 +1395,10 @@ export type Database = {
           concept_code: string | null;
           word_ids: number[];
           payload: Json;
+          library_item_id: string | null;
+          chapter_id: string | null;
+          /** Active reading seconds that satisfy this item. Written by the planner. */
+          target_seconds: number | null;
           started_at: string | null;
           completed_at: string | null;
         };
@@ -986,6 +1419,9 @@ export type Database = {
           concept_code?: string | null;
           word_ids?: number[];
           payload?: Json;
+          library_item_id?: string | null;
+          chapter_id?: string | null;
+          target_seconds?: number | null;
           started_at?: string | null;
           completed_at?: string | null;
         };
@@ -1341,6 +1777,119 @@ export type Database = {
           answer_key_idx: number;
           already_answered: boolean;
         }[];
+      };
+      /** Opens (or re-opens) a chapter and says where to resume. */
+      start_reading_session: {
+        Args: { p_chapter_id: string };
+        Returns: {
+          session_id: string;
+          library_item_id: string;
+          resume_paragraph: number;
+          resume_sentence: number | null;
+          furthest_paragraph: number;
+          progress_ratio: number;
+          completed_at: string | null;
+          resumed: boolean;
+        }[];
+      };
+      /**
+       * Records where the learner is. `furthest` only ever increases;
+       * `p_max_active_seconds` is the cap from `src/lib/reading/constants.ts`.
+       */
+      record_reading_progress: {
+        Args: {
+          p_session_id: string;
+          p_paragraph_position: number;
+          p_sentence_position: number | null;
+          p_active_seconds: number;
+          p_max_active_seconds: number;
+        };
+        Returns: {
+          progress_ratio: number;
+          furthest_paragraph: number;
+          active_seconds: number;
+          words_read: number;
+        }[];
+      };
+      /** Finishes a chapter. Refuses below `p_min_ratio`; idempotent. */
+      complete_reading_chapter: {
+        Args: { p_session_id: string; p_min_ratio: number };
+        Returns: {
+          already_completed: boolean;
+          words_read: number;
+          active_seconds: number;
+          lookup_count: number;
+          unique_lookup_count: number;
+          saved_word_count: number;
+          chapter_id: string;
+          library_item_id: string;
+        }[];
+      };
+      /** Seals a session without finishing the chapter. */
+      end_reading_session: {
+        Args: {
+          p_session_id: string;
+          p_active_seconds: number;
+          p_max_active_seconds: number;
+        };
+        Returns: undefined;
+      };
+      /** Saves a word with the sentence it was met in. Origin is derived, not passed. */
+      save_word_from_reader: {
+        Args: { p_word_id: number; p_occurrence_id: number | null };
+        Returns: { saved: boolean; was_new: boolean; context_de: string | null }[];
+      };
+      /** service_role only — writes a chapter's structure in one transaction. */
+      replace_chapter_content: {
+        Args: { p_chapter_id: string; p_payload: Json };
+        Returns: Json;
+      };
+      /** service_role only — records why a chapter could not be processed. */
+      fail_chapter_processing: {
+        Args: { p_chapter_id: string; p_error: string };
+        Returns: undefined;
+      };
+      /**
+       * service_role only — one lookup: the reading record and the learning
+       * evidence, together. Evidence is applied only for a genuinely new lookup.
+       */
+      apply_reading_lookup: {
+        Args: {
+          p_user_id: string;
+          p_interaction_id: string;
+          p_chapter_id: string;
+          p_word_id: number;
+          p_sentence_id: number | null;
+          p_occurrence_id: number | null;
+          p_session_id: string | null;
+          p_evidence: Json;
+        };
+        Returns: {
+          already_recorded: boolean;
+          lookup_count: number;
+          unique_lookup_count: number;
+          word_lookup_total: number;
+        }[];
+      };
+      /** service_role only — chapter started/finished, as history that scores nothing. */
+      apply_reading_event: {
+        Args: { p_user_id: string; p_evidence: Json };
+        Returns: number;
+      };
+      /** service_role only — gives any passage without a library item one. */
+      backfill_library_from_texts: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      /** service_role only — re-publishes migrated passages once processed. */
+      publish_processed_legacy_items: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      /** URL-safe slug, umlaut-aware. */
+      slugify: {
+        Args: { p_value: string };
+        Returns: string;
       };
       /** service_role only — EXECUTE is revoked from anon/authenticated. */
       finalize_practice_session: {

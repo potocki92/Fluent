@@ -17,6 +17,8 @@
  * | Quiz review, DE → PL                      | receptive_vocabulary  | receptive |
  * | Typed review, PL → DE *(not built yet)*   | active_vocabulary     | active    |
  * | Spoken production *(not built yet)*       | speaking              | active    |
+ * | Word lookup while reading                 | receptive_vocabulary  | receptive |
+ * | Opening / finishing a chapter             | — (history only)      | —         |
  *
  * THE RULE BEHIND THE TABLE. What decides receptive vs active is the *retrieval*
  * the exercise demands, never the button the learner pressed. Choosing "miecz"
@@ -34,6 +36,7 @@
 
 import type { ConceptCode } from "@/lib/learning/concepts";
 import type { SkillCode } from "@/lib/learning/skills";
+import { LOOKUP_EVIDENCE_DISCOUNT } from "@/lib/reading/constants";
 
 /** Kinds of interaction the event log accepts. Mirrors the SQL check constraint. */
 export type LearningEventType =
@@ -42,9 +45,12 @@ export type LearningEventType =
   | "calibration_answer"
   | "review"
   | "practice_answer"
-  // accepted by the model, produced by nothing yet
   | "reading_lookup"
+  | "reading_chapter_started"
+  | "reading_chapter_completed"
+  // accepted by the model, produced by nothing yet
   | "reading_sentence_help"
+  | "reading_resume"
   | "typed_recall"
   | "listening_answer"
   | "speaking_answer"
@@ -164,6 +170,12 @@ export interface LearningEvidence {
   wordId: number | null;
   testSessionId: string | null;
   calibrationSessionId: string | null;
+  /** Reader provenance. All null outside reading. */
+  libraryItemId: string | null;
+  chapterId: string | null;
+  sentenceId: number | null;
+  wordOccurrenceId: number | null;
+  readingSessionId: string | null;
   vocabularyChannel: VocabularyChannel | null;
   /** Effective weight for the knowledge model, 0–1. */
   weight: number;
@@ -220,6 +232,11 @@ const EMPTY_EVIDENCE: Omit<LearningEvidence, "eventKey" | "eventType" | "occurre
   wordId: null,
   testSessionId: null,
   calibrationSessionId: null,
+  libraryItemId: null,
+  chapterId: null,
+  sentenceId: null,
+  wordOccurrenceId: null,
+  readingSessionId: null,
   vocabularyChannel: null,
   weight: 0,
 };
@@ -375,6 +392,111 @@ export function reviewEvidence(input: {
     wordId: input.wordId,
     vocabularyChannel: channel,
     weight: reviewEvidenceWeight(input.mode, input.rating),
+  };
+}
+
+/**
+ * One word looked up while reading.
+ *
+ * A LOOKUP IS NOT A FAILED TEST — this is the single most important judgement in
+ * the reader, and getting it wrong would quietly corrupt the knowledge model for
+ * every learner who reads a lot.
+ *
+ * What a tap on *Schwert* actually means is "I was not sure enough to keep
+ * going". That is genuine negative evidence about receptive knowledge of that
+ * word, and it is much weaker than getting *Schwert* wrong in a graded item:
+ * people also tap to confirm a guess, out of curiosity, or by accident. So it is
+ * recorded with the `passive` response weight and discounted again
+ * ({@link LOOKUP_EVIDENCE_DISCOUNT}), landing at 0.1 — a sixth of a
+ * multiple-choice answer. One tap barely moves the estimate; the same word
+ * looked up five times across five chapters moves it clearly, which is exactly
+ * the signal worth having.
+ *
+ * NO CONCEPT IS TAGGED. A lookup says the word was unknown; it says nothing
+ * about *why*, and attributing it to `lexical_recognition` would be the model
+ * inventing a weakness from a gesture. The word channel records it, and that is
+ * the whole claim.
+ *
+ * IDEMPOTENT. `interactionId` is minted per tap, so a retried request settles
+ * the same lookup instead of counting the word as unknown twice.
+ */
+export function readingLookupEvidence(input: {
+  interactionId: string;
+  wordId: number;
+  libraryItemId: string;
+  chapterId: string;
+  sentenceId: number | null;
+  occurrenceId: number | null;
+  readingSessionId: string | null;
+  occurredAt: string;
+}): LearningEvidence {
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `reading-lookup:${input.interactionId}`,
+    eventType: "reading_lookup",
+    occurredAt: input.occurredAt,
+    skillCode: "receptive_vocabulary",
+    responseMode: "passive",
+    retrievalType: "recognition",
+    // "Needed help" is the observation. See the note above on why this is not
+    // the same thing as "answered incorrectly".
+    isCorrect: false,
+    sourceKind: "reader",
+    conceptCodes: [],
+    wordId: input.wordId,
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sentenceId,
+    wordOccurrenceId: input.occurrenceId,
+    readingSessionId: input.readingSessionId,
+    vocabularyChannel: "receptive",
+    weight: round(RESPONSE_MODE_WEIGHT.passive * LOOKUP_EVIDENCE_DISCOUNT),
+  };
+}
+
+/**
+ * Opening or finishing a chapter.
+ *
+ * HISTORY, NOT MASTERY. There is no skill, no concept and no word on these
+ * events, which means {@link foldEvidence} moves nothing at all when it sees
+ * one: they are written to `learning_events` and update no state. That is
+ * deliberate and it is the rule from the learning engine applied honestly —
+ * having read a chapter is not evidence that its language was understood, and a
+ * reading engine that quietly credited comprehension for scrolling would be
+ * inventing exactly the kind of knowledge Fluent refuses to claim.
+ *
+ * They are recorded because the reading HISTORY is worth having: when a chapter
+ * was started, when it was finished, how long that took, how the lookup rate
+ * changed between chapter one and chapter twenty.
+ */
+export function chapterReadingEvidence(input: {
+  event: "started" | "completed";
+  readingSessionId: string;
+  libraryItemId: string;
+  chapterId: string;
+  activeSeconds: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `reading-chapter:${input.event}:${input.readingSessionId}`,
+    eventType:
+      input.event === "started"
+        ? "reading_chapter_started"
+        : "reading_chapter_completed",
+    occurredAt: input.occurredAt,
+    skillCode: null,
+    responseMode: "passive",
+    retrievalType: "recognition",
+    isCorrect: true,
+    responseMs: input.activeSeconds === null ? null : input.activeSeconds * 1000,
+    sourceKind: "reader",
+    conceptCodes: [],
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    readingSessionId: input.readingSessionId,
+    vocabularyChannel: null,
+    weight: 0,
   };
 }
 

@@ -91,6 +91,32 @@ export const SECONDS_PER_NEW_WORD = 25;
 /** The placement test, as offered to a learner who has no level yet. */
 export const PLACEMENT_MINUTES = 5;
 
+// ── READING A CHAPTER ────────────────────────────────────────────────────────
+// A chapter of a book is not a graded passage and is not budgeted like one. A
+// passage is read to answer questions about it and is finished in one sitting; a
+// chapter can be 15 000 words, and "read the whole thing" is not a task that
+// fits in a twelve-minute plan. So a reading activity is a SEGMENT — a slice of
+// time — and the chapter is finished whenever the learner finishes it.
+
+/** Longest reading slice one plan may ask for. */
+export const MAX_CHAPTER_SEGMENT_MINUTES = 15;
+/** Shortest slice worth opening a book for. */
+export const MIN_CHAPTER_SEGMENT_MINUTES = 4;
+/** Share of the daily budget a single reading activity may claim. */
+export const CHAPTER_BUDGET_SHARE = 0.6;
+
+/**
+ * How well a chapter's level matches the learner's, by CEFR band.
+ *
+ * Coarser than the Elo `difficultyMatch` used for graded passages, and honestly
+ * so: a library item carries a CEFR estimate, not an Elo rating, because nobody
+ * has calibrated a novel against an item bank. Three values rather than a curve,
+ * because three is all the precision the input supports.
+ */
+export const CHAPTER_LEVEL_MATCH = 1;
+export const CHAPTER_LEVEL_NEAR = 0.6;
+export const CHAPTER_LEVEL_FAR = 0.15;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIORITY WEIGHTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -160,7 +186,9 @@ export const TYPE_TIEBREAK = {
   review_due: 0.04,
   weakness_practice: 0.03,
   continue_text: 0.02,
+  continue_chapter: 0.02,
   new_text: 0.01,
+  new_chapter: 0.01,
   new_vocabulary: 0,
 } as const;
 
@@ -242,7 +270,9 @@ export const MAX_ITEMS_PER_TYPE: Readonly<Record<string, number>> = {
   review_due: 1,
   weakness_practice: 2,
   continue_text: 1,
+  continue_chapter: 1,
   new_text: 1,
+  new_chapter: 1,
   new_vocabulary: 1,
 };
 
@@ -260,7 +290,9 @@ export const FLOW_ORDER: readonly string[] = [
   "placement",
   "review_due",
   "weakness_practice",
+  "continue_chapter",
   "continue_text",
+  "new_chapter",
   "new_text",
   "new_vocabulary",
 ];

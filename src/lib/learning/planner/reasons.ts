@@ -29,6 +29,9 @@ export type PlanReasonCode =
   | "text_started"
   | "text_unfinished"
   | "level_match"
+  | "chapter_started"
+  | "chapter_next"
+  | "chapter_first"
   | "new_words";
 
 /** Numbers and labels the copy needs. Snapshotted, never re-derived. */
@@ -41,6 +44,10 @@ export interface PlanReasonData {
   conceptLabel?: string;
   /** Passage title, likewise. */
   textTitle?: string;
+  /** Book or story title, snapshotted so a rename cannot rewrite history. */
+  itemTitle?: string;
+  /** Chapter number, for "Rozdział 4". */
+  chapterPosition?: number;
   /** Days the review queue is behind. */
   days?: number;
 }
@@ -84,6 +91,18 @@ export function renderReason({ code, data }: PlanReason): string {
       return "Ten test jeszcze się nie udał — spróbuj ponownie";
     case "level_match":
       return "Tekst dopasowany do Twojego poziomu";
+    case "chapter_started":
+      return data.itemTitle
+        ? `Czytasz „${data.itemTitle}” — wróć do rozdziału`
+        : "Masz rozpoczęty rozdział";
+    case "chapter_next":
+      return data.chapterPosition
+        ? `Kolejny rozdział (${data.chapterPosition}) czeka`
+        : "Kolejny rozdział czeka";
+    case "chapter_first":
+      return data.itemTitle
+        ? `„${data.itemTitle}” pasuje do Twojego poziomu`
+        : "Coś nowego do czytania na Twoim poziomie";
     case "new_words":
       return data.count && data.count > 0
         ? `${data.count} ${pluralWords(data.count)}, których jeszcze nie znasz`
@@ -98,6 +117,8 @@ export const PLAN_ITEM_TITLE_PL: Readonly<Record<string, string>> = {
   weakness_practice: "Ćwiczenie gramatyczne",
   continue_text: "Dokończ tekst",
   new_text: "Czytanie",
+  continue_chapter: "Czytaj dalej",
+  new_chapter: "Nowy rozdział",
   new_vocabulary: "Nowe słówka",
 };
 

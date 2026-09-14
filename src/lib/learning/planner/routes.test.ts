@@ -19,6 +19,8 @@ function item(overrides: Partial<TodayPlanItem> = {}): TodayPlanItem {
     reasonCode: "overdue_reviews",
     reasonData: { count: 8 },
     textId: null,
+    libraryItemId: null,
+    chapterId: null,
     conceptCode: null,
     wordIds: [],
     payload: {},

@@ -101,3 +101,115 @@
     font-family: var(--font-sans);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   READER
+   ─────────────────────────────────────────────────────────────────────────────
+   The reader is the one screen with its own palette, and it needs one: the app
+   is a dark dashboard, and forty minutes of prose is a different activity from
+   eight minutes of answering questions. Rather than touching the global theme
+   (which would restyle every other screen), the reader surface declares its own
+   variables and everything inside it reads THOSE.
+
+   `--reader-*` are set inline on the surface from the learner's saved
+   preferences, so typography changes are one style attribute rather than a
+   class-name matrix, and the server can render the chosen size on the first
+   paint — no flash of default type. */
+
+.reader-surface {
+  --reader-bg: var(--color-dark);
+  --reader-fg: #e2e8f0;
+  --reader-muted: #a0aec0;
+  --reader-accent: var(--color-gold);
+  --reader-rule: #374151;
+
+  background-color: var(--reader-bg);
+  color: var(--reader-fg);
+}
+
+.reader-surface[data-reader-theme="light"] {
+  --reader-bg: #faf9f7;
+  --reader-fg: #23282d;
+  --reader-muted: #6b7280;
+  --reader-accent: #a06b2f;
+  --reader-rule: #e3ded5;
+}
+
+/* Sepia is not "light with a filter": long-form readers use it because the
+   lower blue content is easier at night, so both the ground and the ink move. */
+.reader-surface[data-reader-theme="sepia"] {
+  --reader-bg: #f4ecd8;
+  --reader-fg: #43382a;
+  --reader-muted: #7a6a55;
+  --reader-accent: #97632a;
+  --reader-rule: #e0d3b8;
+}
+
+.reader-prose {
+  font-family: var(--reader-font-family, var(--font-sans));
+  font-size: var(--reader-font-size, 1.0625rem);
+  line-height: var(--reader-line-height, 1.75);
+  /* A measure of roughly 60–75 characters. Wider is measurably harder to read;
+     this is the single biggest typographic difference from the old card. */
+  max-width: 38rem;
+  margin-inline: auto;
+  /* German compounds are long and hyphenation is the difference between an even
+     column and a ragged one. */
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  text-wrap: pretty;
+}
+
+.reader-prose p {
+  margin-block: 0 1.15em;
+}
+
+.reader-prose h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-block: 1.6em 0.7em;
+}
+
+.reader-prose li {
+  margin-block: 0 0.6em;
+  list-style: disc;
+  margin-inline-start: 1.2em;
+}
+
+/* AN INTERACTIVE WORD SHOULD LOOK LIKE A WORD.
+   Roughly a quarter of the tokens on a page resolve to the dictionary; giving
+   each of them a background turns a book into a Christmas tree and makes the
+   text harder to read than the plain version. So the resting state is a faint
+   underline that disappears at reading distance, and the colour only arrives on
+   hover, focus or while the gloss for that word is open. */
+.reader-word {
+  cursor: pointer;
+  border-radius: 0.2em;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(in srgb, var(--reader-accent) 45%, transparent);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+@media (hover: hover) {
+  .reader-word:hover {
+    background-color: color-mix(in srgb, var(--reader-accent) 16%, transparent);
+    color: var(--reader-accent);
+  }
+}
+
+.reader-word:focus-visible,
+.reader-word[data-active="true"] {
+  outline: none;
+  background-color: color-mix(in srgb, var(--reader-accent) 22%, transparent);
+  color: var(--reader-accent);
+}
+
+/* The sentence a gloss was opened from, so "pomoc dla tego zdania" has a
+   visible referent. */
+.reader-sentence[data-active="true"] {
+  background-color: color-mix(in srgb, var(--reader-accent) 10%, transparent);
+  border-radius: 0.25em;
+}

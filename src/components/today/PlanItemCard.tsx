@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  BookMarked,
   BookOpen,
   Check,
   Circle,
@@ -31,6 +32,8 @@ const ICONS: Record<TodayPlanItem["type"], LucideIcon> = {
   weakness_practice: Target,
   continue_text: BookOpen,
   new_text: BookOpen,
+  continue_chapter: BookMarked,
+  new_chapter: BookMarked,
   new_vocabulary: Sparkles,
 };
 

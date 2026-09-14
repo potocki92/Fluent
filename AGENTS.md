@@ -33,13 +33,16 @@ Current stack and conventions:
 Respect the existing `src/`-rooted structure:
 
 - `src/app/` — Next App Router routes, layouts, metadata. Flat routing (no route groups).
-- `src/components/` — UI grouped by area: `ui/` (shadcn primitives), `auth/`, `layout/`, `flashcard/`, `charts/`, `words/`, `texts/`, `level/`.
+- `src/components/` — UI grouped by area: `ui/` (shadcn primitives), `auth/`, `layout/`, `flashcard/`, `charts/`, `words/`, `texts/`, `level/`, `reader/` (the chapter reader), `library/` (the shelf and book pages).
 - `src/hooks/` — TanStack Query data hooks (`useTexts`, `useWords`, `useSavedWords`, `useDueWords`) and the Zustand store (`useAbility`).
 - `src/actions/` — server actions (`"use server"`): the test lifecycle
   (`start-test-session.ts`, `answer-test-question.ts`, `finalize-test-session.ts`),
   the placement lifecycle (`start-`/`answer-`/`finalize-calibration-*.ts`),
   the weakness-drill lifecycle (`start-`/`answer-`/`finalize-practice-*.ts`),
-  the daily plan (`today-plan.ts`), `save-word.ts`, `update-srs.ts`.
+  the daily plan (`today-plan.ts`), the reader (`reading.ts` — sessions, progress,
+  lookups, saving a word with its sentence), library content
+  (`admin-library.ts` — creating and processing chapters),
+  `update-reader-preferences.ts`, `save-word.ts`, `update-srs.ts`.
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
   `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
   `knowledge-model.ts`, `aggregate.ts`, `queries.ts`, `weakness.ts` — all pure,
@@ -47,6 +50,12 @@ Respect the existing `src/`-rooted structure:
   weight and estimate, `priority.ts` scores, `select.ts` fits the budget,
   `reasons.ts` renders the "why", `learning-day.ts` owns the timezone rules;
   `candidates.ts` and `build.ts` are the only files there that touch Supabase),
+  `content/` (the content pipeline: `normalize`, `paragraphs`, `sentences`,
+  `tokenize`, `dictionary-match`, `process`, `version` — all pure and
+  deterministic, no Supabase), `reading/` (the reader's domain: `constants.ts`
+  holds every threshold, `progress.ts` owns resume-vs-furthest, `coverage.ts`
+  owns vocabulary coverage, `preferences.ts` owns typography), `library/queries.ts`
+  (the reader's read layer, the only file there that touches Supabase),
   `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
   Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
@@ -56,9 +65,12 @@ Respect the existing `src/`-rooted structure:
   `node supabase/sync-schema.mjs`. Database security tests: `supabase/tests/`.
 - `docs/architecture/` — ADRs. Read `test-sessions.md` before touching the test,
   calibration or progress-write paths, `learning-engine.md` before touching
-  learning events, review history or any knowledge/skill/concept state, and
+  learning events, review history or any knowledge/skill/concept state,
   `today-engine.md` before touching daily plans, the priority engine, weakness
-  ranking, weakness practice or the learning-day/timezone rules.
+  ranking, weakness practice or the learning-day/timezone rules, and
+  `reader-story-engine.md` before touching library content, chapters, structured
+  text, word occurrences, reading progress/sessions/lookups or the content
+  pipeline.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
 
 Do NOT move the project to root-level folders or out of `src/`. There is no `features/`, `store/`, or `data/` directory — do not assume them.
@@ -66,7 +78,7 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 ## App Router Rules
 
 - Route files in `src/app/` should stay thin and compose components/hooks.
-- Routing is flat: `/today`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`.
+- Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
 - Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
@@ -111,6 +123,17 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   plan-related; use `learning_day(tz, at)` in SQL or `learningDateFor(tz, now)` in
   TypeScript. A UTC server day is the wrong day for hours at a time, and the date
   is a daily plan's identity.
+- **Reading progress never goes backwards, and reading content is never markup.**
+  `furthest_*` is monotonic in SQL (`greatest(...)`), `resume_*` is not, and the
+  two are different facts — never collapse them. Chapters are stored as plain
+  text plus positions; the reader renders structure and never stores or renders
+  arbitrary HTML. Positions are the bookmark, so the content pipeline must stay
+  deterministic and `CONTENT_PROCESSOR_VERSION` must be bumped whenever its
+  output for the same input could change.
+- **A lookup is not a failed test.** Tapping a word is weak evidence about that
+  word and nothing else: no concept is attributed, and the weight lives in
+  `src/lib/learning/evidence.ts` with `src/lib/reading/constants.ts`. Opening or
+  finishing a chapter is history and moves no knowledge state at all.
 - **Knowledge is evidence-backed.** A skill, concept or word state is only ever
   written as the result of a real answer, through `apply_learning_evidence`. Never
   infer one dimension from another (reading does not imply speaking), never
@@ -195,8 +218,10 @@ Do not:
   knowledge model / the priority engine) — including re-implementing them in
   PL/pgSQL; the database owns transactions, `src/lib/` owns the arithmetic
 - scatter tuning constants: every planner weight, budget and time estimate lives
-  in `src/lib/learning/planner/constants.ts`, and a bare `* 0.35` anywhere else in
-  the planner is a bug
+  in `src/lib/learning/planner/constants.ts`, every reader threshold (idle
+  timeout, flush cadence, completion ratio, coverage floors, lookup discount)
+  lives in `src/lib/reading/constants.ts`, and a bare `* 0.35` anywhere else in
+  either is a bug
 - let the client decide anything authoritative: which questions a test contains, what
   a score is, or what a learner's ability becomes
 - change Next/React APIs based only on model memory — check the local Next docs
