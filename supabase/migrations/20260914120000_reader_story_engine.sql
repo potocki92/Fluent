@@ -482,18 +482,27 @@ alter table public.learning_events
 alter table public.learning_events
   add column if not exists reading_session_id uuid references public.reading_sessions(id) on delete set null;
 
+-- Guarded for the same reason as the equivalent block in the Today-engine
+-- migration: a whitelist may only ever be widened by a re-run, never narrowed.
 do $$
 begin
-  alter table public.learning_events drop constraint if exists learning_events_event_type_check;
-  alter table public.learning_events
-    add constraint learning_events_event_type_check check (event_type in (
-      'test_answer', 'calibration_answer', 'review', 'practice_answer',
-      -- produced by the reader
-      'reading_lookup', 'reading_chapter_started', 'reading_chapter_completed',
-      -- accepted by the model, produced by nothing yet
-      'reading_sentence_help', 'reading_resume', 'typed_recall',
-      'listening_answer', 'speaking_answer', 'writing_answer'
-    ));
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.learning_events'::regclass
+      and conname  = 'learning_events_event_type_check'
+      and pg_get_constraintdef(oid) like '%''reading_chapter_started''%'
+  ) then
+    alter table public.learning_events drop constraint if exists learning_events_event_type_check;
+    alter table public.learning_events
+      add constraint learning_events_event_type_check check (event_type in (
+        'test_answer', 'calibration_answer', 'review', 'practice_answer',
+        -- produced by the reader
+        'reading_lookup', 'reading_chapter_started', 'reading_chapter_completed',
+        -- accepted by the model, produced by nothing yet
+        'reading_sentence_help', 'reading_resume', 'typed_recall',
+        'listening_answer', 'speaking_answer', 'writing_answer'
+      ));
+  end if;
 end $$;
 
 create index if not exists learning_events_user_chapter_idx
@@ -547,15 +556,22 @@ alter table public.daily_plan_items
 
 do $$
 begin
-  alter table public.daily_plan_items drop constraint if exists daily_plan_items_item_type_check;
-  alter table public.daily_plan_items
-    add constraint daily_plan_items_item_type_check check (item_type in (
-      'placement', 'review_due', 'weakness_practice',
-      'continue_text', 'new_text', 'new_vocabulary',
-      -- Reading real content: resuming a chapter already begun, or the next one
-      -- of something already being read.
-      'continue_chapter', 'new_chapter'
-    ));
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.daily_plan_items'::regclass
+      and conname  = 'daily_plan_items_item_type_check'
+      and pg_get_constraintdef(oid) like '%''continue_chapter''%'
+  ) then
+    alter table public.daily_plan_items drop constraint if exists daily_plan_items_item_type_check;
+    alter table public.daily_plan_items
+      add constraint daily_plan_items_item_type_check check (item_type in (
+        'placement', 'review_due', 'weakness_practice',
+        'continue_text', 'new_text', 'new_vocabulary',
+        -- Reading real content: resuming a chapter already begun, or the next one
+        -- of something already being read.
+        'continue_chapter', 'new_chapter'
+      ));
+  end if;
 end $$;
 
 create index if not exists daily_plan_items_chapter_idx

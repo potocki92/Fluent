@@ -19,6 +19,10 @@
  * | Spoken production *(not built yet)*       | speaking              | active    |
  * | Word lookup while reading                 | receptive_vocabulary  | receptive |
  * | Opening / finishing a chapter             | — (history only)      | —         |
+ * | Chapter preparation item, DE → PL         | receptive_vocabulary  | receptive |
+ * | Chapter Challenge, comprehension          | reading_comprehension | —         |
+ * | Chapter Challenge, contextual vocabulary  | receptive/active      | either    |
+ * | Chapter Challenge, grammar or transfer    | grammar               | —         |
  *
  * THE RULE BEHIND THE TABLE. What decides receptive vs active is the *retrieval*
  * the exercise demands, never the button the learner pressed. Choosing "miecz"
@@ -37,6 +41,7 @@
 import type { ConceptCode } from "@/lib/learning/concepts";
 import type { SkillCode } from "@/lib/learning/skills";
 import { LOOKUP_EVIDENCE_DISCOUNT } from "@/lib/reading/constants";
+import { PREPARATION_EVIDENCE_DISCOUNT } from "@/lib/story/constants";
 
 /** Kinds of interaction the event log accepts. Mirrors the SQL check constraint. */
 export type LearningEventType =
@@ -48,6 +53,8 @@ export type LearningEventType =
   | "reading_lookup"
   | "reading_chapter_started"
   | "reading_chapter_completed"
+  | "chapter_preparation_answer"
+  | "chapter_assessment_answer"
   // accepted by the model, produced by nothing yet
   | "reading_sentence_help"
   | "reading_resume"
@@ -78,6 +85,7 @@ export type SourceKind =
   | "practice"
   | "reader"
   | "book"
+  | "story"
   | "import";
 
 /** Provenance of the ROW: native events vs. reconstructed history. */
@@ -502,4 +510,138 @@ export function chapterReadingEvidence(input: {
 
 function round(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * One answered item of a chapter preparation session.
+ *
+ * SEEING A WORD BEFORE A CHAPTER IS NOT KNOWING IT. A preparation item shows the
+ * translation and then asks for it back seconds later, from four options, in the
+ * most generous conditions Fluent can construct. Recording that at full
+ * multiple-choice weight would let a learner "learn" forty words a week by
+ * clicking through warm-ups — and the knowledge model, which has no way to see
+ * how easy the retrieval was, would believe every one of them.
+ *
+ * So the multiple-choice weight is discounted again by
+ * {@link PREPARATION_EVIDENCE_DISCOUNT}, landing at 0.24: real evidence, worth
+ * less than half a graded item. What makes preparation valuable to the model is
+ * not this event; it is the RETENTION check days later, when the same word is
+ * asked again with nothing in front of it.
+ *
+ * Receptive only, and deliberately so. Recognising *ziehen* among four Polish
+ * options says nothing about producing it, and letting a recognition exercise
+ * feed active vocabulary is the exact transfer the learning engine forbids.
+ */
+export function chapterPreparationEvidence(input: {
+  sessionId: string;
+  wordId: number;
+  libraryItemId: string;
+  chapterId: string;
+  sentenceId: number | null;
+  isCorrect: boolean;
+  responseMs: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  const retrievalType: RetrievalType = "recognition";
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `chapter-prep:${input.sessionId}:${input.wordId}`,
+    eventType: "chapter_preparation_answer",
+    occurredAt: input.occurredAt,
+    skillCode: "receptive_vocabulary",
+    responseMode: "multiple_choice",
+    retrievalType,
+    isCorrect: input.isCorrect,
+    responseMs: input.responseMs,
+    sourceKind: "story",
+    conceptCodes: ["lexical_recognition"],
+    wordId: input.wordId,
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sentenceId,
+    vocabularyChannel: vocabularyChannelFor(retrievalType),
+    weight: round(RESPONSE_MODE_WEIGHT.multiple_choice * PREPARATION_EVIDENCE_DISCOUNT),
+  };
+}
+
+/**
+ * One answered question of a Chapter Challenge.
+ *
+ * THE CHALLENGE FEEDS THE SAME KNOWLEDGE MODEL AS EVERYTHING ELSE. There is no
+ * separate "story mastery" score, because a second knowledge model is a second
+ * set of numbers that will disagree with the first, and a learner whose Dativ is
+ * failing in tests but passing in books is not a learner Fluent can plan for.
+ *
+ * WHAT MOVES, AND WHAT DOES NOT:
+ *
+ *  - the SKILL comes from the question's own tag, not from the fact that it was
+ *    asked after a chapter. A comprehension question moves
+ *    `reading_comprehension`; a grammar one moves `grammar`;
+ *  - the CONCEPTS are the ones the item is tagged with and nothing else. A wrong
+ *    answer is never attributed to a concept the question does not carry;
+ *  - WORD KNOWLEDGE moves only when the question genuinely tests one word —
+ *    `wordId` set, which validation guarantees for `contextual_vocabulary` and
+ *    forbids nowhere else. A comprehension question about a paragraph that
+ *    happens to contain *Schwert* proves nothing about *Schwert*;
+ *  - the CHANNEL follows the retrieval the question demanded. A cloze the learner
+ *    typed is `cued_recall` and feeds ACTIVE vocabulary; four options are
+ *    recognition and feed receptive. That is the one place the Challenge earns
+ *    active-vocabulary evidence at all, and it earns it by making them produce
+ *    the form.
+ */
+export function chapterAssessmentEvidence(input: {
+  sessionId: string;
+  questionId: number;
+  libraryItemId: string;
+  chapterId: string;
+  skillCode: SkillCode | null;
+  conceptCodes: readonly ConceptCode[];
+  /** Set only when the question was written to test this specific word. */
+  testedWordId: number | null;
+  /** Typed answers are recall; choosing and ordering are recognition. */
+  retrievalType: RetrievalType;
+  responseMode: ResponseMode;
+  sourceSentenceId: number | null;
+  isCorrect: boolean;
+  responseMs: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `chapter-challenge:${input.sessionId}:${input.questionId}`,
+    eventType: "chapter_assessment_answer",
+    occurredAt: input.occurredAt,
+    skillCode: input.skillCode,
+    responseMode: input.responseMode,
+    retrievalType: input.retrievalType,
+    isCorrect: input.isCorrect,
+    responseMs: input.responseMs,
+    sourceKind: "story",
+    conceptCodes: input.conceptCodes,
+    wordId: input.testedWordId,
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sourceSentenceId,
+    vocabularyChannel:
+      input.testedWordId === null ? null : vocabularyChannelFor(input.retrievalType),
+    weight: RESPONSE_MODE_WEIGHT[input.responseMode],
+  };
+}
+
+/**
+ * What a Challenge question demanded of the learner, from how it is answered.
+ *
+ * The rule is the evidence map's, not the UI's: what decides recognition from
+ * recall is the RETRIEVAL, never the widget. A cloze makes them produce the
+ * German with nothing to pick from; every other gradable type puts the answer on
+ * the screen somewhere.
+ */
+export function assessmentRetrieval(questionType: string): {
+  retrievalType: RetrievalType;
+  responseMode: ResponseMode;
+} {
+  if (questionType === "cloze" || questionType === "typed_answer") {
+    return { retrievalType: "cued_recall", responseMode: "typed" };
+  }
+  return { retrievalType: "recognition", responseMode: "multiple_choice" };
 }

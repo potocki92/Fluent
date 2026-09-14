@@ -33,7 +33,14 @@ export type PlanItemType =
   // Reading real content — a chapter of a book or a story, as opposed to a
   // graded passage with a test behind it.
   | "continue_chapter"
-  | "new_chapter";
+  | "new_chapter"
+  // The Story Engine's two activities: clearing a few obstacles before a
+  // chapter, and checking what stuck after one. Both are proposed ONLY when the
+  // activity genuinely exists — a chapter with nothing worth pre-teaching
+  // produces no preparation task, and one with no validated question bank
+  // produces no Challenge.
+  | "chapter_preparation"
+  | "chapter_assessment";
 
 /**
  * The coarse kind of work an activity is, used only for balance.
@@ -57,6 +64,12 @@ export const CATEGORY_OF: Readonly<Record<PlanItemType, PlanCategory>> = {
   new_text: "comprehension",
   continue_chapter: "comprehension",
   new_chapter: "comprehension",
+  // Preparation is vocabulary work in service of reading; the Challenge is a
+  // comprehension measurement. Categorising them by what they ARE rather than by
+  // where they sit in the chapter lifecycle is what keeps the plan's balance
+  // rule meaningful.
+  chapter_preparation: "vocabulary",
+  chapter_assessment: "comprehension",
   new_vocabulary: "vocabulary",
 };
 

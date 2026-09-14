@@ -21,6 +21,7 @@ import {
   evidenceLevelFor,
   placementCandidates,
   readingCandidates,
+  storyCandidates,
   reviewCandidates,
   vocabularyCandidates,
   weaknessCandidates,
@@ -72,12 +73,21 @@ export async function buildDailyPlanDraft(
   // most-opened screen in the app; five sequential round trips would be felt.
   const weaknesses = await getTopWeaknesses(WEAKNESS_CANDIDATES, input.now);
 
-  const [reviews, weaknessDrills, reading, chapters, vocabulary, observations] =
+  const [
+    reviews,
+    weaknessDrills,
+    reading,
+    chapters,
+    story,
+    vocabulary,
+    observations,
+  ] =
     await Promise.all([
       reviewCandidates(ctx),
       weaknessCandidates(ctx, weaknesses),
       readingCandidates(ctx),
       chapterCandidates(ctx),
+      storyCandidates(ctx),
       vocabularyCandidates(ctx),
       countObservations(ctx),
     ]);
@@ -87,6 +97,7 @@ export async function buildDailyPlanDraft(
     ...weaknessDrills,
     ...reading,
     ...chapters,
+    ...story,
     ...vocabulary,
   ];
 

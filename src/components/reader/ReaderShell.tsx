@@ -20,6 +20,7 @@ import {
   startReadingSession,
   type ChapterSummary,
 } from "@/actions/reading";
+import { markChapterReading } from "@/actions/chapter-analysis";
 import { updateReaderPreferences } from "@/actions/update-reader-preferences";
 import { ChapterCompleteCard } from "@/components/reader/ChapterCompleteCard";
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
@@ -55,6 +56,8 @@ export interface ReaderChapterMeta {
   nextPosition: number | null;
   /** Set when this chapter is a migrated `texts` passage — its test still exists. */
   legacyTextId: number | null;
+  /** True when a validated question bank can fill a Chapter Challenge. */
+  hasChallenge: boolean;
 }
 
 /**
@@ -115,6 +118,12 @@ export function ReaderShell({
       sessionRef.current = result.sessionId;
       setRatio(result.progressRatio);
       flushedParagraphRef.current = result.furthestParagraph;
+
+      // The LEARNING lifecycle, which is a different fact from the reading
+      // progress above: `reading_progress` says where they are, this says the
+      // chapter has been entered. Best-effort — a failed transition costs a
+      // marker on the book page, never the reading session.
+      void markChapterReading(chapter.id, "started");
 
       // RESUME. Jump to where they stopped — the single feature that makes a
       // book, as opposed to a passage, usable at all.
@@ -305,11 +314,15 @@ export function ReaderShell({
     setCompleting(false);
     if (result.ok) {
       setSummary(result);
+      // MEASURED, NEVER ASSERTED: `mark_chapter_reading_completed` refuses
+      // unless `reading_progress` already says the chapter is finished, so this
+      // records the transition rather than claiming it.
+      void markChapterReading(chapter.id, "completed");
       // The plan reconciles itself from `reading_progress`; refreshing is how
       // Today learns this chapter is done without anything asserting it.
       router.refresh();
     }
-  }, [completing, flush, router]);
+  }, [chapter.id, completing, flush, router]);
 
   const percent = Math.round(ratio * 100);
   const canComplete = ratio >= CHAPTER_COMPLETION_RATIO;
@@ -407,6 +420,12 @@ export function ReaderShell({
               testHref={
                 chapter.legacyTextId ? `/learn/${chapter.legacyTextId}/test` : null
               }
+              challengeHref={
+                chapter.hasChallenge
+                  ? `/library/${chapter.itemSlug}/${chapter.position}/wyzwanie`
+                  : null
+              }
+              chapterId={chapter.id}
             />
           ) : (
             <CompletionPrompt

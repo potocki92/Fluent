@@ -6,6 +6,7 @@ import {
   BookOpen,
   Check,
   Circle,
+  ClipboardCheck,
   Layers,
   Loader2,
   SkipForward,
@@ -34,6 +35,8 @@ const ICONS: Record<TodayPlanItem["type"], LucideIcon> = {
   new_text: BookOpen,
   continue_chapter: BookMarked,
   new_chapter: BookMarked,
+  chapter_preparation: Sparkles,
+  chapter_assessment: ClipboardCheck,
   new_vocabulary: Sparkles,
 };
 

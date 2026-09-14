@@ -1506,6 +1506,553 @@ export type Database = {
           },
         ];
       };
+      // ── PHASE 5: THE STORY LEARNING ENGINE ─────────────────────────────────
+      // None of these tables has a client write path. Every Row below is
+      // readable by its owner (or, for content, by an admin) and writable only
+      // through the SECURITY DEFINER functions in the Functions block.
+
+      /**
+       * Where a learner is in a chapter's LEARNING lifecycle — which is not the
+       * same fact as where they are in reading it. Reading lives in
+       * `reading_progress`; this records preparation, the Challenge, and whether
+       * one is still outstanding.
+       */
+      user_chapter_learning_state: {
+        Row: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          status:
+            | "not_started"
+            | "prepared"
+            | "reading"
+            | "read"
+            | "assessment_pending"
+            | "completed";
+          prepared_at: string | null;
+          preparation_skipped_at: string | null;
+          reading_started_at: string | null;
+          reading_completed_at: string | null;
+          assessment_deferred_at: string | null;
+          assessment_completed_at: string | null;
+          story_engine_version: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          status?: string;
+          prepared_at?: string | null;
+          preparation_skipped_at?: string | null;
+          reading_started_at?: string | null;
+          reading_completed_at?: string | null;
+          assessment_deferred_at?: string | null;
+          assessment_completed_at?: string | null;
+          story_engine_version?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["user_chapter_learning_state"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "user_chapter_learning_state_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /**
+       * The cached personal analysis of one chapter for one learner.
+       *
+       * `coverage_status = 'insufficient_data'` is a first-class result, not an
+       * error: below the evidence floor there is no honest percentage to show.
+       */
+      chapter_user_analysis: {
+        Row: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          coverage_status: "estimated" | "insufficient_data";
+          coverage_ratio: number | null;
+          coverage_confidence: "none" | "low" | "medium" | "high";
+          observed_words: number;
+          known_words: number;
+          total_words: number;
+          difficulty_score: number;
+          difficulty_label:
+            | "easy"
+            | "just_right"
+            | "challenging"
+            | "very_challenging";
+          difficulty_confidence: "none" | "low" | "medium" | "high";
+          signals: Json;
+          estimated_minutes: number;
+          preteach_target_count: number;
+          content_hash: string | null;
+          story_engine_version: string;
+          computed_at: string;
+        };
+        Insert: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          coverage_status: string;
+          coverage_ratio?: number | null;
+          coverage_confidence?: string;
+          observed_words?: number;
+          known_words?: number;
+          total_words?: number;
+          difficulty_score?: number;
+          difficulty_label?: string;
+          difficulty_confidence?: string;
+          signals?: Json;
+          estimated_minutes?: number;
+          preteach_target_count?: number;
+          content_hash?: string | null;
+          story_engine_version?: string;
+          computed_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_user_analysis"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_user_analysis_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /**
+       * The chapter question bank.
+       *
+       * NOT READABLE FROM A BROWSER. There is no learner SELECT policy — the
+       * Row type exists for the service-role and admin paths only, because
+       * `correct_idx`, `accepted_answers` and `sequence_items` are the answer
+       * key of every Challenge a reader is about to take.
+       */
+      chapter_questions: {
+        Row: {
+          id: number;
+          chapter_id: string;
+          library_item_id: string;
+          owner_user_id: string | null;
+          kind:
+            | "comprehension"
+            | "contextual_vocabulary"
+            | "grammar"
+            | "transfer";
+          question_type:
+            | "multiple_choice"
+            | "true_false"
+            | "cloze"
+            | "sequence"
+            | "multi_select"
+            | "typed_answer";
+          scope: "local" | "chapter";
+          prompt: string;
+          options: string[] | null;
+          correct_idx: number | null;
+          accepted_answers: string[] | null;
+          sequence_items: string[] | null;
+          skill_code: string;
+          word_id: number | null;
+          difficulty: number;
+          source_sentence_ids: number[];
+          explanation_pl: string | null;
+          generation_source: "manual" | "ai" | "template";
+          generator_version: string | null;
+          provider: string | null;
+          model: string | null;
+          source_content_hash: string | null;
+          fingerprint: string;
+          status: "draft" | "needs_review" | "published" | "disabled" | "stale";
+          validation_status: "valid" | "invalid";
+          validation_errors: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          chapter_id: string;
+          library_item_id: string;
+          owner_user_id?: string | null;
+          kind: string;
+          question_type: string;
+          scope?: string;
+          prompt: string;
+          options?: string[] | null;
+          correct_idx?: number | null;
+          accepted_answers?: string[] | null;
+          sequence_items?: string[] | null;
+          skill_code: string;
+          word_id?: number | null;
+          difficulty?: number;
+          source_sentence_ids?: number[];
+          explanation_pl?: string | null;
+          generation_source?: string;
+          generator_version?: string | null;
+          provider?: string | null;
+          model?: string | null;
+          source_content_hash?: string | null;
+          fingerprint: string;
+          status?: string;
+          validation_status?: string;
+          validation_errors?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_questions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_questions_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      chapter_question_concepts: {
+        Row: { question_id: number; concept_code: string };
+        Insert: { question_id: number; concept_code: string };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_question_concepts"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_question_concepts_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "chapter_questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /** Aggregate answering data. Admin-readable; never shown to a learner. */
+      chapter_question_stats: {
+        Row: {
+          question_id: number;
+          answer_count: number;
+          correct_count: number;
+          response_ms_total: number;
+          updated_at: string;
+        };
+        Insert: {
+          question_id: number;
+          answer_count?: number;
+          correct_count?: number;
+          response_ms_total?: number;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_question_stats"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_question_stats_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "chapter_questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /** "This question is wrong" — the human check on generated content. */
+      chapter_question_reports: {
+        Row: {
+          id: number;
+          question_id: number;
+          user_id: string;
+          reason:
+            | "ambiguous"
+            | "wrong_answer"
+            | "not_in_chapter"
+            | "unclear"
+            | "other";
+          note: string | null;
+          created_at: string;
+        };
+        Insert: {
+          question_id: number;
+          user_id: string;
+          reason: string;
+          note?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_question_reports"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_question_reports_question_id_fkey";
+            columns: ["question_id"];
+            referencedRelation: "chapter_questions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /** One generation run. Records cost and failure; never chapter content. */
+      chapter_generation_jobs: {
+        Row: {
+          id: string;
+          chapter_id: string;
+          status: "queued" | "running" | "ready" | "failed" | "needs_review";
+          generator_version: string;
+          content_hash: string | null;
+          attempts: number;
+          last_attempt_at: string | null;
+          error_code: string | null;
+          error_message: string | null;
+          provider: string | null;
+          model: string | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          cost_usd: number | null;
+          candidate_count: number;
+          accepted_count: number;
+          rejected_count: number;
+          rejections: Json;
+          created_at: string;
+          updated_at: string;
+          finished_at: string | null;
+        };
+        Insert: {
+          chapter_id: string;
+          status?: string;
+          generator_version: string;
+          content_hash?: string | null;
+          attempts?: number;
+          last_attempt_at?: string | null;
+          error_code?: string | null;
+          error_message?: string | null;
+          provider?: string | null;
+          model?: string | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          cost_usd?: number | null;
+          candidate_count?: number;
+          accepted_count?: number;
+          rejected_count?: number;
+          rejections?: Json;
+          created_at?: string;
+          updated_at?: string;
+          finished_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_generation_jobs"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_generation_jobs_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      chapter_preparation_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          plan_item_id: string | null;
+          status: "in_progress" | "completed" | "skipped" | "abandoned";
+          started_at: string;
+          completed_at: string | null;
+          correct: number | null;
+          total: number | null;
+          story_engine_version: string;
+          selection_signals: Json;
+        };
+        Insert: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          plan_item_id?: string | null;
+          status?: string;
+          started_at?: string;
+          completed_at?: string | null;
+          correct?: number | null;
+          total?: number | null;
+          story_engine_version?: string;
+          selection_signals?: Json;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_preparation_sessions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_preparation_sessions_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      chapter_preparation_items: {
+        Row: {
+          session_id: string;
+          word_id: number;
+          item_position: number;
+          lemma: string;
+          display: string;
+          translation: string;
+          options: string[];
+          correct_idx: number;
+          context_sentence: string | null;
+          context_source: "chapter_opening" | "dictionary" | "none";
+          sentence_id: number | null;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          response_ms: number | null;
+          answered_at: string | null;
+        };
+        Insert: {
+          session_id: string;
+          word_id: number;
+          item_position: number;
+          lemma: string;
+          display: string;
+          translation: string;
+          options: string[];
+          correct_idx: number;
+          context_sentence?: string | null;
+          context_source?: string;
+          sentence_id?: number | null;
+          selected_idx?: number | null;
+          is_correct?: boolean | null;
+          response_ms?: number | null;
+          answered_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_preparation_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_preparation_items_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "chapter_preparation_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      chapter_assessment_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          plan_item_id: string | null;
+          status: "in_progress" | "completed" | "abandoned";
+          started_at: string;
+          completed_at: string | null;
+          correct: number | null;
+          total: number | null;
+          comprehension_correct: number | null;
+          comprehension_total: number | null;
+          vocabulary_correct: number | null;
+          vocabulary_total: number | null;
+          grammar_correct: number | null;
+          grammar_total: number | null;
+          blueprint: Json;
+          selection_signals: Json;
+          story_engine_version: string;
+        };
+        Insert: {
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          plan_item_id?: string | null;
+          status?: string;
+          started_at?: string;
+          completed_at?: string | null;
+          correct?: number | null;
+          total?: number | null;
+          comprehension_correct?: number | null;
+          comprehension_total?: number | null;
+          vocabulary_correct?: number | null;
+          vocabulary_total?: number | null;
+          grammar_correct?: number | null;
+          grammar_total?: number | null;
+          blueprint?: Json;
+          selection_signals?: Json;
+          story_engine_version?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_assessment_sessions"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_assessment_sessions_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /**
+       * One snapshotted Challenge question.
+       *
+       * `presented_order` is the shuffle a sequence question was shown in. It is
+       * the reason the stored (correct) order never has to leave the database.
+       */
+      chapter_assessment_items: {
+        Row: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          kind: string;
+          question_type: string;
+          item_difficulty: number;
+          presented_order: number[] | null;
+          selected_idx: number | null;
+          typed_answer: string | null;
+          sequence_answer: number[] | null;
+          is_correct: boolean | null;
+          response_ms: number | null;
+          answered_at: string | null;
+        };
+        Insert: {
+          session_id: string;
+          question_id: number;
+          item_position: number;
+          kind: string;
+          question_type: string;
+          item_difficulty?: number;
+          presented_order?: number[] | null;
+          selected_idx?: number | null;
+          typed_answer?: string | null;
+          sequence_answer?: number[] | null;
+          is_correct?: boolean | null;
+          response_ms?: number | null;
+          answered_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["chapter_assessment_items"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "chapter_assessment_items_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "chapter_assessment_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       questions_public: {
@@ -1903,6 +2450,239 @@ export type Database = {
           total_count: number;
           already_finalized: boolean;
         }[];
+      };
+
+      // ── PHASE 5: THE STORY LEARNING ENGINE ────────────────────────────────
+
+      /** Whether the caller may read this chapter, private imports included. */
+      chapter_is_readable: {
+        Args: { p_chapter_id: string };
+        Returns: boolean;
+      };
+
+      /** The SQL twin of `foldTypedAnswer`. Folds case, spacing and articles. */
+      fold_typed_answer: {
+        Args: { p_value: string };
+        Returns: string;
+      };
+
+      /**
+       * service_role only — writes a validated question bank.
+       *
+       * Idempotent on `(chapter_id, fingerprint)`, and `owner_user_id` is
+       * DERIVED from the library item rather than accepted from the caller.
+       */
+      upsert_chapter_questions: {
+        Args: { p_chapter_id: string; p_questions: Json; p_meta?: Json };
+        Returns: number;
+      };
+
+      /** service_role only — marks questions written from older content stale. */
+      mark_stale_chapter_questions: {
+        Args: { p_chapter_id: string };
+        Returns: number;
+      };
+
+      /** Admin only — approve, reject or disable one public question. */
+      set_chapter_question_status: {
+        Args: { p_question_id: number; p_status: string };
+        Returns: undefined;
+      };
+
+      /** "This question is wrong." One report per learner per question. */
+      report_chapter_question: {
+        Args: { p_question_id: number; p_reason: string; p_note?: string | null };
+        Returns: undefined;
+      };
+
+      /** service_role only — starts or retries one generation run. */
+      start_chapter_generation_job: {
+        Args: { p_chapter_id: string; p_generator_version: string };
+        Returns: string;
+      };
+
+      /** service_role only — records the outcome, the cost, and why it failed. */
+      finish_chapter_generation_job: {
+        Args: { p_job_id: string; p_status: string; p_result?: Json };
+        Returns: undefined;
+      };
+
+      /** service_role only — caches a computed personal chapter analysis. */
+      upsert_chapter_analysis: {
+        Args: { p_user_id: string; p_chapter_id: string; p_analysis: Json };
+        Returns: undefined;
+      };
+
+      /**
+       * service_role only — snapshots a preparation from a computed selection.
+       * Resumes rather than re-selecting when one is already open.
+       */
+      start_chapter_preparation: {
+        Args: {
+          p_user_id: string;
+          p_chapter_id: string;
+          p_items: Json;
+          p_plan_item_id?: string | null;
+          p_signals?: Json;
+        };
+        Returns: string;
+      };
+
+      /** The preparation snapshot — cards and options, never `correct_idx`. */
+      get_chapter_preparation: {
+        Args: { p_session_id: string };
+        Returns: {
+          word_id: number;
+          item_position: number;
+          lemma: string;
+          display: string;
+          translation: string;
+          options: string[];
+          context_sentence: string | null;
+          context_source: string;
+          selected_idx: number | null;
+          is_correct: boolean | null;
+          answered_at: string | null;
+        }[];
+      };
+
+      answer_preparation_item: {
+        Args: {
+          p_session_id: string;
+          p_word_id: number;
+          p_selected_idx: number;
+          p_response_ms: number | null;
+        };
+        Returns: {
+          is_answer_correct: boolean;
+          answer_key_idx: number;
+          already_answered: boolean;
+        }[];
+      };
+
+      /** service_role only — seals a preparation and applies its evidence once. */
+      finalize_chapter_preparation: {
+        Args: { p_session_id: string; p_user_id: string; p_evidence: Json };
+        Returns: {
+          correct_count: number;
+          total_count: number;
+          already_finalized: boolean;
+        }[];
+      };
+
+      /** "Pomiń i czytaj." Recorded, never prevented. */
+      skip_chapter_preparation: {
+        Args: { p_chapter_id: string };
+        Returns: string;
+      };
+
+      /**
+       * What the Challenge's SELECTION needs: metadata and answering history.
+       * No prompt, no options, no key — the ranking never reads a question.
+       */
+      get_chapter_question_candidates: {
+        Args: { p_chapter_id: string };
+        Returns: {
+          question_id: number;
+          kind: string;
+          question_type: string;
+          difficulty: number;
+          word_id: number | null;
+          concept_codes: string[];
+          last_answered_at: string | null;
+        }[];
+      };
+
+      /** service_role only — snapshots a Challenge from a computed selection. */
+      start_chapter_assessment: {
+        Args: {
+          p_user_id: string;
+          p_chapter_id: string;
+          p_question_ids: number[];
+          p_blueprint?: Json;
+          p_signals?: Json;
+          p_plan_item_id?: string | null;
+        };
+        Returns: string;
+      };
+
+      /** The Challenge snapshot. Sequence items come back SHUFFLED, as shown. */
+      get_chapter_assessment: {
+        Args: { p_session_id: string };
+        Returns: {
+          question_id: number;
+          item_position: number;
+          kind: string;
+          question_type: string;
+          prompt: string;
+          options: string[] | null;
+          sequence_items: string[] | null;
+          explanation_pl: string | null;
+          selected_idx: number | null;
+          typed_answer: string | null;
+          sequence_answer: number[] | null;
+          is_correct: boolean | null;
+          answered_at: string | null;
+        }[];
+      };
+
+      /** Grades all four answerable types; the key arrives after the answer. */
+      answer_chapter_assessment_question: {
+        Args: {
+          p_session_id: string;
+          p_question_id: number;
+          p_selected_idx?: number | null;
+          p_typed_answer?: string | null;
+          p_sequence_answer?: number[] | null;
+          p_response_ms?: number | null;
+        };
+        Returns: {
+          is_answer_correct: boolean;
+          answer_key_idx: number | null;
+          answer_key_text: string | null;
+          /** The right order, in PRESENTED positions. */
+          answer_key_order: number[] | null;
+          explanation_pl: string | null;
+          already_answered: boolean;
+        }[];
+      };
+
+      /** service_role only — seals a Challenge and applies its evidence once. */
+      finalize_chapter_assessment: {
+        Args: {
+          p_session_id: string;
+          p_user_id: string;
+          p_evidence: Json;
+          p_scores?: Json;
+        };
+        Returns: {
+          correct_count: number;
+          total_count: number;
+          already_finalized: boolean;
+        }[];
+      };
+
+      /** "Później." The Challenge stays available; Today may remind them. */
+      defer_chapter_assessment: {
+        Args: { p_chapter_id: string };
+        Returns: string;
+      };
+
+      /** service_role only — the lifecycle transition every act writes through. */
+      touch_chapter_learning_state: {
+        Args: { p_user_id: string; p_chapter_id: string; p_event: string };
+        Returns: string;
+      };
+
+      mark_chapter_reading_started: {
+        Args: { p_chapter_id: string };
+        Returns: string;
+      };
+
+      /** Refuses unless `reading_progress` says the chapter was finished. */
+      mark_chapter_reading_completed: {
+        Args: { p_chapter_id: string };
+        Returns: string;
       };
     };
     Enums: Record<never, never>;
