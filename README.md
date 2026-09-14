@@ -1,8 +1,53 @@
 # Fluent
 
-A German vocabulary learning app for Polish speakers. Learn by reading German
-passages, taking adaptive comprehension tests (ability tracked with an Elo-style
-rating), and reviewing vocabulary with SM-2 spaced-repetition flashcards.
+A German learning app for Polish speakers. Learn by reading German passages,
+taking adaptive comprehension tests (ability tracked with an Elo-style rating),
+practising the grammar you keep getting wrong, and reviewing vocabulary with SM-2
+spaced-repetition flashcards.
+
+The home screen is **Dzisiaj**: a plan Fluent builds for you each day out of what
+it knows about your learning, with one button that starts it.
+
+## The loop
+
+This is the single most important thing to understand about the codebase. Every
+feature either feeds this cycle or reads from it.
+
+```
+        You answer something — in a test, a review, or a drill
+                              │
+                              ▼
+  LEARNING DATA ENGINE   one immutable learning_event per interaction,
+                         folded into skill / concept / word knowledge
+                              │
+                              ▼
+  WEAKNESS ENGINE        ranks concepts by (1 − score) × confidence × recency —
+                         a pattern of failures, never a single mistake
+                              │
+                              ▼
+  TODAY PLANNER          candidate generators → priority engine → budget
+                              │
+                              ▼
+  DAILY PLAN             one per learning day, stable, with a reason per task
+                              │
+                              ▼
+  LEARNING SESSIONS      reviews · weakness drills · reading
+                              │
+                              ▼
+  NEW EVIDENCE ──────────────► the knowledge model updates
+                              │
+                              ▼
+                    Tomorrow's plan is better than today's
+```
+
+Two properties hold all the way round it:
+
+- **Nothing a learner writes can enter the cycle.** Evidence, knowledge state,
+  plans and plan completion are all server-owned; the tables have no
+  learner-writable path at all.
+- **Nothing is inferred that was not measured.** No evidence means "unknown",
+  never a default score — and a plan built with no data says so
+  (`evidence_level = 'none'`) instead of pretending to be personalised.
 
 ## Tech Stack
 
@@ -33,6 +78,9 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `learning_events` | Append-only evidence log — one row per learning interaction (test answer, placement answer, review), never rewritten. See [Learning engine](#learning-engine). |
 | `review_events` | Full spaced-repetition history: rating, mode, direction, and the SM-2 state **before and after** each graded card. |
 | `user_skill_state` · `user_concept_state` · `user_word_knowledge` | Aggregated knowledge: an estimate plus, separately, how much evidence stands behind it. Derived from the event log; the app reads these, never the log. |
+| `daily_plans` · `daily_plan_items` | One learning day's plan, unique per (learner, day), with the reason and priority signals behind each activity snapshotted. See [Today engine](#today-engine). |
+| `practice_sessions` · `practice_session_items` | One weakness drill. Modelled on `test_sessions` — server-picked items, one answer each — but never Elo-scored. |
+| `text_progress` | "This learner opened this passage." The minimal reading state the planner needs to recommend *finishing* something rather than starting something. |
 
 All tables have Row Level Security enabled. `words`/`texts` are public-read;
 `questions`/`calibration_questions` are admin-only (learners read the answer-free
@@ -77,7 +125,8 @@ learner who owns it** — see [Who may write what](#who-may-write-what).
    > sample (~20 words) so the pipeline is runnable end-to-end. Supply the full
    > 2588-row DTZ headword list (same shape) to import the complete dictionary.
 7. **Run the dev server**: `npm run dev`, then open http://localhost:3000
-   (the root redirects to `/learn`). Routes: `/learn`, `/review`, `/browse`, `/stats`.
+   (the root redirects to `/today`). Routes: `/today`, `/learn`, `/review`,
+   `/practice/[concept]`, `/browse`, `/stats`, `/settings`.
 
 ### Scripts
 
@@ -169,8 +218,8 @@ the level they watched being built while a forged one has nowhere to enter.
 
 | Learner may edit | Server-owned — written only by the learning engine |
 | ---------------- | -------------------------------------------------- |
-| `profiles.display_name`, `profiles.daily_word_goal` | `profiles.ability`, `rd`, `answered`, `cefr_estimate`, `promotion_streak`, `level_source`, `streak_days`, `last_active`, `words_reviewed_today`, `word_streak_days`, `last_word_review` |
-| `saved_words` (their own review deck) | `attempts`, `text_completions`, `test_sessions`, `test_session_items`, `calibration_sessions`, `calibration_session_items` — readable by their owner, writable by nobody else |
+| `profiles.display_name`, `daily_word_goal`, `daily_learning_minutes`, `timezone` | `profiles.ability`, `rd`, `answered`, `cefr_estimate`, `promotion_streak`, `level_source`, `streak_days`, `last_active`, `words_reviewed_today`, `word_streak_days`, `last_word_review` |
+| `saved_words` (their own review deck) | `attempts`, `text_completions`, `test_sessions`, `test_session_items`, `calibration_sessions`, `calibration_session_items`, `daily_plans`, `daily_plan_items`, `practice_sessions`, `practice_session_items`, `text_progress` — readable by their owner, writable by nobody else |
 
 Three mechanisms enforce this, not one: the progress tables have **no insert/update
 RLS policy** at all; a `BEFORE UPDATE` trigger on `profiles` rejects a browser write
@@ -228,6 +277,54 @@ Full rationale — the V1 algorithm, the evidence weights, the receptive/active
 split, idempotency, and what could and could not be backfilled — is in
 [`docs/architecture/learning-engine.md`](./docs/architecture/learning-engine.md).
 
+## Today engine
+
+Knowing what a learner knows is useless if the app still shows them a menu. The
+Today engine turns that knowledge into **one plan per learning day**.
+
+```
+learning data → candidate generators → priority engine → planner → daily plan
+```
+
+- **Candidate generators** (`src/lib/learning/planner/candidates.ts`) each know
+  one corner of the data — due reviews, ranked weaknesses, started and unread
+  passages, genuinely-new vocabulary — and emit candidates carrying their own
+  time estimate and their own signals. Adding a source later (book chapters, say)
+  means writing one generator, not reopening the ranking.
+- **The priority engine** (`priority.ts`) is a deterministic weighted sum over
+  named signals — `dueUrgency`, `weaknessSeverity`, `weaknessRecency`,
+  `continuation`, `difficultyMatch`, `vocabularyFit`. Every weight lives in
+  `constants.ts`; there are no bare coefficients anywhere else.
+- **The planner** (`select.ts`) fits them to the learner's daily minute budget,
+  caps how much of one kind of work a day may contain, and orders the result as a
+  session rather than as a ranked list.
+
+Five things it refuses to do:
+
+1. **Reshuffle during the day.** A plan is generated once per learning day and
+   then only reconciled. The one exception is an untouched placement-only plan,
+   which may be replaced once the learner actually has a level.
+2. **Use the server's day.** Every date comes from `profiles.timezone`; at 23:30
+   UTC a Warsaw learner is already on tomorrow, and `unique (user_id,
+   learning_date)` makes the date the plan's identity.
+3. **Trust the client about completion.** There is no "mark done" write path.
+   `sync_daily_plan` recomputes each activity from the table that recorded it —
+   review events, practice sessions, text completions — so completion is
+   idempotent, unforgeable and self-healing.
+4. **Show a task it cannot run.** A weakness with no questions tagged to it
+   produces no activity; the gap surfaces in `/admin/planner` as a content
+   problem instead.
+5. **Dump a backlog on someone.** 300 overdue cards become a batch of 4–12 sized
+   by the time the learner asked for. The rest stays in the scheduler.
+
+Weakness practice closes the loop: a drill's answers are `practice_answer`
+evidence, they update `user_concept_state` through the same path a test uses, and
+the ranking that chose the drill already reflects them tomorrow.
+
+Design rationale — the priority formula in full, weakness ranking, the budget,
+the timezone rules, derived completion and how to change the algorithm later — is
+in [`docs/architecture/today-engine.md`](./docs/architecture/today-engine.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -276,6 +373,20 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
   writes the `review_events` row (SM-2 state before → after), moves the schedule,
   advances the daily counter and records the learning evidence; an
   `interactionId` minted per card makes a double tap settle the same review.
+- **`src/actions/today-plan.ts`** — `getOrCreateTodayPlan` / `syncTodayPlan` /
+  `skipPlanItem`. The plan is built by `src/lib/learning/planner/` and written by
+  `create_daily_plan` (service-role only); completion is never written at all,
+  only measured by `sync_daily_plan`.
+- **`src/actions/{start,answer,finalize}-practice-session.ts`** — the weakness
+  drill lifecycle, the same server-owned shape as a reading test. Finalizing
+  applies the evidence and moves the plan item in one transaction.
+- **`src/lib/learning/planner/`** — the Today engine, pure and unit-tested:
+  `constants.ts` (every weight and estimate, in one place), `priority.ts` (the
+  scoring), `select.ts` (budget and balance), `reasons.ts` (reason codes → Polish),
+  `learning-day.ts` (the learner's day, not the server's), `candidates.ts` (the
+  generators, the only part that touches Supabase).
+- **`src/lib/learning/weakness.ts`** — ranking and severity, layered over
+  `weaknessPriority` rather than re-deriving it.
 - **`src/lib/learning/`** — the knowledge domain, all pure and unit-tested:
   `skills.ts` / `concepts.ts` (the catalogs), `evidence.ts` (what each interaction
   proves, and what it is worth), `knowledge-model.ts` (the V1 score/confidence

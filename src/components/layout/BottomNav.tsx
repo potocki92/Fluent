@@ -2,15 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Library, Layers, BarChart3 } from "lucide-react";
+import { BookOpen, Layers, BarChart3, Sun } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Four destinations, with Today first.
+ *
+ * Słownik moved to the header rather than disappearing: it is a place you go
+ * deliberately to look something up, not one of the four things you do every
+ * day, and five items in a phone-width bar leaves no room for a Polish label.
+ */
 const NAV = [
+  { href: "/today", label: "Dzisiaj", icon: Sun },
   { href: "/learn", label: "Czytaj", icon: BookOpen },
-  { href: "/browse", label: "Słownik", icon: Library },
   { href: "/review", label: "Powtórki", icon: Layers },
-  { href: "/stats", label: "Statystyki", icon: BarChart3 },
+  { href: "/stats", label: "Postęp", icon: BarChart3 },
 ];
 
 export function BottomNav() {

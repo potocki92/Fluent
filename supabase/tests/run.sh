@@ -27,13 +27,17 @@ ADMIN_DB=${PGDATABASE:-postgres}
 MIGRATIONS=(
   supabase/migrations/20260913120000_test_sessions_and_progress_security.sql
   supabase/migrations/20260913160000_learning_engine.sql
+  supabase/migrations/20260913190000_today_engine.sql
 )
 
 # The suites run against the same database, in order: 01 exercises the test
-# lifecycle and leaves attempts behind, which 02 relies on to check the backfill.
+# lifecycle and leaves attempts behind, which 02 relies on to check the backfill,
+# and 03 builds daily plans and weakness drills on top of both. Each suite owns
+# its own id range and its own learners so they cannot collide.
 SUITES=(
   supabase/tests/01_test_session_security.sql
   supabase/tests/02_learning_engine_security.sql
+  supabase/tests/03_today_engine_security.sql
 )
 
 if ! "$PSQL" -d "$ADMIN_DB" -tAc 'select 1' >/dev/null 2>&1; then

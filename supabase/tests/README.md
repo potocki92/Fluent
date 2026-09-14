@@ -28,9 +28,12 @@ The runner exercises three things:
    migrations work on an already-provisioned project, not only a fresh one;
 3. **idempotency** — re-applying every script changes nothing.
 
-Both suites run against the same database, in order:
+All three suites run against the same database, in order:
 `01_test_session_security.sql` exercises the test lifecycle and leaves `attempts`
-behind, which `02_learning_engine_security.sql` relies on to check the backfill.
+behind, which `02_learning_engine_security.sql` relies on to check the backfill;
+`03_today_engine_security.sql` then builds plans and drills on top of both.
+Because they share a database, each suite uses its own id range (9xxx / 8xxx /
+7xxx) and its own learners.
 
 ## What is asserted — test sessions (01)
 
@@ -59,6 +62,22 @@ behind, which `02_learning_engine_security.sql` relies on to check the backfill.
 | L6 | User A can read their own learning history and knowledge state, and none of user B's. |
 | L7 | Historical `attempts` are backfilled as `legacy_backfill` evidence, an answer already recorded natively is not duplicated, re-running the backfill adds nothing — and no review history is fabricated from SM-2 state. |
 | L8 | Every item tag points at a catalog row, and placement items keep the mapping their coarse `skill` implies (a multiple-choice vocabulary item is *receptive*, never active). |
+
+## What is asserted — Today engine (03)
+
+| # | Invariant |
+| - | --------- |
+| T1 | A learning day is the **learner's** day: 23:30 UTC is already tomorrow in Warsaw, still today in New York, and an unresolvable zone falls back to UTC instead of raising. An unresolvable zone is rejected at the write; the minute budget is range-checked. |
+| T2 | A learner cannot insert a plan, call `create_daily_plan`, seal a drill, or forge a completed `practice_session`. Plan generation and drill finalization are `service_role` only; `sync_daily_plan` / `start_practice_session` stay learner-callable because they derive the user from `auth.uid()`. |
+| T3 | Ten calls on the same learning day produce **one** plan (the unique index, not a JavaScript check); `estimated_minutes` is summed from the items; a different day gets its own plan. |
+| T4 | An untouched placement-only plan may be replaced once the learner has a level — and a real plan is never rebuilt mid-day, flag or no flag. |
+| T5 | User A cannot read user B's plans or items, and cannot reconcile B's plan. |
+| T6 | A learner cannot mark an item complete or set its `priority_score`; an untouched item reconciles as `pending`. |
+| T7 | A drill's items are server-picked, drawn only from published texts, resumed rather than duplicated; the answer key is revealed only after the answer is committed, a replay does not overwrite a wrong answer, a foreign question is refused, and partial progress shows as partial. |
+| T8 | An unfinished drill cannot be sealed; finishing one scores it, writes exactly one `practice_answer` event, updates concept knowledge and completes the plan item **in the same transaction**; a replayed finalize duplicates nothing; a drill cannot be sealed for another user. |
+| T9 | Reconciling repeatedly changes nothing (it recomputes, never increments); a skip survives reconciliation, cannot downgrade a completed item, and cannot be applied to another learner's plan. |
+| T10 | A day where every activity was skipped is **not** a completed day. |
+| T11 | `mark_text_opened` records only the caller's reading and refuses a draft passage; `text_progress` is not learner-writable; the practice pool counts only published questions, omits concepts with none, and a drill for such a concept is refused rather than opened empty. |
 
 ## Note on the shim
 

@@ -63,11 +63,14 @@ export function SessionEnd({
             Powtórz błędy
           </Button>
         )}
+        {/* Back to Today, not to the text list: a session opened from the daily
+            plan should return to it, and the plan reconciles this session's
+            progress the moment it renders. */}
         <Link
-          href="/learn"
+          href="/today"
           className="rounded-xl bg-[#374151] px-4 py-2 text-sm font-semibold text-[#e2e8f0] transition-colors hover:bg-[#4a5568]"
         >
-          Wróć do nauki
+          Wróć do planu
         </Link>
       </div>
     </Card>

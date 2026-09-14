@@ -12,7 +12,7 @@ The goal is to preserve and extend the architecture that already exists in this 
 
 ## Project Snapshot
 
-**Fluent** is a Polish-first app for learning German vocabulary. Users read German texts, take adaptive comprehension tests (ability tracked with an Elo-style rating), and review vocabulary with SM-2 spaced-repetition flashcards.
+**Fluent** is a Polish-first app for learning German. Users read German texts, take adaptive comprehension tests (ability tracked with an Elo-style rating), practise the concepts they keep failing, and review vocabulary with SM-2 spaced-repetition flashcards. The home screen (`/today`) is a personalised daily plan built from all of that.
 
 Current stack and conventions:
 
@@ -38,10 +38,15 @@ Respect the existing `src/`-rooted structure:
 - `src/actions/` — server actions (`"use server"`): the test lifecycle
   (`start-test-session.ts`, `answer-test-question.ts`, `finalize-test-session.ts`),
   the placement lifecycle (`start-`/`answer-`/`finalize-calibration-*.ts`),
-  `save-word.ts`, `update-srs.ts`.
+  the weakness-drill lifecycle (`start-`/`answer-`/`finalize-practice-*.ts`),
+  the daily plan (`today-plan.ts`), `save-word.ts`, `update-srs.ts`.
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
   `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
-  `knowledge-model.ts`, `aggregate.ts`, `queries.ts` — all pure, no Supabase),
+  `knowledge-model.ts`, `aggregate.ts`, `queries.ts`, `weakness.ts` — all pure,
+  no Supabase), `learning/planner/` (the Today engine: `constants.ts` holds every
+  weight and estimate, `priority.ts` scores, `select.ts` fits the budget,
+  `reasons.ts` renders the "why", `learning-day.ts` owns the timezone rules;
+  `candidates.ts` and `build.ts` are the only files there that touch Supabase),
   `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
   Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
@@ -50,8 +55,10 @@ Respect the existing `src/`-rooted structure:
   lives in `supabase/migrations/`; the two are kept identical by
   `node supabase/sync-schema.mjs`. Database security tests: `supabase/tests/`.
 - `docs/architecture/` — ADRs. Read `test-sessions.md` before touching the test,
-  calibration or progress-write paths, and `learning-engine.md` before touching
-  learning events, review history or any knowledge/skill/concept state.
+  calibration or progress-write paths, `learning-engine.md` before touching
+  learning events, review history or any knowledge/skill/concept state, and
+  `today-engine.md` before touching daily plans, the priority engine, weakness
+  ranking, weakness practice or the learning-day/timezone rules.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
 
 Do NOT move the project to root-level folders or out of `src/`. There is no `features/`, `store/`, or `data/` directory — do not assume them.
@@ -59,7 +66,7 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 ## App Router Rules
 
 - Route files in `src/app/` should stay thin and compose components/hooks.
-- Routing is flat: `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/browse`, `/stats`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually.
+- Routing is flat: `/today`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
 - Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
@@ -90,10 +97,20 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
 - Write paths: server actions (`src/actions/*`) use the server client — typically auth check (`supabase.auth.getUser()`), load, domain logic from `src/lib/`, persist (`insert`/`update`/`delete`/`rpc`), return a typed result.
 - **Progress is server-owned.** `attempts`, `text_completions`, the session tables,
   the learning-engine tables (`learning_events`, `review_events`, `user_*_state`,
-  `user_word_knowledge`) and the progress columns of `profiles` have no client write
+  `user_word_knowledge`), the Today-engine tables (`daily_plans`,
+  `daily_plan_items`, `practice_sessions`, `practice_session_items`,
+  `text_progress`) and the progress columns of `profiles` have no client write
   path, by design. Do not add one. New progress writes belong inside the existing
   SECURITY DEFINER functions, or a new one that derives its user from `auth.uid()`
   and has `EXECUTE` granted narrowly.
+- **Plan completion is derived, never asserted.** There is no "mark this done"
+  endpoint and there must not be one. `sync_daily_plan` recomputes each activity
+  from the table that recorded the underlying work, which is what makes completion
+  idempotent, unforgeable and self-healing all at once.
+- **A learning day is the learner's day.** Never use `current_date` for anything
+  plan-related; use `learning_day(tz, at)` in SQL or `learningDateFor(tz, now)` in
+  TypeScript. A UTC server day is the wrong day for hours at a time, and the date
+  is a daily plan's identity.
 - **Knowledge is evidence-backed.** A skill, concept or word state is only ever
   written as the result of a real answer, through `apply_learning_evidence`. Never
   infer one dimension from another (reading does not imply speaking), never
@@ -174,9 +191,12 @@ Do not:
 - bypass strict TypeScript or add `any` as a shortcut
 - silence ESLint without fixing the cause
 - hardcode colors when a token exists, or change global design tokens casually
-- duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR) — including
-  re-implementing them in PL/pgSQL; the database owns transactions, `src/lib/` owns
-  the arithmetic
+- duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR / the
+  knowledge model / the priority engine) — including re-implementing them in
+  PL/pgSQL; the database owns transactions, `src/lib/` owns the arithmetic
+- scatter tuning constants: every planner weight, budget and time estimate lives
+  in `src/lib/learning/planner/constants.ts`, and a bare `* 0.35` anywhere else in
+  the planner is a bug
 - let the client decide anything authoritative: which questions a test contains, what
   a score is, or what a learner's ability becomes
 - change Next/React APIs based only on model memory — check the local Next docs

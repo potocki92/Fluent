@@ -75,10 +75,16 @@ export function TestResult({
       </motion.div>
 
       <div className="mt-5 flex w-full flex-col gap-2">
+        {/* The plan comes first now: it already knows what is worth doing next,
+            and it reconciles this test the moment it renders. Choosing a text
+            yourself stays available — Today is a recommendation, not a cage. */}
         <Button
           asChild
           className="w-full bg-gold text-[#1a202c] hover:bg-gold-dark"
         >
+          <Link href="/today">Wróć do planu</Link>
+        </Button>
+        <Button asChild variant="secondary" className="w-full">
           <Link href="/learn">Następny tekst (poziom {cefrAfter})</Link>
         </Button>
         <Button asChild variant="ghost" className="w-full">

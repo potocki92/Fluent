@@ -14,11 +14,14 @@
  */
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { CONCEPT_CATALOG, isConceptCode, type ConceptCode } from "@/lib/learning/concepts";
 import {
-  CONCEPT_CATALOG,
-  type ConceptCategory,
-  type ConceptCode,
-} from "@/lib/learning/concepts";
+  conceptStrengths,
+  rankWeaknesses,
+  type ConceptStrength,
+  type ConceptWeakness,
+  type RankedWeakness,
+} from "@/lib/learning/weakness";
 import {
   confidenceAt,
   verdictFor,
@@ -94,21 +97,7 @@ export async function getUserSkillProfile(): Promise<SkillProfileEntry[]> {
   });
 }
 
-/** A concept the learner keeps getting wrong, with the evidence behind it. */
-export interface ConceptWeakness {
-  code: ConceptCode;
-  labelPl: string;
-  descriptionPl: string;
-  category: ConceptCategory;
-  skillCode: SkillCode;
-  score: number;
-  confidence: number;
-  evidenceCount: number;
-  failureCount: number;
-  lastFailureAt: string | null;
-  /** 0–1 ranking key; see `weaknessPriority`. */
-  priority: number;
-}
+export type { ConceptWeakness };
 
 /**
  * The learner's strongest recurring weaknesses, worst first.
@@ -159,10 +148,129 @@ export async function getUserWeakestConcepts(
         confidence: confidenceAt(entry.state, now),
         evidenceCount: entry.state.evidenceCount,
         failureCount: entry.state.failureCount,
+        successCount: entry.state.successCount,
         lastFailureAt: entry.lastFailureAt,
+        lastSuccessAt: entry.lastSuccessAt,
+        lastEvidenceAt: entry.state.lastEvidenceAt,
         priority,
       };
     });
+}
+
+/**
+ * The learner's weaknesses, ranked and aged, worst first.
+ *
+ * THE ONE ENTRY POINT for "what should this learner work on?". The Today planner
+ * and the weakness UI both call it, so neither can end up with its own slightly
+ * different idea of which concept matters most. It reads the aggregate state
+ * only — never the event log — so its cost does not grow with a learner's
+ * history.
+ */
+export async function getTopWeaknesses(
+  limit = 5,
+  now: Date = new Date(),
+): Promise<RankedWeakness[]> {
+  // Deliberately over-fetched: the database can only order by the un-aged
+  // priority, and aging reshuffles the list. Cutting to `limit` first would drop
+  // a well-evidenced recent failure in favour of a stale one that happened to
+  // score marginally higher before recency was applied.
+  const weaknesses = await getUserWeakestConcepts(limit * 3);
+  return rankWeaknesses(weaknesses, now).slice(0, limit);
+}
+
+/**
+ * Concepts the learner is reliably good at.
+ *
+ * Reads the same aggregate as the weakness query. A product that can only tell
+ * someone what is wrong with them teaches them that opening it feels bad.
+ */
+export async function getConceptStrengths(limit = 3): Promise<ConceptStrength[]> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("user_concept_state")
+    .select("concept_code, score, confidence, evidence_count")
+    .eq("user_id", user.id)
+    .not("score", "is", null)
+    .order("score", { ascending: false })
+    .limit(Math.max(limit * 4, 12));
+  if (error) throw error;
+
+  return conceptStrengths(
+    (data ?? [])
+      .filter((row) => isConceptCode(row.concept_code))
+      .map((row) => ({
+        code: row.concept_code as ConceptCode,
+        score: row.score === null ? null : Number(row.score),
+        confidence: Number(row.confidence),
+        evidenceCount: row.evidence_count,
+      })),
+    limit,
+  );
+}
+
+/** The last few answers behind one concept — the "why am I practising this?" view. */
+export interface ConceptEvidenceEntry {
+  occurredAt: string;
+  isCorrect: boolean;
+}
+
+export interface ConceptEvidenceSummary {
+  recent: ConceptEvidenceEntry[];
+  correct: number;
+  incorrect: number;
+}
+
+/**
+ * The learner's most recent answers attributed to one concept.
+ *
+ * THE ONE PLACE the product reads the event log for a summary, and it is bounded
+ * in every direction: one concept, one learner, `RECENT_EVIDENCE_LIMIT` rows,
+ * ordered by an index. That is the use `learning-engine.md` reserved for it — "a
+ * future 'why do you think that?' view will read it, for one thing, over a
+ * bounded window" — and it exists because an aggregate genuinely cannot answer
+ * "show me the last seven": it remembers totals, not sequence.
+ *
+ * Nothing that renders a list or a dashboard may follow this precedent.
+ */
+export const RECENT_EVIDENCE_LIMIT = 10;
+
+export async function getConceptEvidence(
+  conceptCode: ConceptCode,
+  limit = RECENT_EVIDENCE_LIMIT,
+): Promise<ConceptEvidenceSummary> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { recent: [], correct: 0, incorrect: 0 };
+
+  const { data, error } = await supabase
+    .from("learning_events")
+    .select("occurred_at, is_correct, learning_event_concepts!inner(concept_code)")
+    .eq("user_id", user.id)
+    .eq("learning_event_concepts.concept_code", conceptCode)
+    .not("is_correct", "is", null)
+    .order("occurred_at", { ascending: false })
+    .limit(Math.min(limit, RECENT_EVIDENCE_LIMIT));
+  if (error) throw error;
+
+  const recent = ((data ?? []) as { occurred_at: string; is_correct: boolean | null }[])
+    .filter((row) => row.is_correct !== null)
+    .map((row) => ({
+      occurredAt: row.occurred_at,
+      isCorrect: row.is_correct === true,
+    }));
+
+  return {
+    recent,
+    correct: recent.filter((entry) => entry.isCorrect).length,
+    incorrect: recent.filter((entry) => !entry.isCorrect).length,
+  };
 }
 
 /** What is known about one dictionary word, per channel. */

@@ -41,6 +41,7 @@ export type LearningEventType =
   | "test_answer"
   | "calibration_answer"
   | "review"
+  | "practice_answer"
   // accepted by the model, produced by nothing yet
   | "reading_lookup"
   | "reading_sentence_help"
@@ -68,6 +69,7 @@ export type SourceKind =
   | "reading_test"
   | "placement_test"
   | "review"
+  | "practice"
   | "reader"
   | "book"
   | "import";
@@ -286,6 +288,57 @@ export function calibrationAnswerEvidence(input: {
     conceptCodes: input.conceptCodes,
     calibrationQuestionId: input.questionId,
     calibrationSessionId: input.sessionId,
+    wordId: input.testedWordId,
+    vocabularyChannel:
+      input.testedWordId === null ? null : vocabularyChannelFor(retrievalType),
+    weight: RESPONSE_MODE_WEIGHT.multiple_choice,
+  };
+}
+
+/**
+ * One answered item of a weakness drill.
+ *
+ * WHY THIS IS ITS OWN EVENT TYPE rather than a `test_answer` with a different
+ * source. A drill is deliberately biased: its items were chosen *because* the
+ * learner keeps failing this concept, so a run of them is not a representative
+ * sample of anything. Anything that later refits the model has to be able to
+ * tell drill answers apart from test answers, and `source_kind = 'practice'` is
+ * how it does that.
+ *
+ * The evidence itself is weighted exactly like any other multiple-choice answer:
+ * the item is the same item, asked the same way. What a drill changes is which
+ * questions get asked, not what answering one proves.
+ *
+ * This is also the step that closes the learning loop — a drill answer updates
+ * `user_concept_state`, which is what the weakness ranking reads, which is what
+ * chooses tomorrow's drill.
+ */
+export function practiceAnswerEvidence(input: {
+  sessionId: string;
+  questionId: number;
+  textId: number | null;
+  skillCode: SkillCode | null;
+  conceptCodes: readonly ConceptCode[];
+  testedWordId: number | null;
+  isCorrect: boolean;
+  responseMs: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  const retrievalType: RetrievalType = "recognition";
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `practice:${input.sessionId}:${input.questionId}`,
+    eventType: "practice_answer",
+    occurredAt: input.occurredAt,
+    skillCode: input.skillCode,
+    responseMode: "multiple_choice",
+    retrievalType,
+    isCorrect: input.isCorrect,
+    responseMs: input.responseMs,
+    sourceKind: "practice",
+    conceptCodes: input.conceptCodes,
+    textId: input.textId,
+    questionId: input.questionId,
     wordId: input.testedWordId,
     vocabularyChannel:
       input.testedWordId === null ? null : vocabularyChannelFor(retrievalType),

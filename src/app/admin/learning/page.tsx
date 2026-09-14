@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 
-import { getUserSkillProfile, getUserWeakestConcepts } from "@/lib/learning/queries";
+import {
+  getConceptStrengths,
+  getTopWeaknesses,
+  getUserSkillProfile,
+} from "@/lib/learning/queries";
 import { VERDICT_LABEL_PL } from "@/lib/learning/knowledge-model";
+import { WEAKNESS_SEVERITY_LABEL_PL } from "@/lib/learning/weakness";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +25,10 @@ export const metadata: Metadata = {
  * rather than grown from this page.
  */
 export default async function AdminLearningPage() {
-  const [profile, weaknesses] = await Promise.all([
+  const [profile, weaknesses, strengths] = await Promise.all([
     getUserSkillProfile(),
-    getUserWeakestConcepts(5),
+    getTopWeaknesses(5),
+    getConceptStrengths(3),
   ]);
 
   return (
@@ -89,16 +95,50 @@ export default async function AdminLearningPage() {
                     <span className="font-semibold">
                       {index + 1}. {concept.labelPl}
                     </span>
-                    <span className="text-xs text-muted2">{concept.code}</span>
+                    <span className="text-xs text-muted2">
+                      {WEAKNESS_SEVERITY_LABEL_PL[concept.severity]}
+                    </span>
                   </div>
                   <p className="text-xs text-muted2">
                     {concept.failureCount} z {concept.evidenceCount} odpowiedzi
-                    błędnych · pewność {formatScore(concept.confidence)}
+                    błędnych · pewność {formatScore(concept.confidence)} ·
+                    aktualność {formatScore(concept.recency)}
                   </p>
+                  <p className="font-mono text-xs text-muted2">{concept.code}</p>
                 </Card>
               </li>
             ))}
           </ol>
+        )}
+      </section>
+
+      {/* The ranking model is not only negative: the same aggregate names what
+          is working. A learner told only about their problems learns that
+          opening the app feels bad. */}
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted2">
+          Mocne strony
+        </h2>
+        {strengths.length === 0 ? (
+          <Card className="p-4">
+            <p className="text-sm text-muted2">
+              Jeszcze nic nie jest potwierdzone wystarczającą liczbą odpowiedzi.
+            </p>
+          </Card>
+        ) : (
+          <ul className="space-y-2">
+            {strengths.map((concept) => (
+              <li key={concept.code}>
+                <Card className="gap-1 p-4">
+                  <span className="font-semibold">{concept.labelPl}</span>
+                  <p className="text-xs text-muted2">
+                    wynik {formatScore(concept.score)} · pewność{" "}
+                    {formatScore(concept.confidence)} · {concept.evidenceCount} odp.
+                  </p>
+                </Card>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>
