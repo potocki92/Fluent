@@ -32,6 +32,8 @@ export type PlanReasonCode =
   | "chapter_started"
   | "chapter_next"
   | "chapter_first"
+  | "chapter_challenge_pending"
+  | "chapter_preparation"
   | "new_words";
 
 /** Numbers and labels the copy needs. Snapshotted, never re-derived. */
@@ -103,6 +105,14 @@ export function renderReason({ code, data }: PlanReason): string {
       return data.itemTitle
         ? `„${data.itemTitle}” pasuje do Twojego poziomu`
         : "Coś nowego do czytania na Twoim poziomie";
+    case "chapter_challenge_pending":
+      return data.itemTitle
+        ? `Rozdział „${data.itemTitle}” przeczytany — sprawdźmy, co zostało`
+        : "Przeczytany rozdział czeka na sprawdzenie";
+    case "chapter_preparation":
+      return data.count && data.count > 0
+        ? `${data.count} ${pluralWords(data.count)} może utrudnić ten rozdział`
+        : "Kilka słów warto poznać przed rozdziałem";
     case "new_words":
       return data.count && data.count > 0
         ? `${data.count} ${pluralWords(data.count)}, których jeszcze nie znasz`
@@ -119,6 +129,8 @@ export const PLAN_ITEM_TITLE_PL: Readonly<Record<string, string>> = {
   new_text: "Czytanie",
   continue_chapter: "Czytaj dalej",
   new_chapter: "Nowy rozdział",
+  chapter_preparation: "Przygotowanie do rozdziału",
+  chapter_assessment: "Wyzwanie rozdziału",
   new_vocabulary: "Nowe słówka",
 };
 

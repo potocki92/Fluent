@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ReaderProse } from "@/components/reader/ReaderProse";
 import { ReaderShell } from "@/components/reader/ReaderShell";
 import { getReaderChapter } from "@/lib/library/queries";
@@ -75,6 +76,11 @@ export default async function ChapterPage({
     ? parseReaderPreferences(profile.reader_preferences)
     : DEFAULT_READER_PREFERENCES;
 
+  // Whether the completion card may offer a Challenge. Resolved here rather than
+  // in the client so the reader never has to ask, and so a chapter with no bank
+  // simply does not show the button instead of showing one that fails.
+  const story = user ? await getChapterStoryState(loaded.id) : null;
+
   return (
     <ReaderShell
       chapter={{
@@ -90,6 +96,7 @@ export default async function ChapterPage({
         previousPosition: loaded.previousPosition,
         nextPosition: loaded.nextPosition,
         legacyTextId: loaded.item.legacyTextId,
+        hasChallenge: story?.ok === true && story.state.hasChallenge,
       }}
       initialPreferences={preferences}
     >

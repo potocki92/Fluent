@@ -27,6 +27,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { abilityToCefr } from "@/lib/cefr";
 import type { ConceptCode } from "@/lib/learning/concepts";
 import {
+  ASSESSMENT_FRESH_HOURS,
+  ASSESSMENT_URGENCY_FADED,
+  ASSESSMENT_URGENCY_FRESH,
   CHAPTER_BUDGET_SHARE,
   CHAPTER_LEVEL_FAR,
   CHAPTER_LEVEL_MATCH,
@@ -64,6 +67,13 @@ import {
 import { reason } from "@/lib/learning/planner/reasons";
 import type { EvidenceLevel, PlanCandidate } from "@/lib/learning/planner/types";
 import { READING_SEGMENT_COMPLETION_SHARE } from "@/lib/reading/constants";
+import { preparationMinutes } from "@/lib/story/preparation";
+import {
+  ASSESSMENT_PROMPT_DAYS,
+  CHALLENGE_SECONDS_PER_QUESTION,
+  DEFAULT_CHALLENGE_QUESTIONS,
+  MIN_CHALLENGE_QUESTIONS,
+} from "@/lib/story/constants";
 import type { RankedWeakness } from "@/lib/learning/weakness";
 import type { Database } from "@/types/database";
 import type { StoredCefrLevel } from "@/types";
@@ -806,4 +816,172 @@ export async function vocabularyCandidates(
       },
     },
   ];
+}
+
+/**
+ * The Story Engine's two activities: a Challenge that is outstanding, and a
+ * preparation worth taking before a chapter.
+ *
+ * BOTH ARE GATED ON THE ACTIVITY GENUINELY EXISTING, which is the rule every
+ * generator in this file follows and the reason there is no `listening` task
+ * waiting for a feature. A Challenge is proposed only when the chapter has a
+ * validated question bank behind it; a preparation only when the analysis found
+ * words worth clearing. A plan item whose button leads to "nie ma jeszcze
+ * ćwiczeń" is worse than a shorter plan.
+ *
+ * THE CHALLENGE IS URGENT FOR A FEW DAYS AND THEN IT IS NOT. A chapter finished
+ * this morning is fresh enough that checking what stuck measures retention; a
+ * chapter finished six weeks ago is archaeology, and a plan that kept asking
+ * about it would be nagging rather than teaching. The urgency fades rather than
+ * vanishing, so a Challenge stays offerable — it just stops competing.
+ */
+export async function storyCandidates(
+  ctx: PlannerContext,
+): Promise<PlanCandidate[]> {
+  const cutoff = new Date(
+    ctx.now.getTime() - ASSESSMENT_PROMPT_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data: outstanding } = await ctx.supabase
+    .from("user_chapter_learning_state")
+    .select("chapter_id, library_item_id, reading_completed_at")
+    .eq("user_id", ctx.userId)
+    .in("status", ["read", "assessment_pending"])
+    .gte("reading_completed_at", cutoff)
+    .order("reading_completed_at", { ascending: false })
+    .limit(5);
+
+  const rows = outstanding ?? [];
+  if (rows.length === 0) return [];
+
+  const { data: chapters } = await ctx.supabase
+    .from("chapters")
+    .select("id, library_item_id, position, title, library_items(slug, title)")
+    .in(
+      "id",
+      rows.map((row) => row.chapter_id),
+    )
+    .eq("status", "ready");
+
+  const byChapter = new Map((chapters ?? []).map((chapter) => [chapter.id, chapter]));
+  const candidates: PlanCandidate[] = [];
+
+  for (const row of rows) {
+    const chapter = byChapter.get(row.chapter_id);
+    if (!chapter) continue;
+
+    // A Challenge exists only if a validated bank does. This is the cheapest
+    // possible check and it is the one that keeps the task honest.
+    const { data: pool } = await ctx.supabase.rpc("get_chapter_question_candidates", {
+      p_chapter_id: row.chapter_id,
+    });
+    if (!pool || pool.length < MIN_CHALLENGE_QUESTIONS) continue;
+
+    const questionCount = Math.min(DEFAULT_CHALLENGE_QUESTIONS, pool.length);
+    const item = (Array.isArray(chapter.library_items)
+      ? chapter.library_items[0]
+      : chapter.library_items) as { slug: string; title: string } | null | undefined;
+
+    const hoursSince = row.reading_completed_at
+      ? (ctx.now.getTime() - Date.parse(row.reading_completed_at)) / 3_600_000
+      : Number.POSITIVE_INFINITY;
+
+    candidates.push({
+      type: "chapter_assessment",
+      estimatedMinutes: Math.max(
+        1,
+        Math.round((questionCount * CHALLENGE_SECONDS_PER_QUESTION) / 60),
+      ),
+      targetCount: questionCount,
+      libraryItemId: row.library_item_id,
+      chapterId: row.chapter_id,
+      signals: signals({
+        // Reuses `continuation` rather than inventing a signal: an unfinished
+        // Challenge is precisely "something already begun".
+        continuation:
+          hoursSince <= ASSESSMENT_FRESH_HOURS
+            ? ASSESSMENT_URGENCY_FRESH
+            : ASSESSMENT_URGENCY_FADED,
+      }),
+      reason: reason("chapter_challenge_pending", { itemTitle: item?.title }),
+      payload: {
+        slug: item?.slug ?? "",
+        itemTitle: item?.title ?? "",
+        chapterPosition: chapter.position,
+        chapterTitle: chapter.title,
+        questionCount,
+      },
+    });
+    break;
+  }
+
+  // ── PREPARATION ───────────────────────────────────────────────────────────
+  // Offered only for a chapter whose analysis has ALREADY been computed and
+  // found words worth clearing. That is deliberately conservative: computing a
+  // fresh analysis here would mean a vocabulary join per chapter on the app's
+  // most-opened screen, and proposing preparation for a chapter Fluent has not
+  // analysed would be proposing a task whose content does not exist yet.
+  const { data: analysed } = await ctx.supabase
+    .from("chapter_user_analysis")
+    .select("chapter_id, library_item_id, preteach_target_count")
+    .eq("user_id", ctx.userId)
+    .gt("preteach_target_count", 0)
+    .order("computed_at", { ascending: false })
+    .limit(5);
+
+  for (const row of analysed ?? []) {
+    // Preparation is for a chapter about to be read, not one already underway:
+    // pre-teaching words to someone forty paragraphs in is a warm-up after the
+    // race.
+    const { data: progress } = await ctx.supabase
+      .from("reading_progress")
+      .select("chapter_id")
+      .eq("user_id", ctx.userId)
+      .eq("chapter_id", row.chapter_id)
+      .maybeSingle();
+    if (progress) continue;
+
+    const { data: prepared } = await ctx.supabase
+      .from("chapter_preparation_sessions")
+      .select("id")
+      .eq("user_id", ctx.userId)
+      .eq("chapter_id", row.chapter_id)
+      .in("status", ["completed", "skipped"])
+      .limit(1)
+      .maybeSingle();
+    if (prepared) continue;
+
+    const { data: chapter } = await ctx.supabase
+      .from("chapters")
+      .select("id, position, title, library_items(slug, title)")
+      .eq("id", row.chapter_id)
+      .eq("status", "ready")
+      .maybeSingle();
+    if (!chapter) continue;
+
+    const item = (Array.isArray(chapter.library_items)
+      ? chapter.library_items[0]
+      : chapter.library_items) as { slug: string; title: string } | null | undefined;
+
+    candidates.push({
+      type: "chapter_preparation",
+      estimatedMinutes: preparationMinutes(row.preteach_target_count),
+      targetCount: row.preteach_target_count,
+      libraryItemId: row.library_item_id,
+      chapterId: row.chapter_id,
+      // The words are unknown to the learner and useful right now — which is
+      // exactly what `vocabularyFit` already means for the new-words task.
+      signals: signals({ vocabularyFit: 1 }),
+      reason: reason("chapter_preparation", { count: row.preteach_target_count }),
+      payload: {
+        slug: item?.slug ?? "",
+        itemTitle: item?.title ?? "",
+        chapterPosition: chapter.position,
+        chapterTitle: chapter.title,
+      },
+    });
+    break;
+  }
+
+  return candidates;
 }

@@ -101,3 +101,33 @@ describe("planProgress", () => {
     expect(planProgress([])).toEqual({ done: 0, total: 0, percent: 0 });
   });
 });
+
+describe("planItemHref — the story activities", () => {
+  const chapter = {
+    payload: { slug: "der-prozess", chapterPosition: 4 },
+  } as const;
+
+  it("carries the plan item into a preparation, so finishing it moves the plan", () => {
+    expect(
+      planItemHref(item({ id: "plan-7", type: "chapter_preparation", ...chapter })),
+    ).toBe("/library/der-prozess/4/przygotowanie?item=plan-7");
+  });
+
+  it("carries it into a Challenge for the same reason", () => {
+    expect(
+      planItemHref(item({ id: "plan-7", type: "chapter_assessment", ...chapter })),
+    ).toBe("/library/der-prozess/4/wyzwanie?item=plan-7");
+  });
+
+  it("does NOT carry it into plain reading, which is measured, not attached", () => {
+    expect(planItemHref(item({ type: "continue_chapter", ...chapter }))).toBe(
+      "/library/der-prozess/4",
+    );
+  });
+
+  it("falls back to the library rather than a 404 when the snapshot is thin", () => {
+    expect(planItemHref(item({ type: "chapter_assessment", payload: {} }))).toBe(
+      "/library",
+    );
+  });
+});

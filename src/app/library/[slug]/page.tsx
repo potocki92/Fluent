@@ -3,11 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
+import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ChapterList } from "@/components/library/ChapterList";
-import { CoverageNote } from "@/components/library/CoverageNote";
+import { ChapterPrepCard } from "@/components/story/ChapterPrepCard";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { getChapterCoverage, getLibraryItem } from "@/lib/library/queries";
+import { getLibraryItem } from "@/lib/library/queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function generateMetadata({
@@ -45,15 +46,29 @@ export default async function LibraryItemPage({
   const item = await getLibraryItem(supabase, slug, user?.id ?? null);
   if (!item) notFound();
 
+  // READING PROGRESS AND LEARNING PROGRESS ARE TWO DIMENSIONS, and merging them
+  // into one percentage would produce a number that means neither. The chapter
+  // list shows them side by side: read, and whether the Challenge is still open.
+  const { data: states } = user
+    ? await supabase
+        .from("user_chapter_learning_state")
+        .select("chapter_id, status")
+        .eq("user_id", user.id)
+        .eq("library_item_id", item.id)
+    : { data: null };
+
+  const learningState = new Map(
+    (states ?? []).map((row) => [row.chapter_id, row.status]),
+  );
+
   const percent = Math.round(item.progressRatio * 100);
   const resume = item.resumeChapter;
   const started = percent > 0;
 
-  // Coverage for the chapter they are about to read, never for the whole book:
-  // the question "will I understand this?" is about the next chapter.
-  const coverage = resume
-    ? await getChapterCoverage(supabase, resume.id, user?.id ?? null)
-    : null;
+  // The analysis is for the chapter they are about to read, never for the whole
+  // book: "will I understand this?" is a question about the next chapter, and a
+  // book-wide average would answer it for a chapter that does not exist.
+  const story = resume ? await getChapterStoryState(resume.id) : null;
 
   return (
     <article className="space-y-6">
@@ -106,26 +121,39 @@ export default async function LibraryItemPage({
       )}
 
       {resume ? (
-        <div className="space-y-2">
-          <Link
+        // Once the learner is INSIDE a chapter, the prep card is the wrong
+        // screen: pre-teaching words to someone forty paragraphs in is a warm-up
+        // after the race. They get the resume button they came for instead.
+        story?.ok && resume.progressRatio === 0 ? (
+          <ChapterPrepCard
+            state={story.state}
             href={`/library/${item.slug}/${resume.position}`}
-            className="block w-full rounded-xl bg-gold px-4 py-3 text-center text-base font-semibold text-[#1a202c] transition-colors hover:bg-gold-dark"
-          >
-            {started ? "Kontynuuj czytanie" : "Zacznij czytać"}
-          </Link>
-          <p className="text-center text-xs text-muted2">
-            {resume.title ?? `Rozdział ${resume.position}`} · ok.{" "}
-            {resume.estimatedMinutes} min
-          </p>
-          {coverage && <CoverageNote coverage={coverage} />}
-        </div>
+          />
+        ) : (
+          <div className="space-y-2">
+            <Link
+              href={`/library/${item.slug}/${resume.position}`}
+              className="block w-full rounded-xl bg-gold px-4 py-3 text-center text-base font-semibold text-[#1a202c] transition-colors hover:bg-gold-dark"
+            >
+              {started ? "Kontynuuj czytanie" : "Zacznij czytać"}
+            </Link>
+            <p className="text-center text-xs text-muted2">
+              {resume.title ?? `Rozdział ${resume.position}`} · ok.{" "}
+              {resume.estimatedMinutes} min
+            </p>
+          </div>
+        )
       ) : (
         <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted2">
           Ta pozycja nie ma jeszcze gotowych rozdziałów.
         </p>
       )}
 
-      <ChapterList slug={item.slug} chapters={item.chapters} />
+      <ChapterList
+        slug={item.slug}
+        chapters={item.chapters}
+        learningState={learningState}
+      />
     </article>
   );
 }

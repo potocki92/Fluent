@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckCircle2, Clock, Lock } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Clock, Lock } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
 import type { ChapterWithProgress } from "@/lib/library/queries";
@@ -14,13 +14,21 @@ import { cn } from "@/lib/utils";
  * unopenable rows are the ones that genuinely have no content yet — a chapter
  * the pipeline has not processed, which shows as such rather than as a dead
  * link.
+ *
+ * READING AND LEARNING ARE SHOWN SEPARATELY. A chapter can be read and not yet
+ * assessed, and collapsing that into one tick would hide the only thing the row
+ * still has to say. The two live side by side rather than as one percentage,
+ * because a single number made of both would mean neither.
  */
 export function ChapterList({
   slug,
   chapters,
+  learningState,
 }: {
   slug: string;
   chapters: readonly ChapterWithProgress[];
+  /** chapter id → lifecycle status, for the "wyzwanie czeka" marker. */
+  learningState?: ReadonlyMap<string, string>;
 }) {
   if (chapters.length === 0) return null;
 
@@ -32,7 +40,11 @@ export function ChapterList({
       <ol className="space-y-2">
         {chapters.map((chapter) => (
           <li key={chapter.id}>
-            <ChapterRow slug={slug} chapter={chapter} />
+            <ChapterRow
+              slug={slug}
+              chapter={chapter}
+              lifecycle={learningState?.get(chapter.id)}
+            />
           </li>
         ))}
       </ol>
@@ -43,13 +55,17 @@ export function ChapterList({
 function ChapterRow({
   slug,
   chapter,
+  lifecycle,
 }: {
   slug: string;
   chapter: ChapterWithProgress;
+  lifecycle?: string;
 }) {
   const percent = Math.round(chapter.progressRatio * 100);
   const done = chapter.completedAt !== null;
   const ready = chapter.status === "ready";
+  const challengeOpen =
+    done && lifecycle !== undefined && lifecycle !== "completed";
 
   const body = (
     <div className="flex items-center gap-3">
@@ -85,6 +101,11 @@ function ChapterRow({
             <Progress value={percent} />
           </div>
         )}
+        {challengeOpen && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-gold">
+            <ClipboardCheck className="size-3" /> Wyzwanie czeka
+          </p>
+        )}
       </div>
     </div>
   );
@@ -99,7 +120,14 @@ function ChapterRow({
 
   return (
     <Link
-      href={`/library/${slug}/${chapter.position}`}
+      // A finished chapter with an open Challenge links to the Challenge: the
+      // learner has read it, and re-opening the prose is not what the row is
+      // offering them.
+      href={
+        challengeOpen
+          ? `/library/${slug}/${chapter.position}/wyzwanie`
+          : `/library/${slug}/${chapter.position}`
+      }
       className="block rounded-xl border border-border bg-card p-3 transition-colors hover:border-gold/50"
     >
       {body}

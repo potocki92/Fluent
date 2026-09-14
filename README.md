@@ -105,6 +105,10 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `daily_plans` · `daily_plan_items` | One learning day's plan, unique per (learner, day), with the reason and priority signals behind each activity snapshotted. See [Today engine](#today-engine). |
 | `practice_sessions` · `practice_session_items` | One weakness drill. Modelled on `test_sessions` — server-picked items, one answer each — but never Elo-scored. |
 | `text_progress` | "This learner opened this passage." The minimal reading state the planner needs to recommend *finishing* something rather than starting something. |
+| `chapter_questions` · `chapter_question_concepts` · `chapter_question_stats` · `chapter_question_reports` | The chapter question bank, its tags, its aggregate answering data and the "this question is wrong" signal. **No learner read policy at all** — the row carries the answer key. See [Story Learning Engine](#story-learning-engine). |
+| `chapter_user_analysis` · `user_chapter_learning_state` | The cached personal analysis of one chapter for one learner, and where they are in its LEARNING lifecycle — which is a different fact from `reading_progress`. |
+| `chapter_preparation_sessions` · `chapter_preparation_items` · `chapter_assessment_sessions` · `chapter_assessment_items` | Snapshotted Story-engine sessions. Server-owned, answered once, finalized once — the same trust model as `test_sessions`. |
+| `chapter_generation_jobs` | One question-generation run: status, attempts, provider, model, token usage and rejection reasons. Never chapter content. |
 | `library_items` · `chapters` | Everything readable — a story, a book, an article, or one of the graded passages (`legacy_text_id` maps it back to `texts`). `rights` decides who may see it at all; a `private_import` is owner-only. See [Reader & story engine](#reader--story-engine). |
 | `paragraphs` · `sentences` · `word_occurrences` | A chapter's structure as **plain text and positions**, not markup. A sentence is what contextual help will attach to; an occurrence is "this word, in this sentence, here". |
 | `chapter_vocabulary` | The chapter's distinct dictionary words with frequencies, aggregated once at processing time — what vocabulary coverage is computed from. |
@@ -445,6 +449,83 @@ weight, processor versioning, the accessibility tradeoff and the transition plan
 — is in
 [`docs/architecture/reader-story-engine.md`](./docs/architecture/reader-story-engine.md).
 
+## Story Learning Engine
+
+The reader records where a learner is and which words they checked. The Story
+Learning Engine is what **uses** that — it turns a book into a continuous,
+personalised course without turning it into a textbook:
+
+```
+Book / Story
+   ↓
+Chapter
+   ↓
+Personal Chapter Analysis     coverage + confidence + personal difficulty
+   ↓
+Preparation                   3–8 words, optional, skippable
+   ↓
+Reader                        uninterrupted — no mid-chapter quizzes
+   ↓
+Chapter Challenge             comprehension · vocabulary · grammar · transfer
+   ↓
+Learning Events               the SAME evidence path as tests and reviews
+   ↓
+Knowledge Model
+   ↓
+Today Engine
+   ↓
+Next learning action
+```
+
+**Personal difficulty is not CEFR.** `chapters.cefr_estimate` says what the
+language is; the per-learner analysis says what the gap is between that language
+and what this learner has shown they know. A globally-B1 chapter is legitimately
+*Łatwy* for one reader and *Bardzo wymagający* for another.
+
+**No number is quoted that the evidence cannot support.** Coverage is shown to
+the whole percent with its confidence in words beside it, and below the evidence
+floor it is absent entirely — replaced by a sentence saying what would change
+that.
+
+**Preparation clears obstacles; it does not teach the chapter.** A chapter with
+142 unknown words gets three to eight cards, chosen by a deterministic ranking
+(unknown probability, frequency, early-and-recurring importance, dictionary band,
+weakness relevance). "Pomiń i czytaj" is on every card, and a skipped preparation
+counts as a completed task — the learner resolved it.
+
+**Personalisation is selection, not generation.** A chapter's question bank is
+generated once, validated once and shared by every reader; what differs per
+learner is which six of the forty they get and in what mix. Whatever their
+weaknesses, at least 30% of a Challenge still asks about the story.
+
+**Generated questions are guilty until validated.** Every question stores the
+sentence ids it was written from, and a candidate that cites a sentence from
+another chapter, has two identical options, or claims a skill its kind may not
+claim is rejected with a reason. An ambiguous question does not waste thirty
+seconds — it writes false evidence into the knowledge model.
+
+**The AI boundary is one interface.** Everything deterministic (frequencies,
+coverage, difficulty, ranking, selection) is computed locally and sent nowhere;
+only question *candidates* come from a model, through
+`StoryQuestionProvider`. No provider ships with this phase — with none
+registered, admins author banks by hand through the same validation, and chapters
+without a bank simply have no Challenge. Private imports are never sent to a
+provider that has not declared it will not retain them.
+
+**Answer keys stay closed.** `chapter_questions` has no learner read policy at
+all; prompts arrive through a session snapshot, one question at a time, and the
+key only after the answer is committed. A sequence question's correct order never
+leaves the database — the learner is shown a server-side shuffle.
+
+`/admin/story` is the inspector: per-chapter bank coverage, staleness, reports,
+and the last generation run's cost and rejections. Private imports never appear
+there.
+
+Design rationale in full — the confidence bands, the preparation ranking, the
+blueprint floor, source grounding, the generation pipeline, the evidence map and
+the security model — is in
+[`docs/architecture/story-learning-engine.md`](./docs/architecture/story-learning-engine.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -530,6 +611,10 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
 - **`src/actions/reading.ts`** — the reader's write paths. All of them go through
   SECURITY DEFINER functions that derive the learner from `auth.uid()`; a lookup
   writes its reading record and its learning evidence in one transaction.
+- **`src/components/story/`** — `ChapterPrepCard` (the BEFORE screen: coverage,
+  personal difficulty, and two buttons of which the second always works),
+  `PreparationRunner`, `ChallengeRunner` (four answer mechanics, one component),
+  `ChallengeResultCard`.
 - **`src/components/reader/`** — `ReaderProse` (server-rendered prose),
   `ReaderShell` (one delegated listener, progress, the active-reading clock,
   typography), `WordGlossSheet`, `ReaderSettingsSheet`, `ChapterCompleteCard`.

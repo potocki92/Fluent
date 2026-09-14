@@ -113,6 +113,26 @@ export const CHAPTER_BUDGET_SHARE = 0.6;
  * has calibrated a novel against an item bank. Three values rather than a curve,
  * because three is all the precision the input supports.
  */
+// ── THE STORY ENGINE'S TWO ACTIVITIES ────────────────────────────────────────
+// Preparation is the doorway to a chapter and the Challenge is its coda. Neither
+// is a session in its own right, and both are budgeted as the small things they
+// are — a plan that spent half its day on "przygotowanie" would have inverted
+// the point of reading a book.
+
+/**
+ * Urgency of a Challenge the learner has not taken yet.
+ *
+ * High for a few days and then gone. A chapter finished this morning is fresh
+ * enough that checking what stuck measures retention rather than archaeology; a
+ * chapter finished in March is not, and a plan that kept asking about it for a
+ * month would be nagging rather than teaching.
+ */
+export const ASSESSMENT_URGENCY_FRESH = 1;
+export const ASSESSMENT_URGENCY_FADED = 0.35;
+
+/** Hours after finishing a chapter that its Challenge still counts as fresh. */
+export const ASSESSMENT_FRESH_HOURS = 36;
+
 export const CHAPTER_LEVEL_MATCH = 1;
 export const CHAPTER_LEVEL_NEAR = 0.6;
 export const CHAPTER_LEVEL_FAR = 0.15;
@@ -187,6 +207,10 @@ export const TYPE_TIEBREAK = {
   weakness_practice: 0.03,
   continue_text: 0.02,
   continue_chapter: 0.02,
+  // Just above a new chapter: finishing what a learner started with a book —
+  // including the check at the end of it — beats opening the next one.
+  chapter_assessment: 0.025,
+  chapter_preparation: 0.015,
   new_text: 0.01,
   new_chapter: 0.01,
   new_vocabulary: 0,
@@ -273,6 +297,8 @@ export const MAX_ITEMS_PER_TYPE: Readonly<Record<string, number>> = {
   continue_chapter: 1,
   new_text: 1,
   new_chapter: 1,
+  chapter_preparation: 1,
+  chapter_assessment: 1,
   new_vocabulary: 1,
 };
 
@@ -290,6 +316,11 @@ export const FLOW_ORDER: readonly string[] = [
   "placement",
   "review_due",
   "weakness_practice",
+  // The Challenge comes BEFORE the next chapter: it closes the book the learner
+  // was already in, and a plan that opened a new chapter first would leave them
+  // answering questions about a story they had since moved on from.
+  "chapter_assessment",
+  "chapter_preparation",
   "continue_chapter",
   "continue_text",
   "new_chapter",

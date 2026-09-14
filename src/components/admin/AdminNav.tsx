@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { href: "/admin", label: "Teksty" },
   { href: "/admin/library", label: "Biblioteka" },
+  { href: "/admin/story", label: "Story Engine" },
   { href: "/admin/words", label: "Słownik" },
   { href: "/admin/suggestions", label: "Zgłoszenia" },
   { href: "/admin/learning", label: "Model wiedzy" },

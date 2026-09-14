@@ -358,21 +358,42 @@ create unique index if not exists practice_session_items_position_idx
 -- practising Dativ is exactly how a Dativ weakness stops being one. Both check
 -- constraints are widened so the event log can say where it came from instead of
 -- a practice answer masquerading as a reading test.
+--
+-- GUARDED, because widening a whitelist is only idempotent if re-running it
+-- cannot NARROW one. A later migration adds more event types; without this
+-- check, re-applying `schema.sql` to an already-provisioned database would try
+-- to reinstate this shorter list and fail against the rows the later phase has
+-- since written. The guard asks whether the value THIS migration introduces is
+-- already permitted, so a fresh install still widens exactly once.
 do $$
 begin
-  alter table public.learning_events drop constraint if exists learning_events_event_type_check;
-  alter table public.learning_events
-    add constraint learning_events_event_type_check check (event_type in (
-      'test_answer', 'calibration_answer', 'review', 'practice_answer',
-      'reading_lookup', 'reading_sentence_help', 'typed_recall',
-      'listening_answer', 'speaking_answer', 'writing_answer'
-    ));
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.learning_events'::regclass
+      and conname  = 'learning_events_event_type_check'
+      and pg_get_constraintdef(oid) like '%''practice_answer''%'
+  ) then
+    alter table public.learning_events drop constraint if exists learning_events_event_type_check;
+    alter table public.learning_events
+      add constraint learning_events_event_type_check check (event_type in (
+        'test_answer', 'calibration_answer', 'review', 'practice_answer',
+        'reading_lookup', 'reading_sentence_help', 'typed_recall',
+        'listening_answer', 'speaking_answer', 'writing_answer'
+      ));
+  end if;
 
-  alter table public.learning_events drop constraint if exists learning_events_source_kind_check;
-  alter table public.learning_events
-    add constraint learning_events_source_kind_check check (source_kind in (
-      'reading_test', 'placement_test', 'review', 'practice', 'reader', 'book', 'import'
-    ));
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.learning_events'::regclass
+      and conname  = 'learning_events_source_kind_check'
+      and pg_get_constraintdef(oid) like '%''practice''%'
+  ) then
+    alter table public.learning_events drop constraint if exists learning_events_source_kind_check;
+    alter table public.learning_events
+      add constraint learning_events_source_kind_check check (source_kind in (
+        'reading_test', 'placement_test', 'review', 'practice', 'reader', 'book', 'import'
+      ));
+  end if;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────

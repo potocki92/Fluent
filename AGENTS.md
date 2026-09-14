@@ -38,6 +38,8 @@ Respect the existing `src/`-rooted structure:
 - `src/actions/` — server actions (`"use server"`): the test lifecycle
   (`start-test-session.ts`, `answer-test-question.ts`, `finalize-test-session.ts`),
   the placement lifecycle (`start-`/`answer-`/`finalize-calibration-*.ts`),
+  the story lifecycle (`chapter-analysis.ts`, `chapter-preparation.ts`,
+  `chapter-assessment.ts`, `admin-chapter-questions.ts`, `admin-story.ts`),
   the weakness-drill lifecycle (`start-`/`answer-`/`finalize-practice-*.ts`),
   the daily plan (`today-plan.ts`), the reader (`reading.ts` — sessions, progress,
   lookups, saving a word with its sentence), library content
@@ -70,15 +72,23 @@ Respect the existing `src/`-rooted structure:
   ranking, weakness practice or the learning-day/timezone rules, and
   `reader-story-engine.md` before touching library content, chapters, structured
   text, word occurrences, reading progress/sessions/lookups or the content
-  pipeline.
+  pipeline, and `story-learning-engine.md` before touching chapter analysis,
+  preparation, the chapter question bank, question generation, the Chapter
+  Challenge or the chapter learning lifecycle.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
+- Database migrations may only ever WIDEN a check constraint on a re-run. Guard
+  every `drop constraint` / `add constraint` block on whether the value that
+  migration introduces is already permitted, or re-applying `schema.sql` to a
+  provisioned database will reinstate an older phase's shorter whitelist and fail
+  against rows a later phase has since written.
 
 Do NOT move the project to root-level folders or out of `src/`. There is no `features/`, `store/`, or `data/` directory — do not assume them.
 
 ## App Router Rules
 
 - Route files in `src/app/` should stay thin and compose components/hooks.
-- Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
+- Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`,
+  `/library/[slug]/[chapter]/przygotowanie`, `/library/[slug]/[chapter]/wyzwanie`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
 - Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
@@ -220,8 +230,9 @@ Do not:
 - scatter tuning constants: every planner weight, budget and time estimate lives
   in `src/lib/learning/planner/constants.ts`, every reader threshold (idle
   timeout, flush cadence, completion ratio, coverage floors, lookup discount)
-  lives in `src/lib/reading/constants.ts`, and a bare `* 0.35` anywhere else in
-  either is a bug
+  lives in `src/lib/reading/constants.ts`, every Story-engine weight, threshold
+  and budget lives in `src/lib/story/constants.ts`, and a bare `* 0.35` anywhere
+  else in any of them is a bug
 - let the client decide anything authoritative: which questions a test contains, what
   a score is, or what a learner's ability becomes
 - change Next/React APIs based only on model memory — check the local Next docs
