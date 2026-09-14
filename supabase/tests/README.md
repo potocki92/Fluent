@@ -20,13 +20,28 @@ supabase start
 PGHOST=localhost PGPORT=54322 PGUSER=postgres ./supabase/tests/run.sh
 ```
 
-The runner exercises three things:
+The runner exercises four things:
 
-1. **bootstrap** — `schema.sql` on an empty database, then both suites;
+1. **bootstrap** — `schema.sql` on an empty database, then every suite;
 2. **upgrade** — the pre-migration schema (`fixtures/pre_migration_schema.sql`),
    then every migration in order, then the same suites. This is what proves the
    migrations work on an already-provisioned project, not only a fresh one;
-3. **idempotency** — re-applying every script changes nothing.
+3. **idempotency** — re-applying every script changes nothing;
+4. **parity** — the bootstrap and upgrade databases are compared column by
+   column and routine by routine, and any difference fails the run.
+
+Step 4 exists because steps 1–3 all passed while the two paths were producing
+*different* databases. Four columns (`profiles.daily_word_goal`,
+`word_streak_days`, `words_reviewed_today`, `last_word_review`) were declared
+only inside `create table if not exists public.profiles ( … )`, so a fresh
+install had them and every pre-existing project silently did not — and
+re-running `schema.sql` could never fix it, because `schema.sql` was where the
+omission lived. A suite only catches that if it happens to exercise the missing
+piece; comparing the schemas catches the whole class.
+
+The fixture is deliberately **older** than the current schema for the same
+reason: it used to include those four columns, which is exactly why the upgrade
+path was being tested against a database newer than any real one.
 
 All three suites run against the same database, in order:
 `01_test_session_security.sql` exercises the test lifecycle and leaves `attempts`

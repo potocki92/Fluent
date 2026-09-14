@@ -92,10 +92,15 @@ create table if not exists public.profiles (
   promotion_streak int    not null default 0,   -- consecutive strong passes toward next CEFR band
   streak_days          int     not null default 0,
   last_active          date,
-  daily_word_goal      int     not null default 20,
-  word_streak_days     int     not null default 0,
-  words_reviewed_today int     not null default 0,
-  last_word_review     date,
+  -- NOTE: the four daily-review columns (`daily_word_goal`, `word_streak_days`,
+  -- `words_reviewed_today`, `last_word_review`) are deliberately ABSENT here.
+  --
+  -- This fixture stands in for a database that was provisioned before those
+  -- columns existed, which is what a real long-lived project looks like. It
+  -- used to include them, and that is precisely why the suite never noticed
+  -- that `schema.sql` declared them only inside `create table if not exists`
+  -- and therefore never added them to an existing `profiles` — the upgrade
+  -- path was being tested against a database newer than any real one.
   created_at           timestamptz default now(),
   updated_at           timestamptz default now()
 );
