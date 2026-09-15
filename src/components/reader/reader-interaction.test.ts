@@ -52,7 +52,8 @@ function gesture(overrides: Partial<ReaderGesture> = {}): ReaderGesture {
     word: null,
     sentenceId: 77,
     selection: null,
-    selectionChangedDuringGesture: false,
+    selectionIsUncommitted: false,
+    pointerInsideSelection: false,
     ...overrides,
   };
 }
@@ -74,12 +75,46 @@ describe("resolveReaderIntent", () => {
   it("ignores a stale selection left over from an earlier gesture", () => {
     // THE BUG. Safari still holds the range from a long-press two paragraphs
     // ago; the tap that dismisses the callout is delivered to the word beneath
-    // it. `selectionChangedDuringGesture` is false, so the tap stays a tap.
+    // it. The selection has already been committed, so the tap stays a tap.
     const intent = resolveReaderIntent(
       gesture({
         word: word(),
         selection: range({ charStart: 4, charEnd: 11 }),
-        selectionChangedDuringGesture: false,
+        selectionIsUncommitted: false,
+        pointerInsideSelection: true,
+      }),
+    );
+
+    expect(intent.kind).toBe("word");
+  });
+
+  it("ignores a selection the reader has already shown the bar for", () => {
+    // THE BUG, SECOND FORM — the one a Safari-engine run reproduced after the
+    // first fix. A long-press selects a word and the action bar appears; the tap
+    // that dismisses iOS's callout arrives as a click with NO pointerdown of its
+    // own, so "changed since this gesture began" was still true and swallowed
+    // it. Committing the selection ends its claim on the next click.
+    const intent = resolveReaderIntent(
+      gesture({
+        word: word(),
+        selection: range({ charStart: 4, charEnd: 11 }),
+        selectionIsUncommitted: false,
+        pointerInsideSelection: true,
+      }),
+    );
+
+    expect(intent.kind).toBe("word");
+  });
+
+  it("ignores an uncommitted selection the tap happened outside of", () => {
+    // A drag ends inside its own selection. A tap on a word elsewhere does not,
+    // so it cannot be that drag ending — whatever the browser still holds.
+    const intent = resolveReaderIntent(
+      gesture({
+        word: word(),
+        selection: range({ charStart: 4, charEnd: 11 }),
+        selectionIsUncommitted: true,
+        pointerInsideSelection: false,
       }),
     );
 
@@ -93,7 +128,8 @@ describe("resolveReaderIntent", () => {
       gesture({
         word: word(),
         selection: range({ charStart: 4, charEnd: 4 }),
-        selectionChangedDuringGesture: true,
+        selectionIsUncommitted: true,
+        pointerInsideSelection: true,
       }),
     );
 
@@ -105,7 +141,8 @@ describe("resolveReaderIntent", () => {
       gesture({
         word: word(),
         selection: range({ charStart: 0, charEnd: 11 }),
-        selectionChangedDuringGesture: false,
+        selectionIsUncommitted: false,
+        pointerInsideSelection: true,
       }),
     );
 
@@ -116,7 +153,12 @@ describe("resolveReaderIntent", () => {
     // A drag-select ends on a word and fires a click there. That is not a tap.
     const selection = range({ charStart: 4, charEnd: 11 });
     const intent = resolveReaderIntent(
-      gesture({ word: word(), selection, selectionChangedDuringGesture: true }),
+      gesture({
+        word: word(),
+        selection,
+        selectionIsUncommitted: true,
+        pointerInsideSelection: true,
+      }),
     );
 
     expect(intent).toEqual({ kind: "selection", selection });
@@ -125,7 +167,12 @@ describe("resolveReaderIntent", () => {
   it("reports a live cross-sentence selection rather than the word under it", () => {
     const selection = range({ crossSentence: true, charStart: 0, charEnd: 0 });
     const intent = resolveReaderIntent(
-      gesture({ word: word(), selection, selectionChangedDuringGesture: true }),
+      gesture({
+        word: word(),
+        selection,
+        selectionIsUncommitted: true,
+        pointerInsideSelection: true,
+      }),
     );
 
     expect(intent).toEqual({ kind: "selection", selection });

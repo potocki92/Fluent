@@ -49,6 +49,7 @@ import {
 import {
   clearSelection,
   observeReaderSelection,
+  pointerInsideRect,
   readerHitAt,
   readerWordHit,
   readReaderSelection,
@@ -382,15 +383,17 @@ export function ReaderShell({
     (event: MouseEvent<HTMLDivElement>) => {
       const root = contentRef.current;
       const hit = readerHitAt(root, event);
+      const selection = readReaderSelection(root);
 
       const intent = resolveReaderIntent({
         word: hit.word ? readerWordHit(hit.word) : null,
         sentenceId: hit.sentenceId,
-        selection: readReaderSelection(root),
-        // THE STALE-SELECTION GUARD. Only a selection the browser changed during
-        // THIS gesture is an answer to it; Safari's leftovers are not.
-        selectionChangedDuringGesture:
-          selectionRef.current?.changedDuringGesture() ?? false,
+        selection,
+        // THE STALE-SELECTION GUARD. A selection outranks this tap only while it
+        // is still unshown AND the tap happened inside it. Safari's leftovers
+        // fail both; a drag ending on a word passes both.
+        selectionIsUncommitted: selectionRef.current?.isUncommitted() ?? false,
+        pointerInsideSelection: pointerInsideRect(selection?.rect, event),
       });
 
       if (intent.kind === "selection") {

@@ -23,13 +23,26 @@
  *   5. a tap inside `.reader-sentence` but not on a word → the sentence's actions
  *   6. anything else                                     → nothing
  *
- * LIVE IS THE WHOLE WORD. A selection belongs to the gesture that is ending only
- * when the browser changed it DURING that gesture — between this tap's
- * `pointerdown` and its `click`. A drag-select ends that way and keeps its
- * meaning; a leftover range from a minute ago does not, and is ignored rather
- * than cleared. Fluent does not clear a native selection to win an argument with
- * it (§30): the learner may be mid-copy, and taking that away to show a button
- * would be the worse bug.
+ * LIVE IS THE WHOLE WORD, AND IT TAKES THREE THINGS. A selection outranks a tap
+ * only when it is all of:
+ *
+ *   * USABLE — a caret and a zero-width range are not selections;
+ *   * UNCOMMITTED — the browser has changed it and the reader has not yet shown
+ *     the learner anything about it. Once the action bar is up for a selection,
+ *     that selection has been dealt with, and the NEXT tap is a new gesture;
+ *   * UNDER THE POINTER — a drag always ends inside its own selection. A tap on
+ *     a word somewhere else is not that drag ending.
+ *
+ * Any one of those alone is not enough, and the second is the one iOS needed.
+ * "Changed since this gesture's `pointerdown`" was the first attempt, and it is
+ * wrong on a phone: iOS delivers the tap that dismisses a selection callout as a
+ * click with NO pointerdown of its own, so the long-press's own selection change
+ * still looked current and swallowed the tap. A committed selection can no
+ * longer swallow anything, whether or not a pointerdown arrived.
+ *
+ * A leftover range is IGNORED, never cleared. Fluent does not clear a native
+ * selection to win an argument with it (§30): the learner may be mid-copy, and
+ * taking that away to show a button would be the worse bug.
  *
  * PURE, AND DELIBERATELY DOM-FREE. Nothing here touches a node, a `Range` or a
  * `window`. The caller resolves its event into the small description below and
@@ -98,12 +111,23 @@ export interface ReaderGesture {
   /** What the browser has selected inside the reader RIGHT NOW. */
   selection: SelectedRange | null;
   /**
-   * Whether the browser changed that selection during this very gesture.
+   * The selection has changed and the reader has NOT yet acted on it.
    *
-   * This is the stale-selection guard. False means "the learner selected this
-   * earlier", and earlier is not an answer to a tap happening now.
+   * This is the stale-selection guard, and it is a one-shot: the moment
+   * `observeReaderSelection` surfaces a selection, it stops being uncommitted,
+   * so the next click is a fresh tap rather than that selection's echo. False
+   * means "the learner already has whatever this selection was going to give
+   * them" — which is not an answer to a tap happening now.
    */
-  selectionChangedDuringGesture: boolean;
+  selectionIsUncommitted: boolean;
+  /**
+   * The gesture happened inside that selection's own rectangle.
+   *
+   * A drag ends where its selection is; a tap on a word elsewhere does not. No
+   * coordinates (a keyboard or synthetic click) reads as false, which resolves
+   * to the word — rule 1.
+   */
+  pointerInsideSelection: boolean;
 }
 
 /** What the reader should do about a gesture. */
@@ -142,9 +166,10 @@ export function resolveReaderIntent(gesture: ReaderGesture): ReaderIntent {
   const { selection } = gesture;
 
   if (
-    gesture.selectionChangedDuringGesture &&
+    selection !== null &&
     isUsableSelection(selection) &&
-    selection !== null
+    gesture.selectionIsUncommitted &&
+    gesture.pointerInsideSelection
   ) {
     return { kind: "selection", selection };
   }

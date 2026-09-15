@@ -105,14 +105,52 @@ const SELECTION_SETTLE_MS = 120;
 /** A live view of what the learner has selected inside the reader. */
 export interface ReaderSelectionObserver {
   /**
-   * Did the browser change the selection during the gesture that is ending now?
+   * Has the selection changed without the reader having acted on it yet?
    *
-   * This is the stale-selection guard the word tap depends on. A leftover range
-   * — the one Safari still holds from a long-press two paragraphs ago — answers
-   * `false`, and the tap goes to the word under the finger where it belongs.
+   * This is the stale-selection guard the word tap depends on, and it is a
+   * ONE-SHOT: committing a selection — showing the learner its action bar —
+   * clears it. A leftover range answers `false`, so the tap goes to the word
+   * under the finger where it belongs.
+   *
+   * IT IS NOT "CHANGED SINCE THIS GESTURE'S POINTERDOWN". That was the first
+   * attempt and it is wrong on iOS: the tap that dismisses a selection callout
+   * arrives as a click with no pointerdown of its own, so the long-press's own
+   * change still looked current and swallowed the tap. Committing is the event
+   * that ends a selection's claim on the next click, and it happens whether or
+   * not a pointerdown ever arrives.
    */
-  changedDuringGesture(): boolean;
+  isUncommitted(): boolean;
   stop(): void;
+}
+
+/**
+ * Did the gesture happen inside the selection it is being compared with?
+ *
+ * A drag ends where its own selection is. A tap on a word somewhere else does
+ * not, and must never be read as that drag ending. The margin covers the
+ * rounding at a selection's edge, where a mouseup legitimately lands.
+ */
+export function pointerInsideRect(
+  rect: DOMRect | null | undefined,
+  pointer: ReaderPointer,
+  margin = 6,
+): boolean {
+  if (!rect || !hasCoordinates(pointer)) return false;
+  const { clientX: x, clientY: y } = pointer;
+  return (
+    x >= rect.left - margin &&
+    x <= rect.right + margin &&
+    y >= rect.top - margin &&
+    y <= rect.bottom + margin
+  );
+}
+
+/**
+ * A synthetic click carries no coordinates, and (0, 0) is never a tap in the
+ * prose — the reader's header is there.
+ */
+function hasCoordinates({ clientX: x, clientY: y }: ReaderPointer): boolean {
+  return Number.isFinite(x) && Number.isFinite(y) && !(x === 0 && y === 0);
 }
 
 /**
@@ -139,8 +177,7 @@ export function observeReaderSelection(
   getRoot: () => HTMLElement | null,
   onSelection: (selection: ReaderSelection | null) => void,
 ): ReaderSelectionObserver {
-  let gestureStartedAt = 0;
-  let lastChangeAt = -1;
+  let uncommitted = false;
   let pointerDown = false;
   let timer = 0;
 
@@ -153,19 +190,21 @@ export function observeReaderSelection(
     cancel();
     timer = window.setTimeout(() => {
       timer = 0;
+      // COMMITTING ENDS THIS SELECTION'S CLAIM ON THE NEXT CLICK. From here the
+      // learner can see what it offers, so the next tap is a new gesture.
+      uncommitted = false;
       onSelection(readReaderSelection(getRoot()));
     }, SELECTION_SETTLE_MS);
   };
 
   const onSelectionChange = () => {
-    lastChangeAt = performance.now();
+    uncommitted = true;
     // Mid-drag the answer is not final yet; the pointer coming up schedules it.
     if (!pointerDown) schedule();
   };
 
   const onPointerDown = () => {
     pointerDown = true;
-    gestureStartedAt = performance.now();
     cancel();
   };
 
@@ -182,7 +221,7 @@ export function observeReaderSelection(
   document.addEventListener("pointercancel", onPointerUp, true);
 
   return {
-    changedDuringGesture: () => lastChangeAt >= gestureStartedAt,
+    isUncommitted: () => uncommitted,
     stop() {
       cancel();
       document.removeEventListener("selectionchange", onSelectionChange);
@@ -210,8 +249,6 @@ export interface ReaderPointer {
   target: EventTarget | null;
   clientX: number;
   clientY: number;
-  /** 0 for a synthetic click — one with no coordinates to trust. */
-  detail: number;
 }
 
 /**
@@ -226,7 +263,10 @@ export interface ReaderPointer {
  * actually posed. `elementFromPoint` is a single hit test, not a walk, and it
  * only ever runs on the taps that missed.
  *
- * A synthetic click carries no coordinates, so it is left to `target` alone.
+ * A synthetic click carries no coordinates, so it is left to `target` alone. The
+ * test for that is the COORDINATES, not `event.detail`: iOS delivers real taps
+ * with `detail === 0` often enough that gating on it loses exactly the taps this
+ * fallback exists for.
  */
 export function readerHitAt(
   root: HTMLElement | null,
@@ -239,7 +279,7 @@ export function readerHitAt(
   let word = target.closest<HTMLElement>(".reader-word");
   let sentence = target.closest<HTMLElement>(".reader-sentence");
 
-  if (!word && pointer.detail > 0) {
+  if (!word && hasCoordinates(pointer)) {
     const atPoint = document
       .elementFromPoint(pointer.clientX, pointer.clientY)
       ?.closest<HTMLElement>(".reader-word");
