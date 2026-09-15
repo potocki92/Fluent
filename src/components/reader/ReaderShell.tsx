@@ -39,21 +39,28 @@ import {
   type ReaderAction,
 } from "@/components/reader/ReaderActionBar";
 import {
+  glossTargetFrom,
+  isUsableSelection,
+  readerBarPlan,
+  resolveReaderIntent,
+  type GlossTarget,
+  type ReaderWordHit,
+} from "@/components/reader/reader-interaction";
+import {
   clearSelection,
+  observeReaderSelection,
+  readerHitAt,
+  readerWordHit,
   readReaderSelection,
   type ReaderSelection,
+  type ReaderSelectionObserver,
 } from "@/components/reader/sentence-selection";
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
-import {
-  WordGlossSheet,
-  type GlossTarget,
-} from "@/components/reader/WordGlossSheet";
+import { WordGlossSheet } from "@/components/reader/WordGlossSheet";
 import { useActiveReadingClock } from "@/hooks/useActiveReadingClock";
 import { useChapterNotebook } from "@/hooks/useChapterNotebook";
 import { useVisibleParagraph } from "@/hooks/useVisibleParagraph";
 import { newInteractionId } from "@/lib/interaction-id";
-import { MAX_PHRASE_TOKENS } from "@/lib/notebook/constants";
-import { annotationKindForSpan, spanFromCharRange } from "@/lib/notebook/selection";
 import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
   CHAPTER_COMPLETION_RATIO,
@@ -83,6 +90,19 @@ export interface ReaderChapterMeta {
   /** True when a validated question bank can fill a Chapter Challenge. */
   hasChallenge: boolean;
 }
+
+/**
+ * What the contextual action bar is currently about.
+ *
+ * TWO MODES, NEVER ONE SHAPE. A selection and a tapped sentence used to share
+ * one state, with a tapped sentence faked as a zero-width selection — which is
+ * how a word tap could end up rendering the SENTENCE's actions. They are
+ * different subjects and they are now different variants, so no offer can be
+ * attributed to a gesture that did not ask for it.
+ */
+type ReaderBar =
+  | { mode: "selection"; selection: ReaderSelection }
+  | { mode: "sentence"; sentenceId: number; sentenceText: string; rect: DOMRect };
 
 /**
  * The reader's behaviour. The TEXT is not here — it arrives as `children`,
@@ -128,7 +148,7 @@ export function ReaderShell({
   // are held HERE rather than inside the word sheet so that each editor exists
   // exactly once — the word sheet and a selection open the SAME translation
   // editor, which is what §27 is about.
-  const [selection, setSelection] = useState<ReaderSelection | null>(null);
+  const [bar, setBar] = useState<ReaderBar | null>(null);
   const [annotation, setAnnotation] = useState<AnnotationTarget | null>(null);
   const [noteTarget, setNoteTarget] = useState<
     { sentenceId: number; sentenceText: string } | null
@@ -294,53 +314,33 @@ export function ReaderShell({
 
   // ── words ─────────────────────────────────────────────────────────────────
   const openGloss = useCallback(
-    (element: HTMLElement) => {
-      const occurrenceId = Number(element.dataset.occurrenceId);
-      if (!Number.isFinite(occurrenceId)) return;
-
-      const wordId = element.dataset.wordId
-        ? Number(element.dataset.wordId)
-        : null;
-      const sentenceId = element.dataset.sentenceId
-        ? Number(element.dataset.sentenceId)
-        : null;
-
+    (word: ReaderWordHit) => {
       // The sentence comes from the DOM rather than from props: it is already on
       // the page, and shipping every sentence twice would double the payload of
       // a chapter for a string that is only ever needed one at a time.
       const sentence =
-        (sentenceId
+        (word.sentenceId
           ? contentRef.current?.querySelector<HTMLElement>(
-              `.reader-sentence[data-sentence-id="${sentenceId}"]`,
+              `.reader-sentence[data-sentence-id="${word.sentenceId}"]`,
             )?.textContent
           : null) ?? "";
 
-      setGloss({
-        occurrenceId,
-        wordId,
-        sentenceId,
-        // The anchor a personal note is stored against. Rendered onto the span
-        // by `ReaderProse`, so no tokenizing happens in the browser.
-        tokenPosition: element.dataset.position
-          ? Number(element.dataset.position)
-          : null,
-        lemma: element.dataset.lemma ?? element.textContent ?? "",
-        surface: element.textContent ?? "",
-        sentence: sentence.trim(),
-      });
+      const target = glossTargetFrom(word, sentence);
+      if (!target) return;
+      setGloss(target);
 
       // A LOOKUP IS NOT A FAILED TEST — the weight of this evidence is decided
       // in `readingLookupEvidence`, not here. Fire and forget: recording it must
       // never delay showing the translation, and the interaction id makes a
       // retry settle the same lookup rather than count the word unknown twice.
-      if (wordId) {
+      if (target.wordId) {
         void recordWordLookup({
           interactionId: newInteractionId(),
           chapterId: chapter.id,
           libraryItemId: chapter.itemId,
-          wordId,
-          sentenceId,
-          occurrenceId,
+          wordId: target.wordId,
+          sentenceId: target.sentenceId,
+          occurrenceId: target.occurrenceId,
           readingSessionId: sessionRef.current,
         });
       }
@@ -348,82 +348,101 @@ export function ReaderShell({
     [chapter.id, chapter.itemId],
   );
 
+  // ── the native selection, observed rather than discovered ─────────────────
+  // A SELECTION IS NEVER HIJACKED (§30) AND NEVER INFERRED FROM A TAP. The
+  // browser owns dragging; this watches what it produced and opens the bar when
+  // it settles. On iOS that is the only thing that works — a long-press
+  // selection emits no click — and it is what lets a tap on a word stay a tap on
+  // a word.
+  const selectionRef = useRef<ReaderSelectionObserver | null>(null);
+
+  useEffect(() => {
+    const observer = observeReaderSelection(
+      () => contentRef.current,
+      (selected) => {
+        setBar((previous) => {
+          if (selected && isUsableSelection(selected)) {
+            return { mode: "selection", selection: selected };
+          }
+          // A selection going away closes the bar IT opened, and nothing else:
+          // a tap collapses the selection, and that must not wipe the sentence
+          // actions that same tap just asked for.
+          return previous?.mode === "selection" ? null : previous;
+        });
+      },
+    );
+    selectionRef.current = observer;
+    return () => {
+      selectionRef.current = null;
+      observer.stop();
+    };
+  }, []);
+
   const onContentClick = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
-      // A SELECTION IS NEVER HIJACKED (§30). The learner may be copying a
-      // phrase, or dragging to save one; either way the browser owns the
-      // gesture, and this reads what it produced rather than replacing it.
-      const selected = readReaderSelection(contentRef.current);
-      if (selected) {
-        setSelection(selected);
-        return;
-      }
-      setSelection(null);
+      const root = contentRef.current;
+      const hit = readerHitAt(root, event);
 
-      const target = event.target as HTMLElement;
-      const word = target.closest<HTMLElement>(".reader-word");
-      if (word) {
-        openGloss(word);
-        return;
-      }
-
-      // Tapping the SENTENCE — the space between the words — offers what can be
-      // done with a whole sentence (§9, §97). It is deliberately the fallback:
-      // a word tap is the gesture learners already know, and this must never
-      // take it over.
-      const sentence = target.closest<HTMLElement>(".reader-sentence");
-      const sentenceId = Number(sentence?.dataset.sentenceId);
-      if (!sentence || !Number.isFinite(sentenceId)) return;
-
-      setSelection({
-        sentenceId,
-        sentenceText: sentence.textContent ?? "",
-        charStart: 0,
-        charEnd: 0,
-        crossSentence: false,
-        rect: sentence.getBoundingClientRect(),
+      const intent = resolveReaderIntent({
+        word: hit.word ? readerWordHit(hit.word) : null,
+        sentenceId: hit.sentenceId,
+        selection: readReaderSelection(root),
+        // THE STALE-SELECTION GUARD. Only a selection the browser changed during
+        // THIS gesture is an answer to it; Safari's leftovers are not.
+        selectionChangedDuringGesture:
+          selectionRef.current?.changedDuringGesture() ?? false,
       });
+
+      if (intent.kind === "selection") {
+        // A drag that ended, not a tap. The observer already owns the bar for
+        // it — and the selection is left exactly as the learner made it.
+        return;
+      }
+
+      if (intent.kind === "word") {
+        // RULE 1, AND IT IS ABSOLUTE. A tap on a word opens the word sheet.
+        setBar(null);
+        openGloss(intent.word);
+        return;
+      }
+
+      if (intent.kind === "sentence" && hit.sentence) {
+        // Tapping the SENTENCE — the space between the words, the punctuation —
+        // offers what can be done with a whole sentence (§9, §97). Deliberately
+        // the fallback: it never takes a word tap over.
+        setBar({
+          mode: "sentence",
+          sentenceId: intent.sentenceId,
+          sentenceText: hit.sentence.textContent ?? "",
+          rect: hit.sentence.getBoundingClientRect(),
+        });
+        return;
+      }
+
+      setBar(null);
     },
     [openGloss],
   );
 
   // ── what the action bar offers ────────────────────────────────────────────
-  // CONTEXTUAL, NEVER THE WHOLE MENU (§44). A drag across two words offers to
-  // save a phrase; a tap on a sentence offers what applies to a sentence; a drag
-  // that ran past the end of one offers an explanation and nothing else (§131).
-  const selectionSpan =
-    selection && !selection.crossSentence && selection.charEnd > selection.charStart
-      ? spanFromCharRange(
-          selection.sentenceText,
-          selection.charStart,
-          selection.charEnd,
-          MAX_PHRASE_TOKENS,
-        )
-      : null;
+  // DECIDED IN `readerBarPlan`, RENDERED HERE. Which offers belong to which
+  // subject is a rule, not a rendering detail, so it lives in a pure function
+  // with the hierarchy it belongs to — and is unit tested there.
+  const plan = bar ? readerBarPlan(bar) : null;
 
   const closeActionBar = useCallback(() => {
-    setSelection(null);
+    setBar(null);
     clearSelection();
   }, []);
 
-  const actionBarNote =
-    selection?.crossSentence
-      ? "Zaznacz fragment jednego zdania, aby zapisać zwrot."
-      : selectionSpan && !selectionSpan.ok
-        ? selectionSpan.reason === "too_long"
-          ? `Zwrot może mieć najwyżej ${MAX_PHRASE_TOKENS} słów.`
-          : "Zaznacz co najmniej jedno słowo."
-        : null;
-
   const actions: ReaderAction[] = [];
-  if (selection && !actionBarNote) {
-    if (selectionSpan?.ok) {
-      const span = selectionSpan.span;
-      const kind = annotationKindForSpan(span);
+  if (plan && !plan.note) {
+    if (plan.span) {
+      const { span, kind } = plan.span;
       const existing =
         marks?.entries.find(
           (entry) =>
-            entry.sentence_id === selection.sentenceId &&
+            entry.sentence_id === plan.sentenceId &&
             entry.start_position === span.startPosition &&
             entry.end_position === span.endPosition,
         ) ?? null;
@@ -436,8 +455,8 @@ export function ReaderShell({
         icon: <Plus className="size-3.5" />,
         onSelect: () => {
           setAnnotation({
-            sentenceId: selection.sentenceId,
-            sentenceText: selection.sentenceText,
+            sentenceId: plan.sentenceId,
+            sentenceText: plan.sentenceText,
             startPosition: span.startPosition,
             endPosition: span.endPosition,
             surface: span.surface,
@@ -455,22 +474,22 @@ export function ReaderShell({
       icon: <NotebookPen className="size-3.5" />,
       onSelect: () => {
         setNoteTarget({
-          sentenceId: selection.sentenceId,
-          sentenceText: selection.sentenceText,
+          sentenceId: plan.sentenceId,
+          sentenceText: plan.sentenceText,
         });
         closeActionBar();
       },
     });
 
-    if (!selectionSpan?.ok) {
+    if (plan.offersUnclear) {
       actions.push({
         id: "unclear",
         label: "Nie rozumiem",
         icon: <HelpCircle className="size-3.5" />,
         onSelect: () => {
           setNoteTarget({
-            sentenceId: selection.sentenceId,
-            sentenceText: selection.sentenceText,
+            sentenceId: plan.sentenceId,
+            sentenceText: plan.sentenceText,
           });
           closeActionBar();
         },
@@ -536,7 +555,7 @@ export function ReaderShell({
       const word = (event.target as HTMLElement).closest<HTMLElement>(".reader-word");
       if (!word) return;
       event.preventDefault();
-      openGloss(word);
+      openGloss(readerWordHit(word));
     },
     [openGloss],
   );
@@ -719,14 +738,15 @@ export function ReaderShell({
       </main>
 
       <ReaderActionBar
-        rect={selection?.rect ?? null}
+        rect={bar === null ? null : bar.mode === "selection" ? bar.selection.rect : bar.rect}
         actions={actions}
-        note={actionBarNote}
+        note={plan?.note ?? null}
         onDismiss={closeActionBar}
       />
 
       <WordGlossSheet
         target={gloss}
+        readingSessionId={sessionId}
         onClose={() => setGloss(null)}
         // Both editors are opened from here, and both are the SAME component the
         // selection bar opens. The word sheet closes first so the two sheets
