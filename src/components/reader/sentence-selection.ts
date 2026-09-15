@@ -18,17 +18,23 @@
  * A SELECTION THAT LEAVES THE SENTENCE IS REPORTED, NOT SILENTLY TRIMMED (§131).
  * "Half a paragraph" is not a phrase; the reader says so rather than saving the
  * first sentence's worth of it and pretending that is what was asked for.
+ *
+ * A SELECTION ANNOUNCES ITSELF — IT IS NOT DISCOVERED BY A TAP. See
+ * {@link observeReaderSelection}. That is the difference between a reader where
+ * a word tap works on iOS and one where it does not.
+ *
+ * AND WHAT A TAP LANDED ON is the other half of the same question, so
+ * {@link readerHitAt} lives here too. Both answer "what did the browser just
+ * tell us?"; what it MEANS is decided in `reader-interaction.ts`.
  */
 
+import type {
+  ReaderWordHit,
+  SelectedRange,
+} from "@/components/reader/reader-interaction";
+
 /** What the learner currently has selected, in the reader's terms. */
-export interface ReaderSelection {
-  sentenceId: number;
-  sentenceText: string;
-  /** Character offsets into {@link sentenceText}. */
-  charStart: number;
-  charEnd: number;
-  /** True when the drag started and ended in different sentences. */
-  crossSentence: boolean;
+export interface ReaderSelection extends SelectedRange {
   /** Where to put the action bar. Viewport coordinates. */
   rect: DOMRect;
 }
@@ -84,6 +90,188 @@ export function readReaderSelection(root: HTMLElement | null): ReaderSelection |
 /** Drop the selection without moving the page (§93). */
 export function clearSelection(): void {
   window.getSelection()?.removeAllRanges();
+}
+
+/**
+ * How long to wait after a gesture before believing what is selected.
+ *
+ * Safari finalises a selection just AFTER `touchend` — read it on the event and
+ * you get the range as it was mid-drag. It is also the window in which a tap
+ * collapses an old selection. 120ms is long enough for both and short enough
+ * that the bar still feels attached to the finger that asked for it.
+ */
+const SELECTION_SETTLE_MS = 120;
+
+/** A live view of what the learner has selected inside the reader. */
+export interface ReaderSelectionObserver {
+  /**
+   * Did the browser change the selection during the gesture that is ending now?
+   *
+   * This is the stale-selection guard the word tap depends on. A leftover range
+   * — the one Safari still holds from a long-press two paragraphs ago — answers
+   * `false`, and the tap goes to the word under the finger where it belongs.
+   */
+  changedDuringGesture(): boolean;
+  stop(): void;
+}
+
+/**
+ * Watch the native selection, and report it when it settles.
+ *
+ * WHY THIS IS NOT DONE ON `click`. On iOS a long-press that selects a word emits
+ * no click at all — the callout appears and that is the end of the gesture. A
+ * reader that only looked at selections during a click therefore could not show
+ * anything for the single most common way a phrase gets selected on a phone,
+ * until the NEXT tap came along — at which point it showed the previous
+ * gesture's selection instead of handling that tap. Both halves of the iOS bug
+ * come from the same mistake. So selections are observed, taps are handled, and
+ * the two never have to guess about each other.
+ *
+ * IT DOES NOT TOUCH THE SELECTION. No `preventDefault`, no `removeAllRanges`, no
+ * `selectstart` handler: the learner can still copy, and the native callout
+ * still works.
+ *
+ * ONE LISTENER, AND NO PER-FRAME WORK. `selectionchange` fires continuously
+ * during a drag, so nothing is read until the pointer is up and the selection
+ * has stopped moving.
+ */
+export function observeReaderSelection(
+  getRoot: () => HTMLElement | null,
+  onSelection: (selection: ReaderSelection | null) => void,
+): ReaderSelectionObserver {
+  let gestureStartedAt = 0;
+  let lastChangeAt = -1;
+  let pointerDown = false;
+  let timer = 0;
+
+  const cancel = () => {
+    if (timer) window.clearTimeout(timer);
+    timer = 0;
+  };
+
+  const schedule = () => {
+    cancel();
+    timer = window.setTimeout(() => {
+      timer = 0;
+      onSelection(readReaderSelection(getRoot()));
+    }, SELECTION_SETTLE_MS);
+  };
+
+  const onSelectionChange = () => {
+    lastChangeAt = performance.now();
+    // Mid-drag the answer is not final yet; the pointer coming up schedules it.
+    if (!pointerDown) schedule();
+  };
+
+  const onPointerDown = () => {
+    pointerDown = true;
+    gestureStartedAt = performance.now();
+    cancel();
+  };
+
+  const onPointerUp = () => {
+    pointerDown = false;
+    schedule();
+  };
+
+  document.addEventListener("selectionchange", onSelectionChange);
+  // Capture, so a handler that stops propagation cannot leave this observer
+  // believing a gesture is still in progress.
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("pointerup", onPointerUp, true);
+  document.addEventListener("pointercancel", onPointerUp, true);
+
+  return {
+    changedDuringGesture: () => lastChangeAt >= gestureStartedAt,
+    stop() {
+      cancel();
+      document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
+    },
+  };
+}
+
+/** What the prose says is under a gesture. */
+export interface ReaderHit {
+  word: HTMLElement | null;
+  sentence: HTMLElement | null;
+  sentenceId: number | null;
+}
+
+/**
+ * The parts of a click this needs.
+ *
+ * A native `MouseEvent` and React's synthetic one both satisfy it, which is what
+ * keeps this function testable in a bare browser page with no React in it.
+ */
+export interface ReaderPointer {
+  target: EventTarget | null;
+  clientX: number;
+  clientY: number;
+  /** 0 for a synthetic click — one with no coordinates to trust. */
+  detail: number;
+}
+
+/**
+ * Find the word and the sentence a tap landed on.
+ *
+ * `event.target` IS NOT ALWAYS ENOUGH ON A PHONE. A `.reader-word` is an inline
+ * span a few millimetres tall; iOS resolves a touch against line boxes, and a
+ * tap a pixel above the ascender or below the descender of *Wir* is delivered to
+ * the enclosing sentence instead — which used to mean the learner got the
+ * sentence's actions when they had plainly tapped a word. So when the target is
+ * not a word, the POINT is asked as well, which is the question the learner
+ * actually posed. `elementFromPoint` is a single hit test, not a walk, and it
+ * only ever runs on the taps that missed.
+ *
+ * A synthetic click carries no coordinates, so it is left to `target` alone.
+ */
+export function readerHitAt(
+  root: HTMLElement | null,
+  pointer: ReaderPointer,
+): ReaderHit {
+  const empty: ReaderHit = { word: null, sentence: null, sentenceId: null };
+  const target = pointer.target as HTMLElement | null;
+  if (!root || !target?.closest) return empty;
+
+  let word = target.closest<HTMLElement>(".reader-word");
+  let sentence = target.closest<HTMLElement>(".reader-sentence");
+
+  if (!word && pointer.detail > 0) {
+    const atPoint = document
+      .elementFromPoint(pointer.clientX, pointer.clientY)
+      ?.closest<HTMLElement>(".reader-word");
+    if (atPoint && root.contains(atPoint)) {
+      word = atPoint;
+      sentence = atPoint.closest<HTMLElement>(".reader-sentence") ?? sentence;
+    }
+  }
+
+  if (word && !root.contains(word)) word = null;
+  if (sentence && !root.contains(sentence)) sentence = null;
+
+  const sentenceId = Number(sentence?.dataset.sentenceId);
+  return {
+    word,
+    sentence,
+    sentenceId: sentence && Number.isFinite(sentenceId) ? sentenceId : null,
+  };
+}
+
+/** A `.reader-word` span, as the attributes `ReaderProse` wrote onto it. */
+export function readerWordHit(element: HTMLElement): ReaderWordHit {
+  return {
+    occurrenceId: element.dataset.occurrenceId ?? null,
+    // Empty for a token the shared dictionary does not know — which still opens
+    // the sheet, where it can be added to the learner's own (§4).
+    wordId: element.dataset.wordId ?? null,
+    sentenceId: element.dataset.sentenceId ?? null,
+    position: element.dataset.position ?? null,
+    lemma: element.dataset.lemma ?? null,
+    surface: element.textContent ?? "",
+  };
 }
 
 function sentenceElementOf(node: Node, root: HTMLElement): HTMLElement | null {

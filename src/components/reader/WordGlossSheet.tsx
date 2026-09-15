@@ -1,9 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookmarkCheck,
   BookmarkPlus,
+  HelpCircle,
+  Lightbulb,
   NotebookPen,
   Pencil,
   Plus,
@@ -11,30 +13,23 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { setSentenceUnclear } from "@/actions/notebook";
 import { saveWordFromReader } from "@/actions/reading";
+import type { GlossTarget } from "@/components/reader/reader-interaction";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   occurrenceMeaning,
   phrasesCovering,
+  sentenceNotebookKey,
   useSentenceNotebook,
 } from "@/hooks/useSentenceNotebook";
+import { newInteractionId } from "@/lib/interaction-id";
 import { speakGerman } from "@/lib/speech";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-/** What the reader knows about the word that was tapped. */
-export interface GlossTarget {
-  occurrenceId: number;
-  wordId: number | null;
-  sentenceId: number | null;
-  /** The token's index among the sentence's lexical tokens. The note's anchor. */
-  tokenPosition: number | null;
-  lemma: string;
-  surface: string;
-  /** The sentence the word appeared in — the thing that makes it mean something. */
-  sentence: string;
-}
+export type { GlossTarget };
 
 interface GlossWord {
   id: number;
@@ -78,20 +73,32 @@ interface GlossWord {
  *
  * NOTHING EMPTY TAKES UP ROOM (§25). With no contextual meaning there is no
  * empty section — there is one quiet line offering to add one.
+ *
+ * AND "NIE ROZUMIEM" IS HERE TOO. It used to live only on the sentence action
+ * bar, which meant a learner stuck on a sentence had to close the word sheet and
+ * then hit the few millimetres of space BETWEEN two words to admit it — on a
+ * phone, a gesture that mostly reopens a word. The flag is about the sentence
+ * already quoted on this sheet, so it belongs on this sheet. The action bar
+ * keeps it as well: two ways in, one piece of state, and the same
+ * `setSentenceUnclear` behind both.
  */
 export function WordGlossSheet({
   target,
+  readingSessionId,
   onClose,
   onAddMeaning,
   onTranslateSentence,
 }: {
   target: GlossTarget | null;
+  /** Attached to the "nie rozumiem" signal, so it lands in the right session. */
+  readingSessionId?: string | null;
   onClose: () => void;
   /** Opens the shared annotation editor for this token. */
   onAddMeaning: (target: GlossTarget) => void;
   /** Opens the shared translation editor for this sentence. */
   onTranslateSentence: (sentenceId: number, sentenceText: string) => void;
 }) {
+  const queryClient = useQueryClient();
   // Which occurrence was saved, rather than a boolean reset by an effect: the
   // "W powtórkach" state belongs to ONE word, and deriving it means opening the
   // next word cannot briefly show the previous word's confirmation.
@@ -130,6 +137,30 @@ export function WordGlossSheet({
   const contextMeaning = occurrenceMeaning(notebook, target?.tokenPosition ?? null);
   const phrases = phrasesCovering(notebook, target?.tokenPosition ?? null);
   const translation = notebook?.note?.meaning ?? null;
+  const isUnclear = notebook?.note?.is_unclear ?? false;
+
+  // "NIE ROZUMIEM" IS EVIDENCE, NOT A VERDICT, AND IT IS REVERSIBLE (§18, §19).
+  // One interaction id per tap: the log keeps the sequence, the flag is current
+  // state. Invalidating `["notebook"]` refreshes this sentence, the chapter's
+  // marks in the prose and the notebook page from one key.
+  const unclear = useMutation({
+    mutationFn: async (next: boolean) => {
+      if (target?.sentenceId == null) throw new Error("Brak zdania.");
+      const result = await setSentenceUnclear({
+        sentenceId: target.sentenceId,
+        unclear: next,
+        interactionId: newInteractionId(),
+        readingSessionId,
+      });
+      if (!result.ok) throw new Error(result.message);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: sentenceNotebookKey(target?.sentenceId ?? null),
+      });
+      void queryClient.invalidateQueries({ queryKey: ["notebook"] });
+    },
+  });
 
   // §96: one claim, shown once.
   const dictionaryIsRedundant =
@@ -226,9 +257,14 @@ export function WordGlossSheet({
             </Section>
 
             {/* 3. THE SENTENCE, and the learner's own Polish for it. */}
-            {target.sentence && (
+            {target.sentence && target.sentenceId !== null && (
               <div className="space-y-2">
-                <blockquote className="rounded-lg border-l-2 border-gold/50 bg-[#374151]/60 px-3 py-2 text-sm italic leading-relaxed text-main">
+                <blockquote
+                  className={cn(
+                    "rounded-lg border-l-2 bg-[#374151]/60 px-3 py-2 text-sm italic leading-relaxed text-main",
+                    isUnclear ? "border-gold" : "border-gold/50",
+                  )}
+                >
                   {target.sentence}
                 </blockquote>
 
@@ -256,6 +292,44 @@ export function WordGlossSheet({
                       onTranslateSentence(target.sentenceId, target.sentence)
                     }
                   />
+                )}
+
+                {/* §14: someone who cannot read a sentence cannot translate it,
+                    so this must not require the editor above — and it must not
+                    require closing this sheet to go hunting for the sentence
+                    either. Reversible in the same place it was set (§18). */}
+                <button
+                  type="button"
+                  onClick={() => unclear.mutate(!isUnclear)}
+                  disabled={unclear.isPending}
+                  aria-pressed={isUnclear}
+                  className={cn(
+                    "flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-sm font-medium transition-colors disabled:opacity-60",
+                    isUnclear
+                      ? "border-green/50 bg-green/10 text-green"
+                      : "border-[#4b5563] text-muted2 hover:text-main",
+                  )}
+                >
+                  {isUnclear ? (
+                    <>
+                      <Lightbulb className="size-4" /> Już rozumiem
+                    </>
+                  ) : (
+                    <>
+                      <HelpCircle className="size-4" /> Nie rozumiem tego zdania
+                    </>
+                  )}
+                </button>
+
+                {unclear.isError && (
+                  <p className="text-center text-xs text-red">
+                    Nie udało się zapisać. Spróbuj ponownie.
+                  </p>
+                )}
+                {isUnclear && !unclear.isError && (
+                  <p className="text-center text-xs text-muted2">
+                    To zdanie trafi do sekcji „Do wyjaśnienia” w Twoim zeszycie.
+                  </p>
                 )}
               </div>
             )}

@@ -368,16 +368,67 @@ the sample as self-selected, exactly as `'practice'` does for weakness drills.
 ## 10. The reader
 
 Everything below is an extension of the Phase 4 reader. No Reader V3, no route
-group, no change to progress, resume, typography or the word-tap gesture.
+group, no change to progress, resume or typography.
 
-**The word sheet, reordered.** It used to lead with the dictionary. For someone
-reading a novel that is backwards, so the order is now:
+### The interaction hierarchy
+
+It is ABSOLUTE, it is in this order, and it is decided in one pure function —
+`resolveReaderIntent` in `src/components/reader/reader-interaction.ts`:
+
+| # | Gesture | Result |
+| --- | --- | --- |
+| 1 | tap on `.reader-word`, no **live** selection | the word sheet, always |
+| 2 | live selection, one lexical token | „Zapisz znaczenie" |
+| 3 | live selection, 2+ tokens in one sentence | „Zapisz zwrot" |
+| 4 | live selection across sentences | an explanation, and nothing else |
+| 5 | tap inside `.reader-sentence`, not on a word | the sentence's own actions |
+| 6 | anything else | dismiss |
+
+**Rule 1 was the bug.** On iOS a plain tap on *Wir* could open the SENTENCE
+action bar — „Przetłumacz / Nie rozumiem" — instead of the word sheet. Two
+causes, and the fix closes both:
+
+* *The click handler read the selection first and let anything win.* Safari does
+  not clear a selection on the schedule that assumes: the callout from a
+  long-press two paragraphs ago is still in the document when the next tap's
+  `click` fires, and the tap that dismisses it is delivered to the word
+  underneath. Chromium collapses it on `touchstart`, which is why this only ever
+  showed up on a phone. **A selection now counts only while it is LIVE** — the
+  browser changed it between this gesture's `pointerdown` and its `click`. A
+  leftover range is ignored, never cleared: the learner may be mid-copy, and
+  taking that away to win an argument would be the worse bug (§30).
+* *A word is a few millimetres of inline box.* A tap a pixel above the ascender
+  is delivered to the enclosing sentence. So when `event.target` is not a word,
+  `readerHitAt` asks the POINT as well, which is the question the learner posed.
+
+**A selection announces itself; it is not discovered by a tap.**
+`observeReaderSelection` watches `selectionchange` and reports once the pointer
+is up and the selection has settled. This is not a refinement — on iOS a
+long-press that selects a word emits **no click at all**, so a reader that only
+looked during a click could not show anything for the commonest way a phrase is
+selected on a phone, until the *next* tap came along and got answered with the
+*previous* gesture's selection. Both halves of the bug were the same mistake.
+
+Nothing here implements selection: no `selectstart` handler, no custom handles,
+no `removeAllRanges` to force an outcome. The browser selects; Fluent asks.
+
+**The action bar is not gone and is not demoted.** It remains the alternative
+route to a sentence's actions (§9, §97) — it simply cannot outrank a word tap. A
+selection and a tapped sentence are now two variants of one state rather than a
+tapped sentence faked as a zero-width selection, which is how a word tap could
+render offers nobody asked for.
+
+### The word sheet
+
+It used to lead with the dictionary. For someone reading a novel that is
+backwards, so the order is now:
 
 ```
 sollten              the word as written, the headword beside it
 W TYM MIEJSCU        powinniśmy                 ← or "+ Dodaj znaczenie"
 „Wir sollten umkehren…"
 Twoje tłumaczenie    Powinniśmy zawrócić.       ← or "Przetłumacz zdanie"
+[ Nie rozumiem tego zdania ]                    ← or "Już rozumiem"
 SŁOWNIK              powinien / mieć powinność  ← dropped if it repeats the above
 Du sollst mehr schlafen.
 [ Dodaj do powtórek ]
@@ -386,6 +437,19 @@ Du sollst mehr schlafen.
 Two labelled sections, never one line: they are different claims by different
 authors. An empty section is one quiet line with a plus on it, not half a screen
 of nothing.
+
+**„Nie rozumiem" is here as well as on the action bar.** The sentence is already
+quoted on this sheet, so the flag about it belongs on this sheet. Requiring the
+learner to close the word sheet and then hit the few millimetres of space
+*between* two words is asking for a gesture a phone will not reliably deliver —
+the browser's own tap adjustment snaps a near-miss onto the word, which is rule 1
+working. Two ways in, one piece of state, one `setSentenceUnclear` behind both.
+
+**A token with no `wordId` still opens the sheet.** "Not in Fluent's dictionary"
+is a fact about the dictionary, not about the learner's interest in the word; the
+sheet offers „Dodaj do mojego słownika" and the note becomes an annotation with
+`word_id = null` (§3, rule 4). Only a missing occurrence id refuses, because
+without it a note has nowhere to anchor.
 
 **One editor per job.** The translation editor is opened from the word sheet
 *and* from a sentence tap; both mount `SentenceNoteSheet`. The meaning editor is
@@ -526,7 +590,9 @@ src/hooks/useNotebook.ts           the paginated listing
 src/hooks/useKeyboardInset.ts      the iOS keyboard
 
 src/components/notebook/           NoteSheet + the two editors, the list, the deck
-src/components/reader/             the reordered word sheet, selection, the action bar
+src/components/reader/reader-interaction.ts   what a gesture MEANS — pure, tested
+src/components/reader/sentence-selection.ts   what the browser SAYS — selection, hit test
+src/components/reader/             the reordered word sheet, the action bar
 src/app/notebook/page.tsx
 src/app/review/notebook/page.tsx
 ```
