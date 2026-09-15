@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ChapterList } from "@/components/library/ChapterList";
+import { DeletePrivateBook } from "@/components/library/import/DeletePrivateBook";
 import { ChapterPrepCard } from "@/components/story/ChapterPrepCard";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -145,7 +146,9 @@ export default async function LibraryItemPage({
         )
       ) : (
         <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted2">
-          Ta pozycja nie ma jeszcze gotowych rozdziałów.
+          {item.status === "processing"
+            ? "Przygotowuję rozdziały — pierwszy będzie gotowy za chwilę."
+            : "Ta pozycja nie ma jeszcze gotowych rozdziałów."}
         </p>
       )}
 
@@ -154,6 +157,14 @@ export default async function LibraryItemPage({
         chapters={item.chapters}
         learningState={learningState}
       />
+
+      {/* Only an owner sees this, and only for their own import: RLS means
+          nobody else can even load this page for a private book. */}
+      {item.rights === "private_import" && (
+        <div className="pt-2">
+          <DeletePrivateBook itemId={item.id} />
+        </div>
+      )}
     </article>
   );
 }

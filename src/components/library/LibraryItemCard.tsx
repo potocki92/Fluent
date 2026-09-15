@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookMarked, BookOpen, CheckCircle2 } from "lucide-react";
+import { BookMarked, BookOpen, CheckCircle2, Loader2, Lock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -24,6 +24,8 @@ export function LibraryItemCard({ entry }: { entry: ShelfEntry }) {
   const percent = Math.round(entry.progressRatio * 100);
   const finished = entry.chapterCount > 0 && entry.completedChapters >= entry.chapterCount;
   const started = percent > 0 && !finished;
+  const preparing = entry.status === "processing";
+  const isPrivate = entry.rights === "private_import";
 
   return (
     <Link
@@ -32,7 +34,9 @@ export function LibraryItemCard({ entry }: { entry: ShelfEntry }) {
     >
       <div className="flex items-start gap-3">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#374151] text-gold">
-          {finished ? (
+          {preparing ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : finished ? (
             <CheckCircle2 className="size-5" />
           ) : started ? (
             <BookMarked className="size-5" />
@@ -51,17 +55,26 @@ export function LibraryItemCard({ entry }: { entry: ShelfEntry }) {
             )}
           </div>
 
-          <p className="mt-0.5 truncate text-xs text-muted2">
-            {[
-              TYPE_LABEL_PL[entry.contentType],
-              entry.author,
-              entry.chapterCount > 1 ? `${entry.chapterCount} rozdziałów` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+          <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted2">
+            {/* A private import is marked, quietly. It is the one thing about a
+                book on this shelf that changes who can see it. */}
+            {isPrivate && <Lock className="size-3 shrink-0" aria-label="Prywatna" />}
+            <span className="truncate">
+              {[
+                TYPE_LABEL_PL[entry.contentType],
+                entry.author,
+                entry.chapterCount > 1 ? `${entry.chapterCount} rozdziałów` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
           </p>
 
-          {started && (
+          {preparing && (
+            <p className="mt-2 text-xs text-gold">Przygotowuję rozdziały…</p>
+          )}
+
+          {!preparing && started && (
             <div className="mt-2.5 space-y-1">
               <Progress value={percent} />
               <p className="text-xs text-muted2">

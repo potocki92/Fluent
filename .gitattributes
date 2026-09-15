@@ -1,0 +1,10 @@
+# The importer's test fixtures are real files, byte for byte.
+#
+# A PDF records the byte offset of every object in its cross-reference table, so
+# a single line-ending translation on checkout (core.autocrlf on Windows) would
+# leave a file that is still "valid text" and no longer a readable PDF. Marking
+# them binary is what keeps the integration tests testing the same bytes on every
+# machine.
+src/lib/import/fixtures/synthetic-book.pdf   binary
+src/lib/import/fixtures/synthetic-book.epub  binary
+src/lib/import/fixtures/synthetic-book.txt   text eol=lf

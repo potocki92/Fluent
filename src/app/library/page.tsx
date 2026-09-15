@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BookOpen } from "lucide-react";
+import { BookOpen, BookUp } from "lucide-react";
 
 import { LibraryItemCard } from "@/components/library/LibraryItemCard";
 import { getLibraryShelf } from "@/lib/library/queries";
@@ -40,6 +40,11 @@ export default async function LibraryPage() {
         </p>
       </header>
 
+      {/* THE OTHER DOOR INTO THE LIBRARY. Until now everything on this shelf was
+          written for Fluent; a learner's own book is the other half of "what can
+          I read?", so the way in sits on this page rather than in settings. */}
+      <ImportEntry />
+
       {shelf.length === 0 ? (
         <EmptyShelf />
       ) : (
@@ -74,6 +79,27 @@ export default async function LibraryPage() {
   );
 }
 
+function ImportEntry() {
+  return (
+    <Link
+      href="/library/import"
+      className="flex items-center gap-3 rounded-xl border border-dashed border-border p-3 transition-colors hover:border-gold/50"
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#374151] text-gold">
+        <BookUp className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-main">
+          Dodaj własną książkę
+        </span>
+        <span className="block text-xs text-muted2">
+          PDF, EPUB lub TXT — prywatnie, tylko dla Ciebie
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 function Section({
   title,
   children,
@@ -102,13 +128,13 @@ function EmptyShelf() {
       <BookOpen className="mx-auto mb-3 size-8 text-muted2" />
       <p className="font-medium text-main">Biblioteka jest jeszcze pusta</p>
       <p className="mt-1 text-sm text-muted2">
-        Teksty pojawią się tutaj po przetworzeniu w panelu administratora.
+        Zaimportuj własną książkę albo zacznij od tekstów Fluent.
       </p>
       <Link
-        href="/learn"
+        href="/library/import"
         className="mt-4 inline-block rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#1a202c]"
       >
-        Przejdź do tekstów
+        Dodaj własną książkę
       </Link>
     </div>
   );

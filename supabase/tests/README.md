@@ -28,13 +28,20 @@ The runner exercises three things:
    migrations work on an already-provisioned project, not only a fresh one;
 3. **idempotency** — re-applying every script changes nothing.
 
-All four suites run against the same database, in order:
+All six suites run against the same database, in order:
 `01_test_session_security.sql` exercises the test lifecycle and leaves `attempts`
 behind, which `02_learning_engine_security.sql` relies on to check the backfill;
-`03_today_engine_security.sql` then builds plans and drills on top of both; and
+`03_today_engine_security.sql` then builds plans and drills on top of both;
 `04_reader_story_security.sql` builds library content, reads it, and puts a
-reading task into a plan. Because they share a database, each suite uses its own
-id range and its own learners.
+reading task into a plan; `05_story_engine_security.sql` builds a question bank
+and runs a Challenge over it; and `06_book_import_security.sql` takes a file all
+the way from upload to a deleted private book. Because they share a database,
+each suite uses its own id range and its own learners.
+
+`00_supabase_shim.sql` also provides a minimal `storage` schema (`buckets` and
+`objects`, with the two columns the bucket policies read), so the private
+book-import bucket's policies are created **and exercised** on a plain
+PostgreSQL instance rather than only asserted in prose.
 
 ## What is asserted — test sessions (01)
 
@@ -101,3 +108,19 @@ checked in CI without provisioning a project.
 | R8 | A saved word **keeps the sentence it came from**, copied rather than referenced; re-saving keeps the first place it was met; and the origin cannot be forged onto a sentence the word never appeared in. |
 | R9 | A reading task in a plan is **measured, never asserted**: opening a chapter makes it `in_progress` and never `completed`, a short sitting does not satisfy an eight-minute task, doing the reading does, and reconciling again changes nothing. |
 | R10 | Every passage became a library item, one-to-one, each with a chapter — which is what lets `/learn/[textId]` redirect deterministically. `backfill_library_from_texts` catches up passages written after the migration. |
+
+## What is asserted — private book import (06)
+
+| # | Invariant |
+| - | --------- |
+| I1 | Creating an import derives the owner and the storage path from `auth.uid()`; the path is prefixed with the owner's id, which is what makes the bucket policy a guarantee. An oversized or unsupported file is refused before anything is stored. |
+| I2 | `user_id`, `storage_path` and `status` have no client write path at all, and neither table accepts a direct insert. `set_book_import_state` and `apply_book_import_analysis` are unreachable from a browser role — a client that could call them could declare an unread file a finished book. |
+| I3 | One analysis run writes the metadata and the whole chapter proposal together; the server-computed hash replaces the one the browser claimed; front matter is stored switched *off* and real chapters switched *on*. |
+| I4 | An import and its preview are invisible to every other learner, **to an admin**, and to `anon`; and no other learner can finalize, edit or cancel it. |
+| I5 | Rename, split, move and merge each keep positions contiguous 1..N (the unique constraint is deferrable, so a swap is two statements); an out-of-range split is refused; merging preserves the merged chapter's text *and* its heading; every edit marks the row `edited`. |
+| I6 | Re-analysis over manual corrections is refused (`FL423`) and changes nothing. |
+| I7 | Finalizing twice — and two concurrent finalizes — produce exactly one book. It is `private_import` with an owner and status `processing`, excluded chapters did not become chapters, positions are 1..N, every chapter carries its `import_id`, every included preview row points at the chapter it became, and cancelling a finalized import is refused. |
+| I8 | Processing progress is recomputed from the `chapters` rows, never asserted: syncing twice gives the same answer, a half-built book reads as `processing`, and the item flips to `ready` only when nothing is pending. |
+| I9 | The finished book is invisible to every other learner, at the item and the chapter level, and cannot be deleted by them. |
+| I10 | An owner can delete their own private book; the storage paths come back for cleanup; the vocabulary learned from it survives with its schedule; the private sentence copied onto a saved word does not; and the import row goes with the book. |
+| I11 | The bucket exists and is not public; a learner sees only objects under their own prefix, cannot upload into another learner's prefix, cannot delete another learner's original, and `anon` sees nothing. |

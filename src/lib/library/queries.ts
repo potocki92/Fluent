@@ -71,6 +71,14 @@ export interface LibraryItemSummary {
   coverUrl: string | null;
   contentType: "story" | "book" | "article" | "lesson";
   rights: "first_party" | "public_domain" | "licensed" | "private_import";
+  /**
+   * The item's own state, as distinct from any chapter's.
+   *
+   * It matters on the shelf for exactly one reason: a private import appears the
+   * moment it is created and fills in chapter by chapter, so `processing` is
+   * what the card renders instead of a progress bar it has no numbers for.
+   */
+  status: "draft" | "processing" | "ready" | "published" | "failed";
   cefr: StoredCefrLevel | null;
   wordCount: number;
   chapterCount: number;
@@ -114,7 +122,7 @@ export interface ShelfEntry extends LibraryItemSummary {
 }
 
 const ITEM_COLUMNS =
-  "id, slug, title, subtitle, author, description, cover_url, content_type, rights, cefr_estimate, word_count, chapter_count, legacy_text_id";
+  "id, slug, title, subtitle, author, description, cover_url, content_type, rights, status, cefr_estimate, word_count, chapter_count, legacy_text_id";
 
 const CHAPTER_COLUMNS =
   "id, position, title, word_count, paragraph_count, estimated_reading_minutes, status";
@@ -129,6 +137,7 @@ type ItemRow = {
   cover_url: string | null;
   content_type: LibraryItemSummary["contentType"];
   rights: LibraryItemSummary["rights"];
+  status: LibraryItemSummary["status"];
   cefr_estimate: StoredCefrLevel | null;
   word_count: number;
   chapter_count: number;
@@ -146,6 +155,7 @@ function toSummary(row: ItemRow): LibraryItemSummary {
     coverUrl: row.cover_url,
     contentType: row.content_type,
     rights: row.rights,
+    status: row.status,
     cefr: row.cefr_estimate,
     wordCount: row.word_count,
     chapterCount: row.chapter_count,
@@ -198,8 +208,15 @@ export async function getLibraryShelf(
   );
 
   const entries: ShelfEntry[] = items
-    .filter((item) =>
-      (chapters ?? []).some((chapter) => chapter.library_item_id === item.id),
+    // An item with no readable chapter is normally an unprocessed shell and has
+    // no business on a shelf. A private import is the exception: it appears the
+    // moment its owner confirms it and fills in chapter by chapter, because
+    // waiting for a 42-chapter book to finish before admitting it exists is how
+    // an import feels broken.
+    .filter(
+      (item) =>
+        (chapters ?? []).some((chapter) => chapter.library_item_id === item.id) ||
+        item.status === "processing",
     )
     .map((item) => {
       const own = (chapters ?? []).filter(

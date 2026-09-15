@@ -44,7 +44,7 @@ feature either feeds this cycle or reads from it.
 Reading is a full participant in that cycle, not a preface to it:
 
 ```
-  LIBRARY          library_items → chapters
+  LIBRARY          library_items → chapters  (Fluent's own, or your own import)
                               │
                               ▼
   STRUCTURED       paragraphs → sentences → word_occurrences
@@ -115,6 +115,7 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `reading_progress` | Where a learner is in a chapter. `resume_*` follows them both ways; `furthest_*` only ever increases and is the only input to progress. |
 | `reading_sessions` | One sitting with a chapter: **active** reading seconds, lookups, saved words. Not wall-clock time. |
 | `reading_lookups` | Which word, in which sentence, in which chapter, when — the reading-behaviour record behind "you have checked *Schwert* five times". |
+| `book_imports` · `book_import_chapters` | One uploaded file on its way to becoming a private book, and the chapters the detector proposed for it. Owner-readable, writable by nobody — every change goes through a `SECURITY DEFINER` function. See [Private book import](#private-book-import). |
 
 All tables have Row Level Security enabled. `words`/`texts` are public-read;
 `questions`/`calibration_questions` are admin-only (learners read the answer-free
@@ -526,6 +527,88 @@ blueprint floor, source grounding, the generation pipeline, the evidence map and
 the security model — is in
 [`docs/architecture/story-learning-engine.md`](./docs/architecture/story-learning-engine.md).
 
+## Private book import
+
+> `/library/import` · `src/lib/import/**` · `src/actions/book-import.ts`
+
+Until now the only way text reached the library was an admin pasting it in, one
+chapter at a time. Nobody is going to paste seventy-three chapters of a novel
+into a form — and if they did, the result would be Fluent's content rather than
+the reader's own file.
+
+So there is a second door. Upload a PDF, an EPUB or a TXT; Fluent extracts it,
+cleans it, finds the chapters, shows you what it found, and — once you confirm —
+turns it into an ordinary private book that goes through the same reader, the
+same Story engine and the same learning engine as everything else.
+
+```
+Wybierz plik  →  Sprawdź rozdziały  →  Importuj  →  Czytaj i ucz się
+```
+
+**The file never passes through this app's server.** A Server Action body is
+capped around a megabyte; a novel is not. The browser uploads straight to a
+private Supabase Storage bucket through a short-lived signed URL scoped to one
+path that the server chose, with a real progress bar (`XMLHttpRequest`, because
+`fetch` cannot report upload progress). The server then reads the stored object.
+
+**Extraction is deterministic, and free.** `unpdf` (Mozilla's pdf.js, serverless
+build, no dependencies) for PDF; `fflate` plus a forty-line XML scanner for EPUB,
+reading the spine and the navigation document the file already carries; a strict
+UTF-8 decode with a Windows-1252 fallback for TXT. **No AI is called anywhere in
+this feature** — sending a book to a language model so it can retype the book
+would be the most expensive possible way to do a free operation.
+
+**Cleanup is where the quality is.** A PDF has no paragraphs, only lines a
+typesetter broke to fit a column. The pipeline removes running heads and feet
+(short, at a page edge, repeating across most pages — all three, so a refrain
+survives), removes folios only when the numbers across the book agree on an
+offset, rejoins `Kran-` / `kenhaus` into `Krankenhaus` while leaving
+`deutsch-polnisch` alone, and rebuilds paragraphs from the column width rather
+than from the line breaks.
+
+**Chapter detection scores several weak signals** — an explicit "Kapitel 7", a
+named section, a line's isolation, its position on the page, its case, the book's
+own table of contents — and, crucially, **the shape this book uses for its own
+chapters**. That last one is what finds
+
+```
+BRAN     CATELYN     DAENERYS     EDDARD     JON
+```
+
+without knowing a single name: a short isolated line in a particular typographic
+shape, repeated five times or more, is a convention. There is no list of names in
+the code and there must never be one.
+
+Everything uncertain is **flagged, never guessed at**: the review screen labels
+each boundary *Pewne* / *Prawdopodobne* / *Sprawdź*, and you can rename, exclude,
+split, merge and reorder before confirming. Front matter comes pre-excluded.
+Nothing the detector found is ever deleted.
+
+**Then the existing pipeline takes over.** Confirming creates one
+`library_items` row with `rights = 'private_import'` and `owner_user_id` set —
+both hardcoded in `finalize_book_import`, neither a parameter any request can
+supply — plus its chapters, in one transaction. Finalizing is idempotent under a
+row lock, so two clicks, two tabs and two concurrent requests produce one book.
+Chapters are then processed a few at a time, in reading order, so chapter 1 is
+readable long before chapter 42 is built, and one chapter that fails leaves the
+rest of the book intact.
+
+**A private import is private.** Not to other learners, not to anonymous
+visitors, and **not to admins** — that is the same rule `library_item_readable`
+has enforced since the reader shipped. The original file lives in a bucket with
+no public URL and owner-scoped policies. Logs carry ids, counts and durations,
+never a word of the text.
+
+**Deleting your own book** removes the book, its content, your reading progress
+and the uploaded file — and keeps everything you learned from it. Vocabulary,
+schedules, skill and concept state all survive; the one thing stripped is the
+private *sentence* a saved word was copied out of.
+
+The architecture in full — the upload flow, the state machine, every cleanup and
+detection rule, the finalization guarantees, what background work Fluent actually
+has, and what is deliberately left out (OCR, DOCX, covers, sharing) — is in
+[`docs/architecture/book-import-engine.md`](./docs/architecture/book-import-engine.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -615,6 +698,22 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
   personal difficulty, and two buttons of which the second always works),
   `PreparationRunner`, `ChallengeRunner` (four answer mechanics, one component),
   `ChallengeResultCard`.
+- **`src/lib/import/`** — the private book import engine, pure and unit-tested
+  except for the extractors: `constants.ts` (every threshold, weight, size limit
+  and version stamp), `extract/` (PDF via `unpdf`, EPUB via `fflate` plus a
+  minimal XML scanner, TXT), `cleanup/` (running heads, folios, line wraps,
+  hyphenation), `chapters/` (heading patterns, the structural-shape detector that
+  finds named chapters, the scorer), `language.ts`, `quality.ts`, `analyze.ts`
+  (the whole pipeline), `state.ts` (the status/stage machine and its Polish copy),
+  `queries.ts` (the only file there that touches Supabase).
+- **`src/lib/content/processor.ts`** — the trusted shared chapter processor. The
+  admin panel calls it after `requireAdmin()`; the importer calls it after
+  checking the caller owns the import. Same tokenizer, same transaction, same
+  idempotency, two completely different authorities — importing a book never
+  requires admin rights.
+- **`src/actions/book-import.ts`** — upload (a signed URL, so the file never
+  passes through Next), analysis, review edits, finalization, batched processing,
+  cancel and delete. See [Private book import](#private-book-import).
 - **`src/components/reader/`** — `ReaderProse` (server-rendered prose),
   `ReaderShell` (one delegated listener, progress, the active-reading clock,
   typography), `WordGlossSheet`, `ReaderSettingsSheet`, `ChapterCompleteCard`.
@@ -642,6 +741,18 @@ Defined in `src/app/globals.css` (`@theme`) and mapped onto the shadcn semantic 
 Push to GitHub → connect the repo to **Vercel** → add the three environment variables
 (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)
 → deploy.
+
+**Storage.** Applying `supabase/schema.sql` also creates the private
+`private-book-imports` bucket and its four owner-scoped policies. If your project
+locks the `storage` schema to its own admin role, the migration emits a warning
+instead of failing and the block has to be applied by hand — the failure mode is
+safe (without the bucket, uploads fail loudly; without the policies, RLS denies
+everything), but book import will not work until it is done.
+
+**Function duration.** `/library/import` and `/library/import/[importId]` set
+`export const maxDuration = 300`, because the Server Actions they host parse whole
+books. Platforms clamp this to the plan limit (Vercel Hobby caps at 60s); chapter
+processing is batched precisely so that nothing depends on one long call.
 
 ## Legal Note
 

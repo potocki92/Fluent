@@ -46,3 +46,23 @@ so each one must be:
 - **Verified, not assumed** — `supabase/tests/run.sh` applies the migration to a
   copy of the *pre-migration* schema and then runs the full security suite
   against it, so the upgrade path is exercised, not hoped for.
+
+## Storage
+
+`20260915120000_private_book_import.sql` creates the private
+`private-book-imports` bucket and four owner-scoped policies on
+`storage.objects`. The whole block is guarded on the `storage` schema existing —
+so it is a no-op on a plain PostgreSQL instance — and wrapped in an
+`insufficient_privilege` handler, because some managed deployments lock that
+schema to its own admin role.
+
+If you see
+
+```
+WARNING: book import storage objects were not created (...)
+```
+
+the rest of the migration applied cleanly and only the Storage half needs to be
+run by hand, as a role that owns `storage.objects`. **The failure mode is safe:**
+without the bucket, uploads fail loudly, and without the policies RLS denies
+everything. Book import simply will not work until the block is applied.

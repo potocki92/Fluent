@@ -43,7 +43,9 @@ Respect the existing `src/`-rooted structure:
   the weakness-drill lifecycle (`start-`/`answer-`/`finalize-practice-*.ts`),
   the daily plan (`today-plan.ts`), the reader (`reading.ts` — sessions, progress,
   lookups, saving a word with its sentence), library content
-  (`admin-library.ts` — creating and processing chapters),
+  (`admin-library.ts` — creating and processing chapters), the private book
+  importer (`book-import.ts` — upload, analysis, review, finalization, batched
+  processing, deletion),
   `update-reader-preferences.ts`, `save-word.ts`, `update-srs.ts`.
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
   `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
@@ -54,7 +56,13 @@ Respect the existing `src/`-rooted structure:
   `candidates.ts` and `build.ts` are the only files there that touch Supabase),
   `content/` (the content pipeline: `normalize`, `paragraphs`, `sentences`,
   `tokenize`, `dictionary-match`, `process`, `version` — all pure and
-  deterministic, no Supabase), `reading/` (the reader's domain: `constants.ts`
+  deterministic, no Supabase — plus `processor.ts`, the trusted shared chapter
+  processor both the admin panel and the importer call),
+  `import/` (the private book import engine: `constants.ts` holds every weight
+  and threshold, `extract/` turns PDF/EPUB/TXT into pages, `cleanup/` turns
+  printed pages back into paragraphs, `chapters/` finds the chapter boundaries,
+  `analyze.ts` runs the lot — all pure and deterministic except the extractors;
+  `queries.ts` is the only file there that touches Supabase), `reading/` (the reader's domain: `constants.ts`
   holds every threshold, `progress.ts` owns resume-vs-furthest, `coverage.ts`
   owns vocabulary coverage, `preferences.ts` owns typography), `library/queries.ts`
   (the reader's read layer, the only file there that touches Supabase),
@@ -72,7 +80,10 @@ Respect the existing `src/`-rooted structure:
   ranking, weakness practice or the learning-day/timezone rules, and
   `reader-story-engine.md` before touching library content, chapters, structured
   text, word occurrences, reading progress/sessions/lookups or the content
-  pipeline, and `story-learning-engine.md` before touching chapter analysis,
+  pipeline, `book-import-engine.md` before touching file upload, extraction,
+  import cleanup, chapter detection, the import state machine, the private
+  Storage bucket or anything under `/library/import`, and
+  `story-learning-engine.md` before touching chapter analysis,
   preparation, the chapter question bank, question generation, the Chapter
   Challenge or the chapter learning lifecycle.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
@@ -88,10 +99,15 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 
 - Route files in `src/app/` should stay thin and compose components/hooks.
 - Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`,
-  `/library/[slug]/[chapter]/przygotowanie`, `/library/[slug]/[chapter]/wyzwanie`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
+  `/library/[slug]/[chapter]/przygotowanie`, `/library/[slug]/[chapter]/wyzwanie`,
+  `/library/import`, `/library/import/[importId]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
 - Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
+- A segment whose Server Actions do genuinely long work (`/library/import/**`
+  parses whole books) sets `export const maxDuration` on the page. Next applies a
+  page's `maxDuration` to the Server Actions invoked from it; that is the
+  supported knob, and it is not a substitute for batching the work.
 
 ## Client and Server Boundaries
 
@@ -121,7 +137,8 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   the learning-engine tables (`learning_events`, `review_events`, `user_*_state`,
   `user_word_knowledge`), the Today-engine tables (`daily_plans`,
   `daily_plan_items`, `practice_sessions`, `practice_session_items`,
-  `text_progress`) and the progress columns of `profiles` have no client write
+  `text_progress`), the import tables (`book_imports`, `book_import_chapters`)
+  and the progress columns of `profiles` have no client write
   path, by design. Do not add one. New progress writes belong inside the existing
   SECURITY DEFINER functions, or a new one that derives its user from `auth.uid()`
   and has `EXECUTE` granted narrowly.
@@ -140,6 +157,27 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   arbitrary HTML. Positions are the bookmark, so the content pipeline must stay
   deterministic and `CONTENT_PROCESSOR_VERSION` must be bumped whenever its
   output for the same input could change.
+- **A private import is private, and can only become a book once.** `rights` and
+  `owner_user_id` are set by `finalize_book_import` and by nothing else; no code
+  path clears `owner_user_id`, and `library_item_readable` refuses an owned item
+  to everyone but its owner — admins included. Finalizing is idempotent under a
+  row lock (`final_library_item_id` is the receipt), so two clicks, two tabs and
+  two concurrent requests produce one book. An uploaded original lives in the
+  private `private-book-imports` bucket, never in Postgres and never behind a
+  public URL.
+- **There is one content pipeline, and one chapter processor.** An imported
+  chapter goes through `src/lib/content/` exactly as first-party content does,
+  via `src/lib/content/processor.ts`. The admin path and the import path differ
+  only in who is allowed to call it — `requireAdmin()` versus owning the import —
+  and neither grants the other anything. Importing must never require admin
+  rights, and there must never be a second tokenizer, a second hash model or a
+  second `CONTENT_PROCESSOR_VERSION`.
+- **Imported text is data, never instructions, and never markup.** A learner's
+  file is untrusted: EPUB XHTML is parsed to text (scripts and styles discarded,
+  no tag re-emitted), hrefs are resolved only inside the archive, and nothing is
+  ever rendered with `dangerouslySetInnerHTML`. Book content may contain "ignore
+  previous instructions"; it is never interpolated into a prompt as anything but
+  delimited data.
 - **A lookup is not a failed test.** Tapping a word is weak evidence about that
   word and nothing else: no concept is attributed, and the weight lives in
   `src/lib/learning/evidence.ts` with `src/lib/reading/constants.ts`. Opening or
@@ -151,8 +189,12 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   a recognition exercise feed active vocabulary. When there is no evidence, the
   answer is "unknown" — not a default score.
 - `src/lib/supabase/service.ts` (service role) bypasses RLS entirely. Import it only
-  from `"use server"` modules, only for the finalize RPCs, and only after the acting
-  user has been established from the cookie-bound client.
+  from `"use server"` modules (or from a server-only helper they call, such as
+  `src/lib/content/processor.ts`), only for the trusted write paths that need it —
+  the finalize RPCs, `replace_chapter_content`, and reading a learner's own
+  uploaded original out of the private bucket — and only after the acting user has
+  been established from the cookie-bound client. It is never what decides who the
+  caller is.
 - Expected failures in these flows are RETURNED as `ActionResult<T>` from
   `src/lib/errors.ts`, never thrown — Next redacts thrown Server Action errors in
   production, so a thrown error cannot be branched on by the UI.
@@ -231,8 +273,9 @@ Do not:
   in `src/lib/learning/planner/constants.ts`, every reader threshold (idle
   timeout, flush cadence, completion ratio, coverage floors, lookup discount)
   lives in `src/lib/reading/constants.ts`, every Story-engine weight, threshold
-  and budget lives in `src/lib/story/constants.ts`, and a bare `* 0.35` anywhere
-  else in any of them is a bug
+  and budget lives in `src/lib/story/constants.ts`, every importer threshold,
+  weight, size limit and version stamp lives in `src/lib/import/constants.ts`,
+  and a bare `* 0.35` anywhere else in any of them is a bug
 - let the client decide anything authoritative: which questions a test contains, what
   a score is, or what a learner's ability becomes
 - change Next/React APIs based only on model memory — check the local Next docs
