@@ -378,6 +378,7 @@ It is ABSOLUTE, it is in this order, and it is decided in one pure function —
 | # | Gesture | Result |
 | --- | --- | --- |
 | 1 | tap on `.reader-word`, no **live** selection | the word sheet, always |
+| — | *live* = usable **and** not yet committed **and** under the pointer | all three, or it is not live |
 | 2 | live selection, one lexical token | „Zapisz znaczenie" |
 | 3 | live selection, 2+ tokens in one sentence | „Zapisz zwrot" |
 | 4 | live selection across sentences | an explanation, and nothing else |
@@ -385,21 +386,33 @@ It is ABSOLUTE, it is in this order, and it is decided in one pure function —
 | 6 | anything else | dismiss |
 
 **Rule 1 was the bug.** On iOS a plain tap on *Wir* could open the SENTENCE
-action bar — „Przetłumacz / Nie rozumiem" — instead of the word sheet. Two
-causes, and the fix closes both:
+action bar — „Przetłumacz / Nie rozumiem" — instead of the word sheet. Three
+causes, and the fix closes all three:
 
 * *The click handler read the selection first and let anything win.* Safari does
   not clear a selection on the schedule that assumes: the callout from a
   long-press two paragraphs ago is still in the document when the next tap's
   `click` fires, and the tap that dismisses it is delivered to the word
   underneath. Chromium collapses it on `touchstart`, which is why this only ever
-  showed up on a phone. **A selection now counts only while it is LIVE** — the
-  browser changed it between this gesture's `pointerdown` and its `click`. A
-  leftover range is ignored, never cleared: the learner may be mid-copy, and
-  taking that away to win an argument would be the worse bug (§30).
+  showed up on a phone.
+* *"Changed since this gesture's `pointerdown`" is not the same as current.* That
+  was the first fix and it was not enough, which a WebKit run reproduced: iOS
+  delivers the callout-dismissing tap as a click with **no pointerdown of its
+  own**, so the long-press's own selection change still looked like this
+  gesture's. A selection's claim on the next click now ends when the reader
+  COMMITS it — shows the learner its action bar — and a committed selection can
+  swallow nothing, whether or not a pointerdown ever arrived. It must also be
+  under the pointer: a drag ends inside its own selection, a tap on a word
+  elsewhere does not.
 * *A word is a few millimetres of inline box.* A tap a pixel above the ascender
   is delivered to the enclosing sentence. So when `event.target` is not a word,
   `readerHitAt` asks the POINT as well, which is the question the learner posed.
+  The test for "is there a point to ask" is the COORDINATES, never
+  `event.detail`: iOS delivers real taps with `detail === 0` often enough that
+  gating on it loses exactly the taps the fallback exists for.
+
+A leftover range is ignored, never cleared: the learner may be mid-copy, and
+taking that away to win an argument would be the worse bug (§30).
 
 **A selection announces itself; it is not discovered by a tap.**
 `observeReaderSelection` watches `selectionchange` and reports once the pointer
