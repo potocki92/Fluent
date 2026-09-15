@@ -55,10 +55,24 @@ Reading is a full participant in that cycle, not a preface to it:
                    never goes backwards · active reading time
                               │
                               ▼
-  LEARNING EVENTS  a lookup is weak evidence, not a failed test
+  WORD · PHRASE ·  what it means HERE · save a zwrot · your own translation ·
+  SENTENCE         "nie rozumiem" — written next to the sentence, never in a
+                   separate app
+                              │
+                              ▼
+  PERSONAL         your notes, private, anchored to the exact place in the book.
+  NOTEBOOK         The shared dictionary is never rewritten by them.
+                              │
+                              ▼
+  LEARNING EVENTS  a lookup is weak evidence, not a failed test;
+                   "nie rozumiem" is stronger, and still not a verdict
                               │
                               ▼
   KNOWLEDGE MODEL  user_word_knowledge gets more accurate
+                              │
+                              ▼
+  CONTEXTUAL       "Wir ______ umkehren." — the real sentence from your book,
+  REVIEW           on the one scheduler
                               │
                               ▼
   TODAY ENGINE     can plan the next chapter better
@@ -116,6 +130,10 @@ The schema lives in [`supabase/schema.sql`](./supabase/schema.sql).
 | `reading_sessions` | One sitting with a chapter: **active** reading seconds, lookups, saved words. Not wall-clock time. |
 | `reading_lookups` | Which word, in which sentence, in which chapter, when — the reading-behaviour record behind "you have checked *Schwert* five times". |
 | `book_imports` · `book_import_chapters` | One uploaded file on its way to becoming a private book, and the chapters the detector proposed for it. Owner-readable, writable by nobody — every change goes through a `SECURITY DEFINER` function. See [Private book import](#private-book-import). |
+| `user_sentence_notes` | One learner's own translation of, and "nie rozumiem" flag on, one sentence. Anchored on `(chapter, sentence position)` so it survives reprocessing; the German is snapshotted with it. See [Personal language notebook](#personal-language-notebook). |
+| `user_text_annotations` | One learner's own meaning for a span of one sentence — a single token is a contextual word meaning (a *personal word* when `word_id` is null), two or more is a phrase. **Never** written into `words`. |
+| `user_notebook_reviews` | The SM-2 schedule for a notebook item the learner opted into reviewing. The same algorithm as `saved_words` (`src/lib/sm2.ts`), a different item. |
+| `notebook_entries` *(view)* | Every personal note with its book and chapter already joined on, so the notebook is one query rather than one per row. `security_invoker`, so the own-row policies decide what it returns. |
 
 All tables have Row Level Security enabled. `words`/`texts` are public-read;
 `questions`/`calibration_questions` are admin-only (learners read the answer-free
@@ -263,6 +281,7 @@ the level they watched being built while a forged one has nowhere to enter.
 | `profiles.display_name`, `daily_word_goal`, `daily_learning_minutes`, `timezone` | `profiles.ability`, `rd`, `answered`, `cefr_estimate`, `promotion_streak`, `level_source`, `streak_days`, `last_active`, `words_reviewed_today`, `word_streak_days`, `last_word_review` |
 | `saved_words` (their own review deck) | `attempts`, `text_completions`, `test_sessions`, `test_session_items`, `calibration_sessions`, `calibration_session_items`, `daily_plans`, `daily_plan_items`, `practice_sessions`, `practice_session_items`, `text_progress`, `reading_progress`, `reading_sessions`, `reading_lookups` — readable by their owner, writable by nobody else |
 | `profiles.reader_preferences` (typography and theme) | `library_items`, `chapters`, `paragraphs`, `sentences`, `word_occurrences`, `chapter_vocabulary` — public content is readable, and writable only by admins through the processing pipeline |
+| *(nothing directly)* | `user_sentence_notes`, `user_text_annotations`, `user_notebook_reviews` — a learner's own notebook. Readable by its owner and **nobody else, admins included**; every write goes through a `SECURITY DEFINER` function that derives them from `auth.uid()` and refuses a sentence they may not read |
 
 Three mechanisms enforce this, not one: the progress tables have **no insert/update
 RLS policy** at all; a `BEFORE UPDATE` trigger on `profiles` rejects a browser write
@@ -609,6 +628,64 @@ detection rule, the finalization guarantees, what background work Fluent actuall
 has, and what is deliberately left out (OCR, DOCX, covers, sharing) — is in
 [`docs/architecture/book-import-engine.md`](./docs/architecture/book-import-engine.md).
 
+## Personal language notebook
+
+> `/notebook` · `/review/notebook` · `src/lib/notebook/**` · `src/actions/notebook.ts`
+
+Reading a novel produces questions a dictionary cannot answer. Tap *sollten* in
+
+> „Wir sollten umkehren“, drängte Gared.
+
+and *sollen → powinien / mieć powinność* is true, general, and not what you
+needed. What you needed was **powinniśmy** — and, next to it, your own Polish for
+the whole sentence.
+
+Neither belongs in Fluent's dictionary, because neither is true of the word. They
+are true of **this place in this book, for you**. So the reader now has somewhere
+to put them:
+
+- **Znaczenie w tym miejscu** — your meaning for one occurrence. *ziehen* can be
+  *wyciągnął* in one sentence and *ciągnęli* in another; they are different
+  notes, and neither touches `words.translation_pl`.
+- **Zwroty** — select a few words in one sentence and save *Angst machen* as a
+  unit, with its own meaning and its own review schedule.
+- **Twoje tłumaczenie** — your Polish for a sentence. Always labelled as yours:
+  Fluent has not checked it and does not pretend to.
+- **Nie rozumiem** — the one thing a reader most needs to be able to say.
+  Reversible (*Już rozumiem*), and recorded as a learning signal rather than a
+  failed test.
+- **Własne słowa** — a word Fluent's dictionary does not know is still a word you
+  met. Save it anyway; the global dictionary stays untouched.
+
+**Notes survive the text moving.** A chapter reprocessed under a better tokenizer
+replaces every sentence row, so a note is anchored on `(chapter, sentence
+position, token positions)` — the same positions reading progress uses — with the
+German snapshotted alongside. A note whose text has since changed is *marked*,
+never silently shown against the wrong prose.
+
+**Your notes come back as practice.** Contextual cards use the real sentence:
+
+```
+Wir ______ umkehren.          Angst machen               Powinniśmy zawrócić.
+powinniśmy                    straszyć / budzić strach   Wir sollten umkehren.
+```
+
+The cloze is cut at stored character offsets, never by searching for the word —
+in "Er sah sie an, und sie sah ihn an." a search blanks the wrong one. Scheduling
+is the same SM-2 as every word card, in the same review history; a note enters
+the queue only when you ask it to.
+
+**It is all private, and all free.** Two learners reading the same public book
+see only their own notes; a note on your own imported book is unreachable to
+everyone else, admins included, and disappears with the book. **No AI is called
+anywhere in this feature** — every meaning in your notebook was written by you.
+
+The architecture in full — the four language layers and why they must not be
+mixed, the anchoring scheme, how a browser selection becomes a span, what
+"nie rozumiem" is worth, how one scheduler serves four kinds of card, the privacy
+model, and what a future Contextual Tutor would read — is in
+[`docs/architecture/personal-language-notebook.md`](./docs/architecture/personal-language-notebook.md).
+
 ## How the Level System Works
 
 Each learner has an **ability** (Elo-style rating, starting ≈1200) and a **rating
@@ -684,6 +761,21 @@ The algorithms are pure functions in `src/lib/elo.ts` (ability), `src/lib/sm2.ts
   `dictionary-match.ts` (token → `word_id`, sharing the de-inflection rules with
   the passage compiler), `process.ts` (the pipeline), `version.ts` (the stamp
   every chapter records).
+- **`src/actions/notebook.ts`** — the personal notebook's write paths:
+  translations, the "nie rozumiem" flag, word and phrase annotations, and opting
+  a note into review. The linguistics happen here (the span is snapped with the
+  content pipeline's tokenizer); the SQL owns the transaction, decides who the
+  caller is, refuses a sentence they may not read, and verifies the span against
+  the stored text. No path from any of it reaches `public.words`.
+- **`src/actions/review-notebook.ts`** — grades one notebook card through the
+  same `src/lib/sm2.ts` and the same `review_events` history as a word card. One
+  scheduler, several presentations.
+- **`src/lib/notebook/`** — the notebook's domain, pure and unit-tested:
+  `constants.ts` (every limit and weight, including the `MAX_PHRASE_TOKENS` that
+  SQL is *passed*), `selection.ts` (a browser selection → a token span),
+  `cloze.ts` (cut at stored offsets, never searched for), `notes.ts`
+  (normalisation and staleness), `review.ts` (a note → a card), `summary.ts`;
+  `queries.ts` is the only part that touches Supabase.
 - **`src/lib/reading/`** — the reader's domain: `constants.ts` (every threshold,
   in one place), `progress.ts` (resume vs furthest, and the arithmetic behind
   both), `coverage.ts` (vocabulary coverage, including its refusal to guess),

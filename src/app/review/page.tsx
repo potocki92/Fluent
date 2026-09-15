@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PartyPopper } from "lucide-react";
+import { NotebookPen, PartyPopper } from "lucide-react";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -44,6 +44,7 @@ export default async function ReviewPage({
 
   let dueCards: SavedWordWithWord[] = [];
   let extraCards: SavedWordWithWord[] = [];
+  let notebookDue = 0;
   const queryClient = getQueryClient();
 
   if (user && planWordIds.length > 0) {
@@ -81,12 +82,13 @@ export default async function ReviewPage({
     );
 
     extraCards = await buildExtraCards(supabase, user.id, now);
+    notebookDue = await countDueNotebookCards(supabase, user.id, now);
 
     await primeWordGoal(supabase, queryClient);
   }
 
   // Nothing to review *and* nothing to learn ahead — the only true dead end.
-  if (dueCards.length === 0 && extraCards.length === 0) {
+  if (dueCards.length === 0 && extraCards.length === 0 && notebookDue === 0) {
     return (
       <div className="space-y-4">
         <h1 className="text-lg font-bold">Powtórki</h1>
@@ -94,7 +96,8 @@ export default async function ReviewPage({
           <PartyPopper className="size-8 text-gold" />
           <p className="font-semibold">🎉 Wszystko powtórzone!</p>
           <p className="text-sm text-muted2">
-            Zapisuj słowa w słowniku, aby pojawiły się tutaj.
+            Zapisuj słowa w słowniku albo notatki podczas czytania, aby
+            pojawiły się tutaj.
           </p>
           <Link
             href="/browse"
@@ -122,9 +125,50 @@ export default async function ReviewPage({
           </p>
         )}
         <DailyGoalRing />
+        <NotebookDeckLink count={notebookDue} />
         <ReviewModeSwitch cards={initialCards} extra={continuation} />
       </div>
     </HydrationBoundary>
+  );
+}
+
+/**
+ * How many notebook cards are waiting.
+ *
+ * A COUNT, NOT A DECK. The contextual cards live on their own screen (see
+ * `/review/notebook`), so this page only needs to know whether to point at it —
+ * and `head: true` asks Postgres for the number without shipping a single row.
+ */
+async function countDueNotebookCards(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  userId: string,
+  now: string,
+): Promise<number> {
+  const { count } = await supabase
+    .from("user_notebook_reviews")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_mastered", false)
+    .lte("due_at", now);
+  return count ?? 0;
+}
+
+/** The way into the contextual deck — shown only when it has something in it. */
+function NotebookDeckLink({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <Link
+      href="/review/notebook"
+      className="flex items-center justify-between gap-3 rounded-xl border border-[#374151] bg-[#2d3748] px-4 py-3 transition-colors hover:border-gold/50"
+    >
+      <span className="flex items-center gap-2 text-sm font-medium">
+        <NotebookPen className="size-4 text-gold" />
+        Powtórki z zeszytu
+      </span>
+      <span className="rounded-full bg-gold/15 px-2 py-0.5 text-xs font-semibold text-gold">
+        {count}
+      </span>
+    </Link>
   );
 }
 

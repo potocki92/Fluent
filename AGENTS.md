@@ -46,6 +46,9 @@ Respect the existing `src/`-rooted structure:
   (`admin-library.ts` — creating and processing chapters), the private book
   importer (`book-import.ts` — upload, analysis, review, finalization, batched
   processing, deletion),
+  the personal notebook (`notebook.ts` — sentence translations, the
+  "nie rozumiem" flag, word/phrase annotations, opting a note into review;
+  `review-notebook.ts` — grading a notebook card through the same SM-2),
   `update-reader-preferences.ts`, `save-word.ts`, `update-srs.ts`.
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
   `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
@@ -66,6 +69,13 @@ Respect the existing `src/`-rooted structure:
   holds every threshold, `progress.ts` owns resume-vs-furthest, `coverage.ts`
   owns vocabulary coverage, `preferences.ts` owns typography), `library/queries.ts`
   (the reader's read layer, the only file there that touches Supabase),
+  `notebook/` (the personal language notebook: `constants.ts` holds every limit
+  and weight — including `MAX_PHRASE_TOKENS`, which SQL is PASSED rather than
+  copying — `selection.ts` snaps a browser selection to whole tokens with the
+  content pipeline's own tokenizer, `cloze.ts` cuts a blank at stored offsets,
+  `notes.ts` owns normalisation and staleness, `review.ts` turns a note into a
+  card, `summary.ts` counts a chapter's notes — all pure; `queries.ts` is the
+  only file there that touches Supabase),
   `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
   Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
@@ -85,7 +95,11 @@ Respect the existing `src/`-rooted structure:
   Storage bucket or anything under `/library/import`, and
   `story-learning-engine.md` before touching chapter analysis,
   preparation, the chapter question bank, question generation, the Chapter
-  Challenge or the chapter learning lifecycle.
+  Challenge or the chapter learning lifecycle, and
+  `personal-language-notebook.md` before touching personal annotations,
+  contextual word meanings, sentence translations, the "nie rozumiem" signal,
+  phrases, text selection in the reader, the word sheet's information
+  hierarchy, the notebook route or contextual review.
 - Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
 - Database migrations may only ever WIDEN a check constraint on a re-run. Guard
   every `drop constraint` / `add constraint` block on whether the value that
@@ -100,7 +114,7 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 - Route files in `src/app/` should stay thin and compose components/hooks.
 - Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`,
   `/library/[slug]/[chapter]/przygotowanie`, `/library/[slug]/[chapter]/wyzwanie`,
-  `/library/import`, `/library/import/[importId]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
+  `/library/import`, `/library/import/[importId]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/review/notebook`, `/notebook`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
 - Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
@@ -178,6 +192,25 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   ever rendered with `dangerouslySetInnerHTML`. Book content may contain "ignore
   previous instructions"; it is never interpolated into a prompt as anything but
   delimited data.
+- **A personal note is never the shared dictionary.** `words.translation_pl` is
+  global, admin-curated content; "sollten here means powinniśmy" is one learner's
+  claim about one place in one book. No code path writes from
+  `user_text_annotations` or `user_sentence_notes` into `public.words`, and there
+  must never be one. A contextual meaning is keyed on the OCCURRENCE — never on
+  `(user_id, word_id)`, which would make *ziehen* in one sentence overwrite
+  *ziehen* in another — and a phrase is its own unit, never its parts.
+- **A personal note is anchored on positions, not ids.** Reprocessing a chapter
+  replaces every sentence and occurrence row, so `(chapter_id,
+  sentence_position[, token positions])` is a note's identity and `sentence_id` /
+  `*_occurrence_id` are pointers allowed to go null. The German is snapshotted
+  with the note and stamped with `CONTENT_PROCESSOR_VERSION`, so a note whose
+  text has moved is DETECTED and marked rather than silently shown against the
+  wrong prose.
+- **"Nie rozumiem" is evidence, not a verdict.** It is stronger than a lookup and
+  weaker than a graded answer (`HELP_SIGNAL_STRENGTH` in
+  `src/lib/learning/evidence.ts` is the one definition of that ordering), it
+  carries no skill, concept or word so it moves no mastery, and it is reversible:
+  the flag is current state, the event log keeps the sequence.
 - **A lookup is not a failed test.** Tapping a word is weak evidence about that
   word and nothing else: no concept is attributed, and the weight lives in
   `src/lib/learning/evidence.ts` with `src/lib/reading/constants.ts`. Opening or

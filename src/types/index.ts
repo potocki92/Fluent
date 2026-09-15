@@ -112,6 +112,25 @@ export interface WordInput {
   ipa: string | null;
 }
 
+/**
+ * One learner's own note about one sentence: their Polish, their "nie rozumiem",
+ * or both. Private — never the shared dictionary, never another learner's.
+ */
+export type SentenceNote = Tables["user_sentence_notes"]["Row"];
+
+/**
+ * One learner's own meaning for a span of a sentence. A single token is a
+ * contextual word meaning (a PERSONAL WORD when `word_id` is null); two or more
+ * tokens is a phrase.
+ */
+export type TextAnnotation = Tables["user_text_annotations"]["Row"];
+
+/** Which language level an annotation is about. Never mixed with the lexeme. */
+export type AnnotationKind = TextAnnotation["kind"];
+
+/** The SM-2 schedule for a notebook item the learner opted into reviewing. */
+export type NotebookReview = Tables["user_notebook_reviews"]["Row"];
+
 /** A learner-submitted dictionary correction awaiting admin review. */
 export type WordSuggestion = Tables["word_suggestions"]["Row"];
 
