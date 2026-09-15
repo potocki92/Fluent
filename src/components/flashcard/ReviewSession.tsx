@@ -15,6 +15,8 @@ import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ARTICLE_CHIP, TYPE_LABEL } from "@/components/flashcard/word-chip";
+import { buildCloze } from "@/lib/notebook/cloze";
+import { CLOZE_BLANK } from "@/lib/notebook/constants";
 import { SessionEnd, type Result } from "@/components/flashcard/SessionEnd";
 import { cn } from "@/lib/utils";
 
@@ -281,6 +283,13 @@ export function ReviewSession({
                     <p className="text-xs text-muted2">{word.mnemonic}</p>
                   </div>
                 )}
+                {/* THE SENTENCE IT WAS MET IN. A word saved while reading has a
+                    place it came from, and a card that shows only the headword
+                    has thrown away the reason it meant anything (§61). It is on
+                    the BACK, with the answer: on the front it would either give
+                    the answer away or replace the DE → PL card with a different
+                    exercise, and this card's evidence is recorded as DE → PL. */}
+                <OriginContext card={current} />
               </Card>
             </motion.div>
           </button>
@@ -334,5 +343,43 @@ export function ReviewSession({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The book sentence a card was saved from, with the word itself blanked out.
+ *
+ * WHY A CLOZE AND NOT THE PLAIN SENTENCE. The plain sentence contains the German
+ * word the learner has just been shown on the front, so it adds nothing; blanked,
+ * the same sentence is a second, harder pass at the same fact — "and here is
+ * where you met it" becomes "and this is the shape of the hole it fills".
+ *
+ * CUT AT STORED OFFSETS, NEVER SEARCHED FOR. `saved_words` records where in the
+ * sentence the word stood, so "Er sah sie an, und sie sah ihn an." blanks the one
+ * that was saved rather than the first match (§66). A card saved before those
+ * offsets existed, or whose chapter has been reprocessed, simply shows the
+ * sentence whole — a weaker card, never a wrong one.
+ */
+function OriginContext({ card }: { card: SavedWordWithWord }) {
+  if (!card.origin_context) return null;
+
+  const cloze = buildCloze(
+    card.origin_context,
+    card.origin_char_start,
+    card.origin_char_end,
+  );
+
+  return (
+    <blockquote className="mt-1 w-full border-l-2 border-gold/40 pl-2 text-left text-xs italic leading-relaxed text-muted2">
+      {cloze ? (
+        <>
+          {cloze.before}
+          <span className="font-semibold not-italic text-gold">{CLOZE_BLANK}</span>
+          {cloze.after}
+        </>
+      ) : (
+        card.origin_context
+      )}
+    </blockquote>
   );
 }

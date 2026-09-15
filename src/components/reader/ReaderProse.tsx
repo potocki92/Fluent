@@ -118,6 +118,10 @@ function renderSentence(sentence: ReaderSentence) {
         data-occurrence-id={occurrence.id}
         data-word-id={occurrence.wordId ?? ""}
         data-sentence-id={sentence.id}
+        // The token's index among the sentence's LEXICAL tokens — the durable
+        // address a personal note is anchored on, and what lets a saved phrase
+        // be marked without re-tokenizing the chapter in the browser.
+        data-position={occurrence.position}
         data-lemma={occurrence.lemma}
       >
         {sentence.text.slice(occurrence.charStart, occurrence.charEnd)}

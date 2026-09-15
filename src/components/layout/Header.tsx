@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Library, Settings } from "lucide-react";
+import { Library, NotebookPen, Settings } from "lucide-react";
 
 import { AuthButton } from "@/components/auth/AuthButton";
 import { AdminNavLink } from "@/components/layout/AdminNavLink";
@@ -26,6 +26,17 @@ export function Header() {
             className="flex items-center text-muted2 transition-colors hover:text-main"
           >
             <Library className="size-5" />
+          </Link>
+          {/* The personal notebook. Same judgement as the dictionary above: it
+              is somewhere you go deliberately to look something up, not one of
+              the four things you do every day, and five items in a phone-width
+              bottom bar leaves no room for a Polish label. */}
+          <Link
+            href="/notebook"
+            aria-label="Mój zeszyt"
+            className="flex items-center text-muted2 transition-colors hover:text-main"
+          >
+            <NotebookPen className="size-5" />
           </Link>
           <Link
             href="/settings"

@@ -336,6 +336,13 @@ export type Database = {
           origin_occurrence_id: number | null;
           origin_context: string | null;
           origin_surface: string | null;
+          /**
+           * Where in `origin_context` the word stood. The contextual cloze cuts
+           * at these rather than searching for the surface, which would blank the
+           * wrong one whenever a sentence repeats it.
+           */
+          origin_char_start: number | null;
+          origin_char_end: number | null;
         };
         Insert: {
           user_id: string;
@@ -352,6 +359,8 @@ export type Database = {
           origin_occurrence_id?: number | null;
           origin_context?: string | null;
           origin_surface?: string | null;
+          origin_char_start?: number | null;
+          origin_char_end?: number | null;
         };
         Update: Partial<Database["public"]["Tables"]["saved_words"]["Insert"]>;
         Relationships: [
@@ -359,6 +368,112 @@ export type Database = {
             foreignKeyName: "saved_words_word_id_fkey";
             columns: ["word_id"];
             referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * One learner's own translation of, and difficulty flag on, one sentence.
+       *
+       * Anchored on `(chapter_id, sentence_position)` rather than on
+       * `sentence_id`: reprocessing a chapter replaces every sentence row, and a
+       * note must survive that. `sentence_text` is the German as it read when
+       * the note was taken, which is what the notebook renders and what
+       * `isNoteStale` compares against.
+       */
+      user_sentence_notes: {
+        Row: {
+          id: number;
+          user_id: string;
+          chapter_id: string;
+          library_item_id: string;
+          sentence_position: number;
+          sentence_id: number | null;
+          sentence_text: string;
+          content_version: string;
+          translation: string | null;
+          is_unclear: boolean;
+          unclear_at: string | null;
+          resolved_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      /**
+       * A span of tokens inside one sentence, with the learner's own meaning.
+       *
+       * One token is a contextual word meaning — a PERSONAL WORD when `word_id`
+       * is null, i.e. one the shared dictionary does not know. Two or more is a
+       * phrase. `word_id` is a reference to `words`, never a write path into it.
+       */
+      user_text_annotations: {
+        Row: {
+          id: number;
+          user_id: string;
+          kind: "word" | "phrase";
+          chapter_id: string;
+          library_item_id: string;
+          sentence_position: number;
+          sentence_id: number | null;
+          start_position: number;
+          end_position: number;
+          start_occurrence_id: number | null;
+          end_occurrence_id: number | null;
+          char_start: number;
+          char_end: number;
+          surface: string;
+          sentence_text: string;
+          content_version: string;
+          word_id: number | null;
+          lemma: string | null;
+          meaning: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "user_text_annotations_word_id_fkey";
+            columns: ["word_id"];
+            referencedRelation: "words";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * The SM-2 schedule for a notebook item the learner opted into reviewing.
+       * Same algorithm as `saved_words` (`src/lib/sm2.ts`), different item.
+       */
+      user_notebook_reviews: {
+        Row: {
+          id: number;
+          user_id: string;
+          annotation_id: number | null;
+          sentence_note_id: number | null;
+          interval: number;
+          repetitions: number;
+          ease_factor: number;
+          due_at: string;
+          is_mastered: boolean;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "user_notebook_reviews_annotation_id_fkey";
+            columns: ["annotation_id"];
+            referencedRelation: "user_text_annotations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_notebook_reviews_sentence_note_id_fkey";
+            columns: ["sentence_note_id"];
+            referencedRelation: "user_sentence_notes";
             referencedColumns: ["id"];
           },
         ];
@@ -1207,6 +1322,12 @@ export type Database = {
             foreignKeyName: "sentences_paragraph_id_fkey";
             columns: ["paragraph_id"];
             referencedRelation: "paragraphs";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sentences_chapter_id_fkey";
+            columns: ["chapter_id"];
+            referencedRelation: "chapters";
             referencedColumns: ["id"];
           },
         ];
@@ -2163,6 +2284,46 @@ export type Database = {
       };
     };
     Views: {
+      /**
+       * Every personal note of the calling learner, with its book and chapter,
+       * as one list — so the notebook is one query rather than one per row.
+       * `security_invoker`, so the own-row policies on the underlying tables are
+       * what decides visibility.
+       */
+      notebook_entries: {
+        Row: {
+          /** `word` and `phrase` are annotations; `sentence` is a note. */
+          entry_type: "word" | "phrase" | "sentence";
+          entry_id: number;
+          user_id: string;
+          library_item_id: string;
+          item_slug: string;
+          item_title: string;
+          chapter_id: string;
+          chapter_position: number;
+          chapter_title: string | null;
+          sentence_position: number;
+          sentence_id: number | null;
+          /** Token span of an annotation; null for a sentence note. */
+          start_position: number | null;
+          end_position: number | null;
+          surface: string | null;
+          lemma: string | null;
+          word_id: number | null;
+          /** The annotation's meaning, or the sentence note's translation. */
+          meaning: string | null;
+          sentence_text: string;
+          char_start: number | null;
+          char_end: number | null;
+          content_version: string;
+          is_unclear: boolean;
+          has_translation: boolean;
+          in_review: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Relationships: [];
+      };
       questions_public: {
         Row: {
           id: number;
@@ -2490,6 +2651,105 @@ export type Database = {
         Returns: undefined;
       };
       /** Saves a word with the sentence it was met in. Origin is derived, not passed. */
+      /**
+       * The personal notebook's write paths. Every one derives the learner from
+       * `auth.uid()` and refuses a sentence they may not read, which is why they
+       * are granted to `authenticated` rather than to the service role.
+       */
+      save_sentence_translation: {
+        Args: { p_sentence_id: number; p_translation: string; p_evidence: Json };
+        Returns: {
+          note_id: number;
+          was_new: boolean;
+          translation: string | null;
+          is_unclear: boolean;
+        }[];
+      };
+      delete_sentence_translation: {
+        Args: { p_sentence_id: number };
+        Returns: { note_id: number | null; deleted: boolean }[];
+      };
+      set_sentence_unclear: {
+        Args: { p_sentence_id: number; p_unclear: boolean; p_evidence: Json };
+        Returns: {
+          note_id: number | null;
+          is_unclear: boolean;
+          deleted: boolean;
+        }[];
+      };
+      save_text_annotation: {
+        Args: {
+          p_sentence_id: number;
+          p_kind: "word" | "phrase";
+          p_start_position: number;
+          p_end_position: number;
+          p_char_start: number;
+          p_char_end: number;
+          p_surface: string;
+          p_meaning: string | null;
+          p_lemma: string | null;
+          p_max_tokens: number;
+          p_evidence: Json;
+        };
+        Returns: {
+          annotation_id: number;
+          was_new: boolean;
+          word_id: number | null;
+          surface: string;
+          meaning: string | null;
+          lemma: string | null;
+        }[];
+      };
+      update_text_annotation: {
+        Args: {
+          p_annotation_id: number;
+          p_meaning: string | null;
+          p_lemma: string | null;
+        };
+        Returns: {
+          annotation_id: number;
+          meaning: string | null;
+          lemma: string | null;
+        }[];
+      };
+      delete_text_annotation: {
+        Args: { p_annotation_id: number };
+        Returns: boolean;
+      };
+      set_notebook_review: {
+        Args: {
+          p_annotation_id: number | null;
+          p_sentence_note_id: number | null;
+          p_enabled: boolean;
+        };
+        Returns: {
+          review_id: number | null;
+          enabled: boolean;
+          due_at: string | null;
+        }[];
+      };
+      /** service_role only — grades one notebook card in a single transaction. */
+      apply_notebook_review: {
+        Args: {
+          p_user_id: string;
+          p_interaction_id: string;
+          p_annotation_id: number | null;
+          p_sentence_note_id: number | null;
+          p_item_type: "word_meaning" | "phrase" | "sentence_translation";
+          p_rating: "again" | "hard" | "good" | "easy";
+          p_mode: string;
+          p_direction: string;
+          p_response_ms: number | null;
+          p_srs: Json;
+          p_evidence: Json;
+        };
+        Returns: {
+          review_event_id: number;
+          due_at: string;
+          is_mastered: boolean;
+          already_applied: boolean;
+        }[];
+      };
       save_word_from_reader: {
         Args: { p_word_id: number; p_occurrence_id: number | null };
         Returns: { saved: boolean; was_new: boolean; context_de: string | null }[];

@@ -18,6 +18,10 @@
  * | Typed review, PL → DE *(not built yet)*   | active_vocabulary     | active    |
  * | Spoken production *(not built yet)*       | speaking              | active    |
  * | Word lookup while reading                 | receptive_vocabulary  | receptive |
+ * | "Nie rozumiem tego zdania"                | — (ranking only)      | —         |
+ * | Writing a note in the notebook            | — (history only)      | —         |
+ * | Notebook card, contextual cloze           | active_vocabulary     | active    |
+ * | Notebook card, phrase or translation      | — (history only)      | —         |
  * | Opening / finishing a chapter             | — (history only)      | —         |
  * | Chapter preparation item, DE → PL         | receptive_vocabulary  | receptive |
  * | Chapter Challenge, comprehension          | reading_comprehension | —         |
@@ -41,6 +45,10 @@
 import type { ConceptCode } from "@/lib/learning/concepts";
 import type { SkillCode } from "@/lib/learning/skills";
 import { LOOKUP_EVIDENCE_DISCOUNT } from "@/lib/reading/constants";
+import {
+  NOTEBOOK_REVIEW_WEIGHT,
+  UNCLEAR_EVIDENCE_DISCOUNT,
+} from "@/lib/notebook/constants";
 import { PREPARATION_EVIDENCE_DISCOUNT } from "@/lib/story/constants";
 
 /** Kinds of interaction the event log accepts. Mirrors the SQL check constraint. */
@@ -55,7 +63,17 @@ export type LearningEventType =
   | "reading_chapter_completed"
   | "chapter_preparation_answer"
   | "chapter_assessment_answer"
+  // the personal notebook
+  | "sentence_translation_created"
+  | "sentence_marked_unclear"
+  | "sentence_marked_understood"
+  | "context_meaning_created"
+  | "phrase_saved"
+  | "notebook_review"
   // accepted by the model, produced by nothing yet
+  | "sentence_translation_updated"
+  | "context_meaning_updated"
+  | "phrase_meaning_updated"
   | "reading_sentence_help"
   | "reading_resume"
   | "typed_recall"
@@ -86,7 +104,9 @@ export type SourceKind =
   | "reader"
   | "book"
   | "story"
-  | "import";
+  | "import"
+  /** A card built from the learner's own notes, rather than from content. */
+  | "notebook";
 
 /** Provenance of the ROW: native events vs. reconstructed history. */
 export type EvidenceOrigin = "native" | "legacy_backfill" | "import";
@@ -644,4 +664,213 @@ export function assessmentRetrieval(questionType: string): {
     return { retrievalType: "cued_recall", responseMode: "typed" };
   }
   return { retrievalType: "recognition", responseMode: "multiple_choice" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PERSONAL NOTEBOOK
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How strong a voluntary "I need help here" signal is, relative to the others.
+ *
+ * ONE HIERARCHY, IN ONE PLACE (§74). Without this the same ordering would be
+ * re-invented in the notebook's "do wyjaśnienia" sort, in the Today engine's
+ * candidate ranking and in whatever comes next — three copies that agree today
+ * and disagree after the first tuning pass.
+ *
+ * The ordering is the evidence map's own logic. A graded item Fluent marked
+ * wrong is the only entry that was VERIFIED. A learner flagging a sentence is a
+ * deliberate report and therefore much stronger than a tap, which people also
+ * make out of curiosity. The same word tapped five times across five chapters is
+ * a pattern; once is barely anything. Nothing here is mastery — these numbers
+ * decide what is worth revisiting, never what the learner knows.
+ */
+export const HELP_SIGNAL_STRENGTH = {
+  validated_failure: RESPONSE_MODE_WEIGHT.multiple_choice,
+  sentence_unclear: round(RESPONSE_MODE_WEIGHT.self_rated * UNCLEAR_EVIDENCE_DISCOUNT),
+  lookup: round(RESPONSE_MODE_WEIGHT.passive * LOOKUP_EVIDENCE_DISCOUNT),
+} as const;
+
+/** The signals above, strongest first. */
+export type HelpSignal = keyof typeof HELP_SIGNAL_STRENGTH;
+
+/**
+ * Writing something down in the notebook.
+ *
+ * HISTORY, NOT MASTERY — the same judgement as {@link chapterReadingEvidence},
+ * and for a sharper reason. A learner who writes "sollten → powinniśmy" has
+ * looked something up and understood it *at that moment*, with the answer in
+ * front of them. Crediting that as knowledge of *sollen* would mean a learner
+ * could master a language by copying a dictionary, and the model would have no
+ * way to tell the difference. What proves they know it is being asked again,
+ * later, with nothing in front of them — which is what the review cards in
+ * `src/lib/notebook/review.ts` are for.
+ *
+ * So: no skill, no concept, no word channel, zero weight. What these rows buy is
+ * the HISTORY — when a learner started annotating, which chapters they worked
+ * hardest at, what they wrote before they were asked — which is exactly the
+ * corpus a later Contextual Tutor needs and cannot reconstruct.
+ *
+ * THE KEY IS THE PLACE, so writing a note fires once and editing it never fires
+ * again: correcting what you already said is not a second observation.
+ */
+export function notebookNoteEvidence(input: {
+  event:
+    | "sentence_translation_created"
+    | "context_meaning_created"
+    | "phrase_saved";
+  libraryItemId: string;
+  chapterId: string;
+  sentenceId: number;
+  /** The span's first token, for annotations; null for a sentence translation. */
+  startPosition: number | null;
+  /** Set only when the annotation resolved to a shared dictionary entry. */
+  wordId: number | null;
+  occurrenceId: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  const place =
+    input.startPosition === null
+      ? `${input.sentenceId}`
+      : `${input.sentenceId}:${input.startPosition}`;
+
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `notebook:${input.event}:${place}`,
+    eventType: input.event,
+    occurredAt: input.occurredAt,
+    skillCode: null,
+    responseMode: "passive",
+    retrievalType: "recognition",
+    isCorrect: true,
+    sourceKind: "notebook",
+    conceptCodes: [],
+    // Recorded so the history is searchable by word, NOT as a claim about it —
+    // `vocabularyChannel` stays null, so `foldEvidence` moves no word knowledge.
+    wordId: input.wordId,
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sentenceId,
+    wordOccurrenceId: input.occurrenceId,
+    vocabularyChannel: null,
+    weight: 0,
+  };
+}
+
+/**
+ * "Nie rozumiem tego zdania" — and, later, "już rozumiem".
+ *
+ * THE STRONGEST VOLUNTARY SIGNAL FLUENT HAS, and still not a failed test (§16).
+ * A learner saying they cannot read a sentence is a deliberate report, unlike a
+ * tap on a word, which is ambiguous; but nothing verified it, unlike a graded
+ * item. {@link HELP_SIGNAL_STRENGTH} is where that ordering lives.
+ *
+ * NO CONCEPT, NO SKILL, NO WORD — and this is the important part. A sentence is
+ * not a grammar point. Attributing "I don't understand this" to `grammar`, or to
+ * whichever concepts happen to be tagged on words inside it, would be the model
+ * manufacturing a weakness from a gesture. The learner has told us WHERE they
+ * are stuck, not WHY, and Fluent's rule when it does not know why is to say so.
+ * So the fold moves nothing and the signal is used for ranking.
+ *
+ * REVERSIBLE (§18, §19). Both directions are recorded, keyed per tap rather than
+ * per sentence, so the log keeps the sequence — marked unclear in chapter three,
+ * understood a week later — while `user_sentence_notes.is_unclear` says what is
+ * true now. A learner is never left carrying a permanent failure.
+ */
+export function sentenceUnclearEvidence(input: {
+  /** One per tap: this is what makes the history a sequence, not a single row. */
+  interactionId: string;
+  unclear: boolean;
+  libraryItemId: string;
+  chapterId: string;
+  sentenceId: number;
+  readingSessionId: string | null;
+  occurredAt: string;
+}): LearningEvidence {
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `notebook:sentence-help:${input.interactionId}`,
+    eventType: input.unclear
+      ? "sentence_marked_unclear"
+      : "sentence_marked_understood",
+    occurredAt: input.occurredAt,
+    skillCode: null,
+    // The learner judged their own comprehension. Unverified, and honest.
+    responseMode: "self_rated",
+    retrievalType: "recognition",
+    isCorrect: !input.unclear,
+    sourceKind: "notebook",
+    conceptCodes: [],
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sentenceId,
+    readingSessionId: input.readingSessionId,
+    vocabularyChannel: null,
+    weight: HELP_SIGNAL_STRENGTH.sentence_unclear,
+  };
+}
+
+/**
+ * One graded notebook card.
+ *
+ * THIS IS WHERE A NOTE BECOMES EVIDENCE. Writing "sollten → powinniśmy" proved
+ * nothing; producing *sollten* from "Wir ______ umkehren" a week later, with
+ * nothing to pick from, proves as much as any exercise Fluent has. So a
+ * contextual cloze carries the full `typed` weight and feeds the ACTIVE channel
+ * of the word it is linked to — the first exercise in Fluent that legitimately
+ * does.
+ *
+ * AND ONLY WHEN IT IS LINKED. A phrase card moves no word knowledge: recalling
+ * *Angst machen* is not evidence about *Angst*, and letting it count would be the
+ * cross-item transfer §71 forbids. A sentence-translation card names no word at
+ * all. A personal word — one the shared dictionary does not know — has nothing to
+ * attribute to; the card is still worth doing, and the event still records it.
+ *
+ * `source_kind = 'notebook'` marks the sample as SELF-SELECTED. A learner's notes
+ * are the words they found hard, so a run of these is not a representative
+ * sample of their vocabulary, and anything that later refits the model has to be
+ * able to tell them from a test — the same reason weakness drills are `practice`.
+ */
+export function notebookReviewEvidence(input: {
+  interactionId: string;
+  mode: ReviewMode;
+  direction: ReviewDirection;
+  rating: ReviewRating;
+  /** Set only for a card about one dictionary-linked word. */
+  wordId: number | null;
+  libraryItemId: string | null;
+  chapterId: string | null;
+  sentenceId: number | null;
+  responseMs: number | null;
+  occurredAt: string;
+}): LearningEvidence {
+  const retrievalType = reviewRetrievalType(input.mode, input.direction);
+  const channel = vocabularyChannelFor(retrievalType);
+  const tested = input.wordId !== null;
+
+  return {
+    ...EMPTY_EVIDENCE,
+    eventKey: `notebook-review:${input.interactionId}`,
+    eventType: "notebook_review",
+    occurredAt: input.occurredAt,
+    skillCode: tested ? vocabularySkillFor(retrievalType) : null,
+    responseMode: REVIEW_MODE_RESPONSE[input.mode],
+    retrievalType,
+    isCorrect: REVIEW_RATING_CORRECT[input.rating],
+    responseMs: input.responseMs,
+    sourceKind: "notebook",
+    conceptCodes: tested
+      ? [channel === "receptive" ? "lexical_recognition" : "lexical_recall"]
+      : [],
+    wordId: input.wordId,
+    libraryItemId: input.libraryItemId,
+    chapterId: input.chapterId,
+    sentenceId: input.sentenceId,
+    vocabularyChannel: tested ? channel : null,
+    weight: round(
+      RESPONSE_MODE_WEIGHT[REVIEW_MODE_RESPONSE[input.mode]] *
+        REVIEW_RATING_WEIGHT[input.rating] *
+        NOTEBOOK_REVIEW_WEIGHT,
+    ),
+  };
 }

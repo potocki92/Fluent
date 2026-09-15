@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  HelpCircle,
+  NotebookPen,
+  Plus,
+  Settings2,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -22,15 +30,31 @@ import {
 } from "@/actions/reading";
 import { markChapterReading } from "@/actions/chapter-analysis";
 import { updateReaderPreferences } from "@/actions/update-reader-preferences";
+import { AnnotationSheet, type AnnotationTarget } from "@/components/notebook/AnnotationSheet";
+import { ChapterNotebookSummary } from "@/components/notebook/ChapterNotebookSummary";
+import { SentenceNoteSheet } from "@/components/notebook/SentenceNoteSheet";
 import { ChapterCompleteCard } from "@/components/reader/ChapterCompleteCard";
+import {
+  ReaderActionBar,
+  type ReaderAction,
+} from "@/components/reader/ReaderActionBar";
+import {
+  clearSelection,
+  readReaderSelection,
+  type ReaderSelection,
+} from "@/components/reader/sentence-selection";
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
 import {
   WordGlossSheet,
   type GlossTarget,
 } from "@/components/reader/WordGlossSheet";
 import { useActiveReadingClock } from "@/hooks/useActiveReadingClock";
+import { useChapterNotebook } from "@/hooks/useChapterNotebook";
 import { useVisibleParagraph } from "@/hooks/useVisibleParagraph";
 import { newInteractionId } from "@/lib/interaction-id";
+import { MAX_PHRASE_TOKENS } from "@/lib/notebook/constants";
+import { annotationKindForSpan, spanFromCharRange } from "@/lib/notebook/selection";
+import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
   CHAPTER_COMPLETION_RATIO,
   PROGRESS_FLUSH_MS,
@@ -98,12 +122,31 @@ export function ReaderShell({
   const [chromeHidden, setChromeHidden] = useState(false);
   const [completing, setCompleting] = useState(false);
 
+  // ── the notebook ──────────────────────────────────────────────────────────
+  // Three pieces of state, one for each thing a learner can be in the middle of:
+  // the contextual action bar, the meaning editor, the translation editor. They
+  // are held HERE rather than inside the word sheet so that each editor exists
+  // exactly once — the word sheet and a selection open the SAME translation
+  // editor, which is what §27 is about.
+  const [selection, setSelection] = useState<ReaderSelection | null>(null);
+  const [annotation, setAnnotation] = useState<AnnotationTarget | null>(null);
+  const [noteTarget, setNoteTarget] = useState<
+    { sentenceId: number; sentenceText: string } | null
+  >(null);
+
+  // The session id is kept in BOTH a ref and state, deliberately. The ref is
+  // read by the progress flush, which runs from timers and `pagehide` handlers
+  // and must see the latest value without re-subscribing; the state is what
+  // render may look at, because reading a ref during render is how a component
+  // ends up showing a value React never told it about.
   const sessionRef = useRef<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const flushedParagraphRef = useRef(-1);
   const lastFlushRef = useRef(0);
 
   const clock = useActiveReadingClock();
   const visibleParagraph = useVisibleParagraph(contentRef, chapter.paragraphCount);
+  const { data: marks } = useChapterNotebook(chapter.id);
 
   // ── the session ───────────────────────────────────────────────────────────
   // Opening the chapter is also the authorisation check and the resume lookup:
@@ -116,6 +159,7 @@ export function ReaderShell({
       if (cancelled || !result.ok) return;
 
       sessionRef.current = result.sessionId;
+      setSessionId(result.sessionId);
       setRatio(result.progressRatio);
       flushedParagraphRef.current = result.furthestParagraph;
 
@@ -124,6 +168,31 @@ export function ReaderShell({
       // chapter has been entered. Best-effort — a failed transition costs a
       // marker on the book page, never the reading session.
       void markChapterReading(chapter.id, "started");
+
+      // A DEEP LINK WINS OVER RESUME (§57, §58). Arriving from the notebook
+      // means "take me to THIS sentence", which is a different request from
+      // "take me back to where I stopped" — and doing both would land the
+      // learner in the wrong place half the time. Read from the URL rather than
+      // through `useSearchParams`, which would make this component require a
+      // Suspense boundary for a value it only ever needs once.
+      const deepLink = Number(
+        new URLSearchParams(window.location.search).get("sentence"),
+      );
+      const linked = Number.isFinite(deepLink)
+        ? document.querySelector<HTMLElement>(
+            `.reader-sentence[data-sentence-id="${deepLink}"]`,
+          )
+        : null;
+
+      if (linked) {
+        linked.scrollIntoView({ block: "center" });
+        // A moment of emphasis so the learner can see WHICH sentence they were
+        // sent to; it fades on the next interaction rather than persisting as a
+        // fourth permanent mark in the prose.
+        linked.dataset.active = "true";
+        window.setTimeout(() => delete linked.dataset.active, 2400);
+        return;
+      }
 
       // RESUME. Jump to where they stopped — the single feature that makes a
       // book, as opposed to a passage, usable at all.
@@ -250,6 +319,11 @@ export function ReaderShell({
         occurrenceId,
         wordId,
         sentenceId,
+        // The anchor a personal note is stored against. Rendered onto the span
+        // by `ReaderProse`, so no tokenizing happens in the browser.
+        tokenPosition: element.dataset.position
+          ? Number(element.dataset.position)
+          : null,
         lemma: element.dataset.lemma ?? element.textContent ?? "",
         surface: element.textContent ?? "",
         sentence: sentence.trim(),
@@ -276,14 +350,185 @@ export function ReaderShell({
 
   const onContentClick = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
-      // Never hijack a selection: the learner may be copying a phrase, and
-      // phrase lookup is a feature this reader must not have blocked.
-      if (window.getSelection()?.toString()) return;
-      const word = (event.target as HTMLElement).closest<HTMLElement>(".reader-word");
-      if (word) openGloss(word);
+      // A SELECTION IS NEVER HIJACKED (§30). The learner may be copying a
+      // phrase, or dragging to save one; either way the browser owns the
+      // gesture, and this reads what it produced rather than replacing it.
+      const selected = readReaderSelection(contentRef.current);
+      if (selected) {
+        setSelection(selected);
+        return;
+      }
+      setSelection(null);
+
+      const target = event.target as HTMLElement;
+      const word = target.closest<HTMLElement>(".reader-word");
+      if (word) {
+        openGloss(word);
+        return;
+      }
+
+      // Tapping the SENTENCE — the space between the words — offers what can be
+      // done with a whole sentence (§9, §97). It is deliberately the fallback:
+      // a word tap is the gesture learners already know, and this must never
+      // take it over.
+      const sentence = target.closest<HTMLElement>(".reader-sentence");
+      const sentenceId = Number(sentence?.dataset.sentenceId);
+      if (!sentence || !Number.isFinite(sentenceId)) return;
+
+      setSelection({
+        sentenceId,
+        sentenceText: sentence.textContent ?? "",
+        charStart: 0,
+        charEnd: 0,
+        crossSentence: false,
+        rect: sentence.getBoundingClientRect(),
+      });
     },
     [openGloss],
   );
+
+  // ── what the action bar offers ────────────────────────────────────────────
+  // CONTEXTUAL, NEVER THE WHOLE MENU (§44). A drag across two words offers to
+  // save a phrase; a tap on a sentence offers what applies to a sentence; a drag
+  // that ran past the end of one offers an explanation and nothing else (§131).
+  const selectionSpan =
+    selection && !selection.crossSentence && selection.charEnd > selection.charStart
+      ? spanFromCharRange(
+          selection.sentenceText,
+          selection.charStart,
+          selection.charEnd,
+          MAX_PHRASE_TOKENS,
+        )
+      : null;
+
+  const closeActionBar = useCallback(() => {
+    setSelection(null);
+    clearSelection();
+  }, []);
+
+  const actionBarNote =
+    selection?.crossSentence
+      ? "Zaznacz fragment jednego zdania, aby zapisać zwrot."
+      : selectionSpan && !selectionSpan.ok
+        ? selectionSpan.reason === "too_long"
+          ? `Zwrot może mieć najwyżej ${MAX_PHRASE_TOKENS} słów.`
+          : "Zaznacz co najmniej jedno słowo."
+        : null;
+
+  const actions: ReaderAction[] = [];
+  if (selection && !actionBarNote) {
+    if (selectionSpan?.ok) {
+      const span = selectionSpan.span;
+      const kind = annotationKindForSpan(span);
+      const existing =
+        marks?.entries.find(
+          (entry) =>
+            entry.sentence_id === selection.sentenceId &&
+            entry.start_position === span.startPosition &&
+            entry.end_position === span.endPosition,
+        ) ?? null;
+
+      actions.push({
+        id: "annotate",
+        // §43: one word goes to the word interaction's own vocabulary, not to a
+        // one-word "phrase".
+        label: kind === "phrase" ? "Zapisz zwrot" : "Zapisz znaczenie",
+        icon: <Plus className="size-3.5" />,
+        onSelect: () => {
+          setAnnotation({
+            sentenceId: selection.sentenceId,
+            sentenceText: selection.sentenceText,
+            startPosition: span.startPosition,
+            endPosition: span.endPosition,
+            surface: span.surface,
+            kind,
+            existing,
+          });
+          closeActionBar();
+        },
+      });
+    }
+
+    actions.push({
+      id: "translate",
+      label: "Przetłumacz",
+      icon: <NotebookPen className="size-3.5" />,
+      onSelect: () => {
+        setNoteTarget({
+          sentenceId: selection.sentenceId,
+          sentenceText: selection.sentenceText,
+        });
+        closeActionBar();
+      },
+    });
+
+    if (!selectionSpan?.ok) {
+      actions.push({
+        id: "unclear",
+        label: "Nie rozumiem",
+        icon: <HelpCircle className="size-3.5" />,
+        onSelect: () => {
+          setNoteTarget({
+            sentenceId: selection.sentenceId,
+            sentenceText: selection.sentenceText,
+          });
+          closeActionBar();
+        },
+      });
+    }
+  }
+
+  // ── marking what has been written down ────────────────────────────────────
+  // SUBTLE, AND ONLY WHERE THERE IS SOMETHING TO MARK (§45, §48). Three data
+  // attributes, applied to elements the server already rendered, styled in
+  // `globals.css` as a faint change of ink — not a highlighter. Done in one pass
+  // over the marks rather than per word, so a chapter with four hundred notes
+  // costs four hundred attribute writes and not four hundred thousand.
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root || !marks) return;
+
+    const touched: HTMLElement[] = [];
+
+    for (const sentenceId of marks.translatedSentences) {
+      const element = root.querySelector<HTMLElement>(
+        `.reader-sentence[data-sentence-id="${sentenceId}"]`,
+      );
+      if (element) {
+        element.dataset.noteTranslated = "true";
+        touched.push(element);
+      }
+    }
+    for (const sentenceId of marks.unclearSentences) {
+      const element = root.querySelector<HTMLElement>(
+        `.reader-sentence[data-sentence-id="${sentenceId}"]`,
+      );
+      if (element) {
+        element.dataset.noteUnclear = "true";
+        touched.push(element);
+      }
+    }
+    for (const [sentenceId, spans] of marks.spans) {
+      const words = root.querySelectorAll<HTMLElement>(
+        `.reader-word[data-sentence-id="${sentenceId}"]`,
+      );
+      for (const word of words) {
+        const position = Number(word.dataset.position);
+        if (spans.some(([from, to]) => position >= from && position <= to)) {
+          word.dataset.noted = "true";
+          touched.push(word);
+        }
+      }
+    }
+
+    return () => {
+      for (const element of touched) {
+        delete element.dataset.noteTranslated;
+        delete element.dataset.noteUnclear;
+        delete element.dataset.noted;
+      }
+    };
+  }, [marks]);
 
   const onContentKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
@@ -408,6 +653,13 @@ export function ReaderShell({
         </div>
 
         <div className="mx-auto mt-12 max-w-[38rem] space-y-4">
+          {/* What this chapter produced. Derived from the marks already loaded,
+              so it costs nothing and cannot disagree with the notebook. */}
+          <ChapterNotebookSummary
+            summary={marks ? summarizeNotebook(marks.entries) : EMPTY_SUMMARY}
+            libraryItemId={chapter.itemId}
+          />
+
           {summary ? (
             <ChapterCompleteCard
               summary={summary}
@@ -466,7 +718,55 @@ export function ReaderShell({
         </div>
       </main>
 
-      <WordGlossSheet target={gloss} onClose={() => setGloss(null)} />
+      <ReaderActionBar
+        rect={selection?.rect ?? null}
+        actions={actions}
+        note={actionBarNote}
+        onDismiss={closeActionBar}
+      />
+
+      <WordGlossSheet
+        target={gloss}
+        onClose={() => setGloss(null)}
+        // Both editors are opened from here, and both are the SAME component the
+        // selection bar opens. The word sheet closes first so the two sheets
+        // never stack — on a phone that is a dialog inside a dialog, and the
+        // learner cannot tell which one Escape will close.
+        onAddMeaning={(target) => {
+          if (target.sentenceId === null || target.tokenPosition === null) return;
+          setGloss(null);
+          setAnnotation({
+            sentenceId: target.sentenceId,
+            sentenceText: target.sentence,
+            startPosition: target.tokenPosition,
+            endPosition: target.tokenPosition,
+            surface: target.surface,
+            kind: "word",
+            existing:
+              marks?.entries.find(
+                (entry) =>
+                  entry.sentence_id === target.sentenceId &&
+                  entry.entry_type === "word" &&
+                  entry.start_position === target.tokenPosition,
+              ) ?? null,
+          });
+        }}
+        onTranslateSentence={(sentenceId, sentenceText) => {
+          setGloss(null);
+          setNoteTarget({ sentenceId, sentenceText });
+        }}
+      />
+
+      <AnnotationSheet target={annotation} onClose={() => setAnnotation(null)} />
+
+      <SentenceNoteSheet
+        open={noteTarget !== null}
+        sentenceId={noteTarget?.sentenceId ?? null}
+        sentenceText={noteTarget?.sentenceText ?? ""}
+        readingSessionId={sessionId}
+        onClose={() => setNoteTarget(null)}
+      />
+
       <ReaderSettingsSheet
         open={settingsOpen}
         preferences={preferences}

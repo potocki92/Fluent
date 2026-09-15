@@ -213,3 +213,56 @@
   background-color: color-mix(in srgb, var(--reader-accent) 10%, transparent);
   border-radius: 0.25em;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE NOTEBOOK, MARKED IN THE PROSE
+   ─────────────────────────────────────────────────────────────────────────────
+   §45: a book is not a Christmas tree. Roughly a quarter of the tokens on a page
+   are already interactive, and a learner who annotates well will end up with
+   marks on a good fraction of them — so every mark below is a change of INK, not
+   a block of colour. At reading distance the page still reads as prose; when
+   you look for your own work, it is there.
+
+   The three states say three different things and are deliberately not the same
+   colour: a saved word or phrase is accent-toned (something you chose to keep),
+   a translated sentence carries the faintest possible rule underneath it
+   (something you did), and an unclear sentence is dotted (something unfinished).
+   None of them uses a background fill — that is what `:hover` and the open gloss
+   use, and a permanent fill would make the two indistinguishable. */
+
+.reader-word[data-noted="true"] {
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+  text-decoration-color: color-mix(in srgb, var(--reader-accent) 80%, transparent);
+}
+
+/* A sentence you have translated. `text-underline-offset` puts the rule below
+   the descenders so it never touches the type. */
+.reader-sentence[data-note-translated="true"] {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--reader-accent) 28%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.35em;
+}
+
+/* A sentence you flagged. §48: a state, not a red paragraph — the whole point is
+   that it is findable later, not that it shouts while you are reading. */
+.reader-sentence[data-note-unclear="true"] {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--color-gold) 55%, transparent);
+  text-underline-offset: 0.35em;
+}
+
+/* Both at once is one sentence with two facts about it, so the dotted rule wins:
+   "still unclear" is the more useful thing to see while reading. */
+.reader-sentence[data-note-unclear="true"][data-note-translated="true"] {
+  text-decoration-style: dotted;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reader-word[data-noted="true"] {
+    transition: text-decoration-color 160ms ease;
+  }
+}
