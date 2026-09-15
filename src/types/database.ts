@@ -992,6 +992,8 @@ export type Database = {
           dictionary_match_rate: number | null;
           unmatched_sample: Json;
           vocabulary_stats: Json;
+          /** Set when the chapter came from a private book import. */
+          import_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1015,6 +1017,7 @@ export type Database = {
           dictionary_match_rate?: number | null;
           unmatched_sample?: Json;
           vocabulary_stats?: Json;
+          import_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1024,6 +1027,111 @@ export type Database = {
             foreignKeyName: "chapters_library_item_id_fkey";
             columns: ["library_item_id"];
             referencedRelation: "library_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /**
+       * One uploaded file on its way to becoming a private book.
+       *
+       * Owner-readable, and writable by nobody: every change goes through a
+       * SECURITY DEFINER function that derives the owner from `auth.uid()`.
+       */
+      book_imports: {
+        Row: {
+          id: string;
+          user_id: string;
+          file_name: string;
+          file_type: "pdf" | "epub" | "txt";
+          file_size: number;
+          /** SHA-256 of the original. Drives a duplicate warning, nothing more. */
+          file_hash: string | null;
+          /** `<user_id>/<import_id>/original.<ext>`; minted server-side. */
+          storage_path: string;
+          status:
+            | "uploaded"
+            | "extracting"
+            | "analyzing"
+            | "awaiting_review"
+            | "importing"
+            | "processing"
+            | "ready"
+            | "failed"
+            | "cancelled";
+          stage:
+            | "extract_text"
+            | "detect_metadata"
+            | "detect_chapters"
+            | "persist_content"
+            | "process_chapters"
+            | null;
+          total_chapters: number;
+          processed_chapters: number;
+          failed_chapters: number;
+          /** What the FILE claimed, kept apart from what the learner confirmed. */
+          detected_title: string | null;
+          detected_author: string | null;
+          detected_language: string | null;
+          language_confidence: number | null;
+          title: string | null;
+          author: string | null;
+          page_count: number | null;
+          word_count: number;
+          chapter_count: number;
+          quality: Json;
+          pipeline_version: string | null;
+          detector_version: string | null;
+          /** The idempotency receipt: non-null means this is already a book. */
+          final_library_item_id: string | null;
+          error_code: string | null;
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+          analyzed_at: string | null;
+          finalized_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "book_imports_final_library_item_id_fkey";
+            columns: ["final_library_item_id"];
+            referencedRelation: "library_items";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      /** A proposed chapter, before the learner has confirmed the import. */
+      book_import_chapters: {
+        Row: {
+          id: string;
+          import_id: string;
+          /** 1-based and contiguous; kept so by `edit_book_import_chapters`. */
+          position: number;
+          detected_title: string | null;
+          title: string | null;
+          source_text: string;
+          word_count: number;
+          source_page_start: number | null;
+          source_page_end: number | null;
+          source_href: string | null;
+          confidence: "high" | "medium" | "low";
+          signals: Json;
+          is_front_matter: boolean;
+          included: boolean;
+          /** True once a learner renamed, split, merged or moved this chapter. */
+          edited: boolean;
+          chapter_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "book_import_chapters_import_id_fkey";
+            columns: ["import_id"];
+            referencedRelation: "book_imports";
             referencedColumns: ["id"];
           },
         ];
@@ -2390,6 +2498,71 @@ export type Database = {
       replace_chapter_content: {
         Args: { p_chapter_id: string; p_payload: Json };
         Returns: Json;
+      };
+      /**
+       * Mint an import for the caller. Owner and storage path are derived from
+       * `auth.uid()`, never accepted from the client.
+       */
+      create_book_import: {
+        Args: {
+          p_file_name: string;
+          p_file_type: string;
+          p_file_size: number;
+          p_file_hash?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["book_imports"]["Row"];
+      };
+      /** service_role only — moves the import's state machine. */
+      set_book_import_state: {
+        Args: {
+          p_import_id: string;
+          p_status: string;
+          p_stage?: string | null;
+          p_error_code?: string | null;
+          p_error_message?: string | null;
+        };
+        Returns: undefined;
+      };
+      /**
+       * service_role only — one analysis run: metadata and the whole chapter
+       * proposal, in one transaction. Refuses to overwrite manual corrections.
+       */
+      apply_book_import_analysis: {
+        Args: { p_import_id: string; p_payload: Json };
+        Returns: undefined;
+      };
+      /** The learner's own title and author for their import. */
+      update_book_import_metadata: {
+        Args: { p_import_id: string; p_title: string | null; p_author: string | null };
+        Returns: undefined;
+      };
+      /** rename / include / merge_up / split / move, atomically renumbered. */
+      edit_book_import_chapters: {
+        Args: { p_import_id: string; p_op: string; p_payload: Json };
+        Returns: undefined;
+      };
+      /**
+       * Turn a reviewed import into a private library item. Idempotent: returns
+       * the existing item id when the import has already been finalized.
+       */
+      finalize_book_import: {
+        Args: { p_import_id: string };
+        Returns: string;
+      };
+      /** Recompute processing progress from the chapter rows. Never asserted. */
+      sync_book_import_processing: {
+        Args: { p_import_id: string };
+        Returns: Json;
+      };
+      /** Drop an unconfirmed import; returns its storage path for cleanup. */
+      cancel_book_import: {
+        Args: { p_import_id: string };
+        Returns: string;
+      };
+      /** The owner's door out of their own private book. Returns storage paths. */
+      delete_private_library_item: {
+        Args: { p_item_id: string };
+        Returns: string[];
       };
       /** service_role only — records why a chapter could not be processed. */
       fail_chapter_processing: {

@@ -2,19 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 
-import { loadDictionaryEntries } from "@/lib/content/dictionary-source";
 import {
-  contentHash,
-  processWithIndex,
-  type ProcessedChapter,
-} from "@/lib/content/process";
-import { buildDictionaryIndex } from "@/lib/content/dictionary-match";
-import { CONTENT_PROCESSOR_VERSION } from "@/lib/content/version";
-import { estimatedChapterMinutes } from "@/lib/reading/progress";
+  loadDictionaryIndex,
+  processChapterById,
+  type ProcessingReport,
+} from "@/lib/content/processor";
 import { requireAdmin } from "@/lib/admin";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import type { Json } from "@/types/database";
 import type { StoredCefrLevel } from "@/types";
 
 /**
@@ -29,7 +24,15 @@ import type { StoredCefrLevel } from "@/types";
  * hundreds of books; for the amount of content Fluent has, one admin action that
  * processes a chapter (or every pending chapter) is the honest amount of
  * machinery. The pipeline is idempotent, so re-running it is always safe.
+ *
+ * WHAT MOVED, AND WHY. The processing itself now lives in
+ * `src/lib/content/processor.ts`, because private book imports need exactly the
+ * same work done under completely different authorisation. This file keeps the
+ * admin's authority — `requireAdmin()` on every entry point — and the importer
+ * keeps its own; neither grants the other anything.
  */
+
+export type { ProcessingReport } from "@/lib/content/processor";
 
 /** One chapter as the admin inspector sees it. */
 export interface AdminChapterRow {
@@ -256,64 +259,18 @@ export async function updateChapterSource(input: {
   return { ok: true, id: input.chapterId };
 }
 
-/** The quality report one processing run produces. */
-export interface ProcessingReport {
-  chapterId: string;
-  skipped: boolean;
-  paragraphCount: number;
-  sentenceCount: number;
-  wordCount: number;
-  matchRate: number;
-  unmatchedTokenCount: number;
-  distinctWordCount: number;
-}
-
 /**
- * Process (or reprocess) one chapter.
+ * Process (or reprocess) one chapter of first-party content.
  *
- * IDEMPOTENT, AND CHEAPLY SO. If the source has not changed and the processor
- * has not changed, the stored structure is already exactly what this run would
- * produce — so it writes nothing at all. That is not just an optimisation: every
- * rewrite replaces paragraph rows, and a reprocess that changed nothing but
- * still churned the table would be pure risk for zero gain.
- *
- * When it does run, the replacement is one transaction
- * (`replace_chapter_content`): paragraphs, sentences, occurrences and the
- * vocabulary aggregate are swapped together, so a chapter is never half-old.
+ * The work is `processChapterById`; what this adds is the admin's authority and
+ * the legacy-publication follow-up. A private import runs the same pipeline
+ * through `src/actions/book-import.ts`, where the authority is ownership.
  */
 export async function processChapter(input: {
   chapterId: string;
   force?: boolean;
 }): Promise<ActionResult<ProcessingReport>> {
   const { supabase } = await requireAdmin();
-
-  const { data: chapter, error } = await supabase
-    .from("chapters")
-    .select("id, source_text, status, content_hash, processor_version")
-    .eq("id", input.chapterId)
-    .maybeSingle();
-  if (error) return failFrom(error, `processChapter: load ${input.chapterId}`);
-  if (!chapter) return fail("not_found", `processChapter: ${input.chapterId}`);
-
-  const hash = contentHash(chapter.source_text ?? "");
-  const unchanged =
-    chapter.status === "ready" &&
-    chapter.content_hash === hash &&
-    chapter.processor_version === CONTENT_PROCESSOR_VERSION;
-
-  if (unchanged && !input.force) {
-    return {
-      ok: true,
-      chapterId: chapter.id,
-      skipped: true,
-      paragraphCount: 0,
-      sentenceCount: 0,
-      wordCount: 0,
-      matchRate: 0,
-      unmatchedTokenCount: 0,
-      distinctWordCount: 0,
-    };
-  }
 
   let service;
   try {
@@ -322,34 +279,13 @@ export async function processChapter(input: {
     return fail("config_error", "processChapter: service role unavailable", cause);
   }
 
-  let processed: ProcessedChapter;
-  try {
-    const entries = await loadDictionaryEntries(supabase);
-    processed = processWithIndex(
-      chapter.source_text ?? "",
-      buildDictionaryIndex(entries),
-    );
-  } catch (cause) {
-    // ONE BAD CHAPTER IS NOT A BAD BOOK. The failure is recorded against the
-    // chapter for an admin to look at; every other chapter stays readable.
-    await service.rpc("fail_chapter_processing", {
-      p_chapter_id: input.chapterId,
-      p_error: cause instanceof Error ? cause.message : String(cause),
-    });
-    return fail("database_error", `processChapter: pipeline ${input.chapterId}`, cause);
-  }
-
-  const { error: writeError } = await service.rpc("replace_chapter_content", {
-    p_chapter_id: input.chapterId,
-    p_payload: chapterPayload(processed, hash) as unknown as Json,
+  const result = await processChapterById({
+    read: supabase,
+    service,
+    chapterId: input.chapterId,
+    force: input.force,
   });
-  if (writeError) {
-    await service.rpc("fail_chapter_processing", {
-      p_chapter_id: input.chapterId,
-      p_error: writeError.message,
-    });
-    return failFrom(writeError, `processChapter: write ${input.chapterId}`);
-  }
+  if (!result.ok) return result;
 
   // A migrated passage that was already published stays published — the admin
   // made that decision when they published the `texts` row and must not have to
@@ -359,17 +295,7 @@ export async function processChapter(input: {
   revalidatePath("/admin/library");
   revalidatePath("/library");
 
-  return {
-    ok: true,
-    chapterId: input.chapterId,
-    skipped: false,
-    paragraphCount: processed.paragraphCount,
-    sentenceCount: processed.sentenceCount,
-    wordCount: processed.wordCount,
-    matchRate: processed.stats.matchRate,
-    unmatchedTokenCount: processed.stats.unmatchedTokenCount,
-    distinctWordCount: processed.stats.matchedWordCount,
-  };
+  return result;
 }
 
 /**
@@ -402,9 +328,18 @@ export async function processPendingChapters(
     console.error("[fluent:library] backfill failed", backfillError);
   }
 
+  // Private imports are excluded here, and not merely by convention: an admin
+  // batch is a content tool, and a learner's own book is processed by the
+  // learner's own import, which checks ownership instead of admin rights.
+  const { data: publicItems } = await supabase
+    .from("library_items")
+    .select("id")
+    .is("owner_user_id", null);
+
   const { data: chapters, error } = await supabase
     .from("chapters")
-    .select("id, source_text")
+    .select("id")
+    .in("library_item_id", (publicItems ?? []).map((item) => item.id))
     .in("status", ["draft", "processing", "failed"])
     .order("position", { ascending: true })
     .limit(Math.min(Math.max(limit, 1), 100));
@@ -415,7 +350,7 @@ export async function processPendingChapters(
 
   let index;
   try {
-    index = buildDictionaryIndex(await loadDictionaryEntries(supabase));
+    index = await loadDictionaryIndex(supabase);
   } catch (cause) {
     return fail("database_error", "processPendingChapters: dictionary", cause);
   }
@@ -424,32 +359,14 @@ export async function processPendingChapters(
   let failed = 0;
 
   for (const chapter of chapters) {
-    const source = chapter.source_text ?? "";
-    try {
-      const processed = processWithIndex(source, index);
-      const { error: writeError } = await service.rpc("replace_chapter_content", {
-        p_chapter_id: chapter.id,
-        p_payload: chapterPayload(processed, contentHash(source)) as unknown as Json,
-      });
-      if (writeError) throw writeError;
-
-      reports.push({
-        chapterId: chapter.id,
-        skipped: false,
-        paragraphCount: processed.paragraphCount,
-        sentenceCount: processed.sentenceCount,
-        wordCount: processed.wordCount,
-        matchRate: processed.stats.matchRate,
-        unmatchedTokenCount: processed.stats.unmatchedTokenCount,
-        distinctWordCount: processed.stats.matchedWordCount,
-      });
-    } catch (cause) {
-      failed += 1;
-      await service.rpc("fail_chapter_processing", {
-        p_chapter_id: chapter.id,
-        p_error: cause instanceof Error ? cause.message : String(cause),
-      });
-    }
+    const result = await processChapterById({
+      read: supabase,
+      service,
+      chapterId: chapter.id,
+      index,
+    });
+    if (result.ok) reports.push(result);
+    else failed += 1;
   }
 
   await service.rpc("publish_processed_legacy_items");
@@ -485,58 +402,4 @@ export async function setLibraryItemStatus(input: {
   revalidatePath("/admin/library");
   revalidatePath("/library");
   return { ok: true, id: input.itemId };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// internals
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** The jsonb envelope `replace_chapter_content` unpacks. Transport, not storage. */
-function chapterPayload(processed: ProcessedChapter, hash: string) {
-  return {
-    processor_version: processed.processorVersion,
-    content_hash: hash,
-    word_count: processed.wordCount,
-    paragraph_count: processed.paragraphCount,
-    sentence_count: processed.sentenceCount,
-    estimated_reading_minutes: estimatedChapterMinutes(processed.wordCount),
-    dictionary_match_rate: processed.stats.matchRate,
-    unmatched_sample: processed.stats.unmatchedSample,
-    vocabulary_stats: {
-      unique_word_count: processed.stats.uniqueWordCount,
-      lexical_token_count: processed.stats.lexicalTokenCount,
-      matched_token_count: processed.stats.matchedTokenCount,
-      unmatched_token_count: processed.stats.unmatchedTokenCount,
-      matched_word_count: processed.stats.matchedWordCount,
-    },
-    paragraphs: processed.paragraphs.map((paragraph) => ({
-      position: paragraph.position,
-      kind: paragraph.kind,
-      text: paragraph.text,
-      word_count: paragraph.wordCount,
-      sentences: paragraph.sentences.map((sentence) => ({
-        position: sentence.position,
-        chapter_position: sentence.chapterPosition,
-        text: sentence.text,
-        char_start: sentence.charStart,
-        char_end: sentence.charEnd,
-        word_count: sentence.wordCount,
-        occurrences: sentence.occurrences.map((occurrence) => ({
-          position: occurrence.position,
-          surface: occurrence.surface,
-          normalized: occurrence.normalized,
-          lemma: occurrence.lemma,
-          word_id: occurrence.wordId,
-          char_start: occurrence.charStart,
-          char_end: occurrence.charEnd,
-        })),
-      })),
-    })),
-    vocabulary: processed.vocabulary.map((entry) => ({
-      word_id: entry.wordId,
-      occurrence_count: entry.occurrenceCount,
-      first_paragraph_position: entry.firstParagraphPosition,
-      first_sentence_position: entry.firstSentencePosition,
-    })),
-  };
 }

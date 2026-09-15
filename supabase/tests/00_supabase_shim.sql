@@ -58,6 +58,34 @@ grant usage on schema public to anon, authenticated, service_role;
 grant usage on schema auth   to anon, authenticated, service_role;
 grant select on auth.users   to service_role;
 
+-- STORAGE. Enough of `storage.buckets` and `storage.objects` for the private
+-- book-import bucket's policies to be created and exercised. A hosted project's
+-- Storage schema has far more (metadata, multipart uploads, triggers); what the
+-- security tests need is the two columns the policies read — `bucket_id` and
+-- `name` — and RLS behaving the way it does in production.
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id     text primary key,
+  name   text not null,
+  public boolean not null default false
+);
+
+create table if not exists storage.objects (
+  id        uuid primary key default gen_random_uuid(),
+  bucket_id text not null references storage.buckets(id) on delete cascade,
+  name      text not null,
+  owner     uuid,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists storage_objects_bucket_name_idx
+  on storage.objects (bucket_id, name);
+
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects to anon, authenticated, service_role;
+grant select on storage.buckets to anon, authenticated, service_role;
+
 -- Supabase grants the API roles table privileges and relies on RLS to scope
 -- them; mirroring that is what makes the RLS tests meaningful.
 alter default privileges in schema public
