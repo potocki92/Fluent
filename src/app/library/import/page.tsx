@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ImportHistory } from "@/components/library/import/ImportHistory";
 import { ImportStepper } from "@/components/library/import/ImportStepper";
 import { ImportUploader } from "@/components/library/import/ImportUploader";
+import { requireAccountUser } from "@/lib/auth/server";
 import { listBookImports } from "@/lib/import/queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -33,13 +33,9 @@ export const maxDuration = 300;
 
 export default async function ImportPage() {
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   // An import belongs to somebody. There is no anonymous half-state worth
   // building: the file, the preview and the book are all owner-scoped.
-  if (!user) redirect("/auth?next=/library/import");
+  await requireAccountUser("/library/import", supabase);
 
   const imports = await listBookImports(supabase);
 

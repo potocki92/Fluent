@@ -7,7 +7,7 @@ import {
   processChapterById,
   type ProcessingReport,
 } from "@/lib/content/processor";
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import type { StoredCefrLevel } from "@/types";

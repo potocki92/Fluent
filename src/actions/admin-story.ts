@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import { QUESTION_KINDS, type QuestionKind } from "@/lib/story/constants";
 

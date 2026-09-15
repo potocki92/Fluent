@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import { NotebookReviewSession } from "@/components/notebook/NotebookReviewSession";
+import { requireAccountUser } from "@/lib/auth/server";
 import { getDueNotebookCards } from "@/lib/notebook/queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -20,24 +19,7 @@ export const metadata = { title: "Powtórki z zeszytu · Fluent" };
  */
 export default async function NotebookReviewPage() {
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold">Powtórki z zeszytu</h1>
-        <p className="text-sm text-muted2">Zaloguj się, aby powtarzać notatki.</p>
-        <Link
-          href="/auth"
-          className="inline-flex h-11 items-center rounded-xl bg-gold px-4 text-sm font-semibold text-[#1a202c]"
-        >
-          Zaloguj się
-        </Link>
-      </div>
-    );
-  }
+  const user = await requireAccountUser("/review/notebook", supabase);
 
   const cards = await getDueNotebookCards(supabase, user.id);
 

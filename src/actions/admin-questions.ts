@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import type { QuestionInput, QuestionWithAnswer } from "@/types";
 
 /**

@@ -49,7 +49,8 @@ Respect the existing `src/`-rooted structure:
   the personal notebook (`notebook.ts` — sentence translations, the
   "nie rozumiem" flag, word/phrase annotations, opting a note into review;
   `review-notebook.ts` — grading a notebook card through the same SM-2),
-  `update-reader-preferences.ts`, `save-word.ts`, `update-srs.ts`.
+  `update-reader-preferences.ts`, `save-word.ts`, `update-srs.ts`, and
+  `auth.ts` (`endServerSession` — the authoritative half of signing out).
 - `src/lib/` — domain logic (`elo.ts`, `sm2.ts`, `cefr.ts`, `test-session.ts`),
   `learning/` (the knowledge model: skill/concept catalogs, the evidence map,
   `knowledge-model.ts`, `aggregate.ts`, `queries.ts`, `weakness.ts` — all pure,
@@ -76,6 +77,12 @@ Respect the existing `src/`-rooted structure:
   `notes.ts` owns normalisation and staleness, `review.ts` turns a note into a
   card, `summary.ts` counts a chapter's notes — all pure; `queries.ts` is the
   only file there that touches Supabase),
+  `auth/` (the authentication boundary: `routes.ts` is the ONE route access
+  table, `redirects.ts` the ONE `?next=` sanitiser, `identity.ts` the one user
+  shape, `errors.ts` the Polish copy for every provider failure, `form.ts` the
+  form validation, `lifecycle.ts` what an auth event means, `client-state.ts`
+  what the browser forgets — all pure; `server.ts` is the only file there that
+  touches Supabase, and the only thing allowed to say who the caller is),
   `errors.ts` (the error taxonomy for the learning engine), `utils.ts` (`cn`), and the
   Supabase seam in `src/lib/supabase/{client,server,service,middleware}.ts`.
 - `src/types/` — `index.ts` (domain types) and `database.ts` (DB types).
@@ -96,6 +103,8 @@ Respect the existing `src/`-rooted structure:
   `story-learning-engine.md` before touching chapter analysis,
   preparation, the chapter question bank, question generation, the Chapter
   Challenge or the chapter learning lifecycle, and
+  `authentication.md` before touching sign-in, sign-up, sign-out, session
+  refresh, route protection, `?next=` handling or the client cache lifecycle, and
   `personal-language-notebook.md` before touching personal annotations,
   contextual word meanings, sentence translations, the "nie rozumiem" signal,
   phrases, text selection in the reader, the word sheet's information
@@ -114,9 +123,9 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 - Route files in `src/app/` should stay thin and compose components/hooks.
 - Routing is flat: `/today`, `/library`, `/library/[slug]`, `/library/[slug]/[chapter]`,
   `/library/[slug]/[chapter]/przygotowanie`, `/library/[slug]/[chapter]/wyzwanie`,
-  `/library/import`, `/library/import/[importId]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/review/notebook`, `/notebook`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader opts out of the app chrome through `AppShell`, not through a route group.
+  `/library/import`, `/library/import/[importId]`, `/learn`, `/learn/[textId]`, `/learn/[textId]/test`, `/learn/[textId]/results`, `/review`, `/review/notebook`, `/notebook`, `/practice/[conceptCode]`, `/browse`, `/stats`, `/settings`, `/calibration`, `/auth`, `/auth/callback`, `/auth/forgot-password`, `/auth/reset-password`. There are no route groups like `(app)`/`(auth)` — do not introduce them casually. `/` redirects to `/today`. The reader and the auth screens opt out of the app chrome through `AppShell`, not through a route group; `/auth` then brings its own shell via `src/app/auth/layout.tsx`.
 - Add `metadata` where appropriate; copy stays Polish (see `src/app/layout.tsx`).
-- Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts` to refresh the Supabase session. Preserve this pattern.
+- Middleware lives in `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`). It calls `updateSession` from `src/lib/supabase/middleware.ts`, which refreshes the Supabase session AND enforces the route access model from `src/lib/auth/routes.ts`. Preserve this pattern. Route protection belongs there and in `requireAccountUser()` — never as a per-page "zaloguj się" branch, and the proxy must never read the database.
 - Mutations that touch the database go through server actions in `src/actions/`, not ad-hoc API routes, unless a route is genuinely required.
 - A segment whose Server Actions do genuinely long work (`/library/import/**`
   parses whole books) sets `export const maxDuration` on the page. Next applies a
@@ -147,6 +156,19 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
 - Session refresh: `updateSession` in `src/lib/supabase/middleware.ts`, wired through `src/proxy.ts`.
 - Read paths: TanStack Query hooks call the browser client directly.
 - Write paths: server actions (`src/actions/*`) use the server client — typically auth check (`supabase.auth.getUser()`), load, domain logic from `src/lib/`, persist (`insert`/`update`/`delete`/`rpc`), return a typed result.
+- **The server decides who the user is.** Identity is established from the
+  request cookie with `supabase.auth.getClaims()`, through `src/lib/auth/server.ts`
+  and nowhere else. `getSession()` is never an authorization answer — it returns
+  an unverified cookie. `user !== null` is not "has a Fluent account" either:
+  ask `isAccountUser`. The browser's copy of the identity (`useAuthUser`) exists
+  to render a name; it decides nothing, and it is seeded by the server so no
+  screen ever flashes the wrong auth state.
+- **An identity change empties the browser.** When the signed-in user changes —
+  a sign-out here, a sign-out in another tab, an expired refresh token, A → B —
+  the QueryClient is abandoned for a fresh one and the user-scoped stores are
+  reset, in `AuthProvider`. A user-specific query key must never outlive the
+  learner it belongs to, and a token refresh for the SAME learner must reset
+  nothing. Never blanket-clear `localStorage`.
 - **Progress is server-owned.** `attempts`, `text_completions`, the session tables,
   the learning-engine tables (`learning_events`, `review_events`, `user_*_state`,
   `user_word_knowledge`), the Today-engine tables (`daily_plans`,
@@ -302,6 +324,11 @@ Do not:
 - duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR / the
   knowledge model / the priority engine) — including re-implementing them in
   PL/pgSQL; the database owns transactions, `src/lib/` owns the arithmetic
+- write a second route guard: a page that needs an account calls
+  `requireAccountUser()`, and the path goes in `src/lib/auth/routes.ts` — never a
+  bespoke `if (!user) return <SignedOut />`
+- parse `?next=` anywhere but `sanitizeAuthRedirect`, or show a raw Supabase
+  error message to a learner instead of `describeAuthError`
 - scatter tuning constants: every planner weight, budget and time estimate lives
   in `src/lib/learning/planner/constants.ts`, every reader threshold (idle
   timeout, flush cadence, completion ratio, coverage floors, lookup discount)
