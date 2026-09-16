@@ -505,7 +505,23 @@ so the old rule was buying nothing there). The set still governs
 `isReportableGap`, where "a missing *der* is not a curation task" is exactly
 right. The cost is real and accepted: a chapter now stores an occurrence per
 closed-class token, so `word_occurrences` grows and `dictionary_match_rate`
-rises. `CONTENT_PROCESSOR_VERSION` moved to `content_v2` for it.
+rises.
+
+**And verbs left the set entirely.** It carried *haben*, *sein*, *werden* and
+every modal, which made the word a German sentence turns on the one word a
+learner could not look up — and the finite forms were inconsistent with it
+anyway (*sollten* was marked, *sollen* was not). A verb form is a content word
+in all of its forms. Taking them out alone would have been a regression,
+though, because the set was quietly doubling as a false-positive shield: the
+suffix rules cannot reach *sein* from *ist*, and they confidently strip *waren*
+to *Ware* and *bist* to *bis*. So `IRREGULAR_BASE_FORMS`
+(`german-morphology.ts`) now maps the auxiliaries' and modals' irregular forms
+to their infinitives, and `matchToken` consults it BEFORE the surface lookup —
+the surface is matched umlaut-folded, and folding is what turns *wäre* into
+*Ware*. Measured on the Prolog fragment, matched surface forms went from 392 of
+551 to 500. Strong verbs (*sah*, *saß*, *trug*, *begann*) and oblique pronouns
+(*mir*, *ihn*) are the same class of problem and are deliberately NOT in that
+table yet. `CONTENT_PROCESSOR_VERSION` is `content_v3`.
 
 ## Today integration
 

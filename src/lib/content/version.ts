@@ -12,8 +12,13 @@
  * changed normalisation rule. Do not bump it for comments or refactors that
  * cannot move a boundary.
  */
-export const CONTENT_PROCESSOR_VERSION = "content_v2";
+export const CONTENT_PROCESSOR_VERSION = "content_v3";
 
 // v1 → v2: `matchToken` no longer refuses closed-class words, so a chapter now
-// carries occurrences for *wir*, *haben*, *sollen* and the rest. Same text,
-// different occurrences — exactly the case this stamp exists for.
+// carries occurrences for *wir* and the rest. Same text, different occurrences —
+// exactly the case this stamp exists for.
+// v2 → v3: verbs left `GERMAN_FUNCTION_WORDS` and `IRREGULAR_BASE_FORMS` arrived,
+// so *ist*, *war*, *hat*, *kann* and *sollte* resolve to their infinitives
+// instead of to nothing (or, in *waren*'s case, to *Ware*). v2 was never
+// deployed; the bump is separate anyway, because guessing which version a
+// chapter was built by is the one thing this stamp must never require.

@@ -23,6 +23,7 @@ import {
   baseFormCandidates,
   foldUmlauts,
   GERMAN_FUNCTION_WORDS,
+  IRREGULAR_BASE_FORMS,
 } from "@/lib/german-morphology";
 import { normalizeToken } from "@/lib/content/tokenize";
 
@@ -122,6 +123,16 @@ export function matchToken(
   index: DictionaryIndex,
 ): DictionaryHit | null {
   const normalized = normalizeToken(surface);
+
+  // A KNOWN IRREGULAR FORM OUTRANKS THE SURFACE, because the surface is matched
+  // umlaut-folded and folding invents collisions: *wäre* folds to *ware* and
+  // lands on *die Ware* (towar) before anything asks whether it might be *sein*.
+  // A form this table knows is that verb — it is never the noun it rhymes with.
+  const irregular = IRREGULAR_BASE_FORMS.get(normalized);
+  if (irregular) {
+    const hit = index.get(foldUmlauts(irregular));
+    if (hit) return hit;
+  }
 
   const direct = index.get(foldUmlauts(normalized));
   if (direct) return direct;

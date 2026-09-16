@@ -222,6 +222,25 @@ describe("processChapterContent", () => {
     expect(occurrences.map((o) => o.position)).toEqual([0, 1, 3]);
   });
 
+  it("resolves an irregular verb form to its infinitive, not to a homograph", () => {
+    const dict = [
+      ...DICT,
+      { id: 7, lemma: "sein", display: "sein" },
+      { id: 8, lemma: "Ware", display: "die Ware" },
+      { id: 9, lemma: "sollen", display: "sollen" },
+    ];
+    const result = processChapterContent("Wir waren hier. Es sollte so sein.", dict);
+    const lemmas = result.paragraphs[0].sentences
+      .flatMap((s) => s.occurrences)
+      .map((o) => o.lemma);
+
+    // *waren* is *sein*. Stripping its -n lands on *Ware*, which is a real entry
+    // and the wrong word — the irregular table has to outrank it.
+    expect(lemmas).toContain("sein");
+    expect(lemmas).not.toContain("Ware");
+    expect(lemmas).toContain("sollen");
+  });
+
   it("aggregates the chapter's vocabulary by frequency", () => {
     const result = processChapterContent(
       "Das Kind liest. Das Kind schläft. Ein Buch liegt da.",
