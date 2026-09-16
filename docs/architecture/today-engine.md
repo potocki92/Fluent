@@ -457,6 +457,19 @@ A page open for four hours is not four hours of learning, and writing that numbe
 down would poison every estimate derived from it later. Per-answer `response_ms`
 already exists where it is genuinely measured.
 
+That has a consequence for copy, and it is binding: **no screen may render a
+minutes figure as time spent learning.** The finished-day card shows
+`completedEstimatedMinutes(items)` — the planner's estimate for the activities
+that were actually COMPLETED, so skipping cannot inflate it — worded through
+`renderEstimatedTime` as "Szacowany czas: ok. 12 min". It previously showed the
+whole plan's `estimated_minutes` as "12 min nauki", which was wrong twice over:
+an estimate presented as a measurement, and the estimate for tasks the learner
+may never have done. Summing what *is* measured would not fix it either —
+`reading_sessions.active_seconds` is honest but exists only for the chapter
+reader, and per-answer `response_ms` is a browser clock covering only the seconds
+a question was on screen — so a mixed total would mean a different thing per
+activity, and the learner could not tell which.
+
 No external analytics SDK was added.
 
 ## 15. Algorithm version

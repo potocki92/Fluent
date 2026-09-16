@@ -207,6 +207,10 @@ PGHOST=localhost PGPORT=5432 PGUSER=postgres ./supabase/tests/run.sh
 
 See [`supabase/tests/README.md`](./supabase/tests/README.md) for what they assert.
 
+There are no browser/E2E tests yet;
+[`docs/architecture/end-to-end-testing.md`](./docs/architecture/end-to-end-testing.md)
+records what they would cover, what they need, and why they are deferred.
+
 Regenerate Supabase types after schema changes:
 
 ```bash

@@ -170,6 +170,28 @@ export function renderTargetCount(type: string, count: number): string | null {
   }
 }
 
+/**
+ * "1 zadanie pominięte" · "2 zadania pominięte" · "5 zadań pominiętych".
+ *
+ * The adjective agrees as well as the noun — a plan holds up to five activities,
+ * so the 5+ form is reachable and "5 zadania pominięte" would be visible Polish.
+ */
+export function renderSkippedTasks(count: number): string {
+  return `${count} ${plural(count, "zadanie pominięte", "zadania pominięte", "zadań pominiętych")}`;
+}
+
+/**
+ * "Szacowany czas: ok. 12 min".
+ *
+ * THE LABEL IS THE POINT. Fluent does not measure how long anyone studied
+ * (`today-engine.md` §14), so every minutes figure it shows is the planner's
+ * estimate and has to read as one. "12 min nauki" would be a statistic — and a
+ * false one for the learner who finished the plan in five minutes, or in thirty.
+ */
+export function renderEstimatedTime(minutes: number): string {
+  return `Szacowany czas: ok. ${renderMinutes(minutes)}`;
+}
+
 /** "około 12 min" — never a false precision like "11 min 40 s". */
 export function renderMinutes(minutes: number): string {
   return `${Math.max(1, Math.round(minutes))} min`;
