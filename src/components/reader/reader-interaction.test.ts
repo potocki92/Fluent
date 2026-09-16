@@ -1,24 +1,38 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  distanceToRect,
   glossTargetFrom,
+  isDragGesture,
   isUsableSelection,
   readerBarPlan,
   resolveReaderIntent,
+  type PointerTrack,
   type ReaderGesture,
   type ReaderWordHit,
   type SelectedRange,
 } from "@/components/reader/reader-interaction";
 import { MAX_PHRASE_TOKENS } from "@/lib/notebook/constants";
+import {
+  CLICK_PAIRING_MS,
+  TAP_SLOP_PX,
+  WORD_TAP_SNAP_PX,
+} from "@/lib/reading/constants";
 
 /**
  * THE REGRESSION SUITE FOR THE iOS WORD TAP.
  *
  * The symptom was a learner tapping *Wir* and getting the SENTENCE action bar —
- * "Przetłumacz / Nie rozumiem" — instead of the word sheet, because Safari was
- * still holding a selection from an earlier gesture when the tap's click fired.
- * Every case below is one rung of the hierarchy in `reader-interaction.ts`, and
- * the two stale-selection cases are the bug itself.
+ * "Przetłumacz zdanie / Nie rozumiem" — instead of the word sheet. Two previous
+ * fixes tried to teach the tap which selections to ignore; it kept coming back,
+ * because on a phone no test of the browser's selection is decisive at the
+ * moment a click fires. So the tap no longer reads the selection at all, and
+ * these tests are what says so: there is no way to construct a gesture on a word
+ * that resolves to anything but the word.
+ *
+ * What is left to decide is whether a click was a TAP, which is answered from
+ * pointer movement — `isDragGesture` — and where a near miss lands, which is
+ * answered from geometry — `distanceToRect`. Both are here.
  */
 
 // „Wir sollten umkehren“, drängte Gared.
@@ -48,12 +62,17 @@ function range(overrides: Partial<SelectedRange> = {}): SelectedRange {
 }
 
 function gesture(overrides: Partial<ReaderGesture> = {}): ReaderGesture {
+  return { word: null, sentenceId: 77, isDrag: false, ...overrides };
+}
+
+function track(overrides: Partial<PointerTrack> = {}): PointerTrack {
   return {
-    word: null,
-    sentenceId: 77,
-    selection: null,
-    selectionIsUncommitted: false,
-    pointerInsideSelection: false,
+    startX: 100,
+    startY: 200,
+    endX: 100,
+    endY: 200,
+    endedAt: 1_000,
+    pointerType: "touch",
     ...overrides,
   };
 }
@@ -72,110 +91,11 @@ describe("resolveReaderIntent", () => {
     expect(intent.kind).toBe("word");
   });
 
-  it("ignores a stale selection left over from an earlier gesture", () => {
-    // THE BUG. Safari still holds the range from a long-press two paragraphs
-    // ago; the tap that dismisses the callout is delivered to the word beneath
-    // it. The selection has already been committed, so the tap stays a tap.
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection: range({ charStart: 4, charEnd: 11 }),
-        selectionIsUncommitted: false,
-        pointerInsideSelection: true,
-      }),
-    );
+  it("never lets the sentence outrank a word", () => {
+    // The sentence is the FALLBACK, and a word hit always carries a sentence too.
+    const intent = resolveReaderIntent(gesture({ word: word(), sentenceId: 77 }));
 
     expect(intent.kind).toBe("word");
-  });
-
-  it("ignores a selection the reader has already shown the bar for", () => {
-    // THE BUG, SECOND FORM — the one a Safari-engine run reproduced after the
-    // first fix. A long-press selects a word and the action bar appears; the tap
-    // that dismisses iOS's callout arrives as a click with NO pointerdown of its
-    // own, so "changed since this gesture began" was still true and swallowed
-    // it. Committing the selection ends its claim on the next click.
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection: range({ charStart: 4, charEnd: 11 }),
-        selectionIsUncommitted: false,
-        pointerInsideSelection: true,
-      }),
-    );
-
-    expect(intent.kind).toBe("word");
-  });
-
-  it("ignores an uncommitted selection the tap happened outside of", () => {
-    // A drag ends inside its own selection. A tap on a word elsewhere does not,
-    // so it cannot be that drag ending — whatever the browser still holds.
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection: range({ charStart: 4, charEnd: 11 }),
-        selectionIsUncommitted: true,
-        pointerInsideSelection: false,
-      }),
-    );
-
-    expect(intent.kind).toBe("word");
-  });
-
-  it("ignores a collapsed selection the tap itself produced", () => {
-    // Tapping text places a caret, which IS a selection change — but a caret is
-    // not a selection, so it must not outrank the word under the finger.
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection: range({ charStart: 4, charEnd: 4 }),
-        selectionIsUncommitted: true,
-        pointerInsideSelection: true,
-      }),
-    );
-
-    expect(intent.kind).toBe("word");
-  });
-
-  it("ignores a stale selection even where it covers the tapped word", () => {
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection: range({ charStart: 0, charEnd: 11 }),
-        selectionIsUncommitted: false,
-        pointerInsideSelection: true,
-      }),
-    );
-
-    expect(intent.kind).toBe("word");
-  });
-
-  it("lets a selection made by THIS gesture win over the word it ended on", () => {
-    // A drag-select ends on a word and fires a click there. That is not a tap.
-    const selection = range({ charStart: 4, charEnd: 11 });
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection,
-        selectionIsUncommitted: true,
-        pointerInsideSelection: true,
-      }),
-    );
-
-    expect(intent).toEqual({ kind: "selection", selection });
-  });
-
-  it("reports a live cross-sentence selection rather than the word under it", () => {
-    const selection = range({ crossSentence: true, charStart: 0, charEnd: 0 });
-    const intent = resolveReaderIntent(
-      gesture({
-        word: word(),
-        selection,
-        selectionIsUncommitted: true,
-        pointerInsideSelection: true,
-      }),
-    );
-
-    expect(intent).toEqual({ kind: "selection", selection });
   });
 
   it("offers the sentence's actions for a tap on the space between words", () => {
@@ -186,22 +106,94 @@ describe("resolveReaderIntent", () => {
 
   it("offers the sentence's actions for a tap on punctuation", () => {
     // Punctuation is not an occurrence, so there is no `.reader-word` under it.
-    const intent = resolveReaderIntent(
-      gesture({ word: null, sentenceId: 77, selection: null }),
-    );
-
-    expect(intent.kind).toBe("sentence");
+    expect(resolveReaderIntent(gesture({ word: null })).kind).toBe("sentence");
   });
 
   it("does nothing for a tap outside any sentence", () => {
     expect(resolveReaderIntent(gesture({ sentenceId: null })).kind).toBe("none");
   });
 
-  it("never lets the sentence outrank a word", () => {
-    // Rule 5 is the FALLBACK, and a word hit always carries a sentence too.
-    const intent = resolveReaderIntent(gesture({ word: word(), sentenceId: 77 }));
+  it("leaves everything alone for the trailing click of a drag", () => {
+    // A drag-select ends on a word and fires a click there. That is not a tap,
+    // and it must not dismiss the bar the selection channel just opened — which
+    // is why this is `ignore` and not `none`.
+    const intent = resolveReaderIntent(gesture({ word: word(), isDrag: true }));
 
-    expect(intent.kind).toBe("word");
+    expect(intent).toEqual({ kind: "ignore" });
+  });
+});
+
+describe("isDragGesture", () => {
+  it("calls a click with no pointer gesture behind it a tap", () => {
+    // THE BUG, IN ITS PUREST FORM. iOS delivers the tap that dismisses a
+    // selection callout as a click with NO pointerdown of its own. Two previous
+    // fixes lost exactly this gesture to a leftover range; it is a tap.
+    expect(isDragGesture(null, 1_000, TAP_SLOP_PX, CLICK_PAIRING_MS)).toBe(false);
+  });
+
+  it("calls a still-pressed pointer a tap rather than guessing", () => {
+    expect(
+      isDragGesture(track({ endedAt: null }), 1_000, TAP_SLOP_PX, CLICK_PAIRING_MS),
+    ).toBe(false);
+  });
+
+  it("calls a finger that wobbled a tap", () => {
+    const wobble = track({ endX: 100 + TAP_SLOP_PX - 1, endY: 200 });
+
+    expect(isDragGesture(wobble, 1_010, TAP_SLOP_PX, CLICK_PAIRING_MS)).toBe(false);
+  });
+
+  it("calls a pointer that travelled a drag", () => {
+    const dragged = track({ endX: 260, endY: 240 });
+
+    expect(isDragGesture(dragged, 1_010, TAP_SLOP_PX, CLICK_PAIRING_MS)).toBe(true);
+  });
+
+  it("measures the distance, not either axis alone", () => {
+    // 8px across and 8px down is 11.3px of travel — a drag, although neither
+    // axis on its own passes the slop.
+    const diagonal = track({ endX: 108, endY: 208 });
+
+    expect(isDragGesture(diagonal, 1_010, TAP_SLOP_PX, CLICK_PAIRING_MS)).toBe(true);
+  });
+
+  it("refuses to pair a click with a gesture too old to be its own", () => {
+    // A scroll whose click never came, then — seconds later — a click with no
+    // pointerdown of its own. Pairing them would swallow a real tap.
+    const scrolled = track({ endX: 100, endY: 900 });
+
+    expect(
+      isDragGesture(scrolled, 1_000 + CLICK_PAIRING_MS + 1, TAP_SLOP_PX, CLICK_PAIRING_MS),
+    ).toBe(false);
+  });
+});
+
+describe("distanceToRect", () => {
+  // A word's inline box on a phone: about 46px across and 20px tall.
+  const box = { left: 100, right: 146, top: 200, bottom: 220 };
+
+  it("is zero anywhere inside the word", () => {
+    expect(distanceToRect(box, 120, 210)).toBe(0);
+    expect(distanceToRect(box, 100, 200)).toBe(0);
+  });
+
+  it("snaps the tap that lands in the gap beside a word", () => {
+    // THE MISS THIS EXISTS FOR. The space between two words is 4–5px wide and a
+    // fingertip is nine millimetres across, so this tap was meant for the word.
+    expect(distanceToRect(box, 148, 210)).toBeLessThan(WORD_TAP_SNAP_PX);
+  });
+
+  it("snaps a tap in the leading just above the line", () => {
+    expect(distanceToRect(box, 120, 194)).toBeLessThan(WORD_TAP_SNAP_PX);
+  });
+
+  it("does not reach the next line, or the far side of the column", () => {
+    expect(distanceToRect(box, 120, 245)).toBeGreaterThan(WORD_TAP_SNAP_PX);
+    expect(distanceToRect(box, 300, 210)).toBeGreaterThan(WORD_TAP_SNAP_PX);
+  });
+
+  it("measures the corner diagonally, so the snap is a radius and not a box", () => {
+    expect(distanceToRect(box, 149, 197)).toBeCloseTo(Math.hypot(3, 3), 5);
   });
 });
 

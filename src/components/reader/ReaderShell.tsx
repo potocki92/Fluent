@@ -18,6 +18,7 @@ import {
   useState,
   type MouseEvent,
   type KeyboardEvent,
+  type PointerEvent,
 } from "react";
 
 import {
@@ -40,21 +41,20 @@ import {
 } from "@/components/reader/ReaderActionBar";
 import {
   glossTargetFrom,
+  isDragGesture,
   isUsableSelection,
   readerBarPlan,
   resolveReaderIntent,
   type GlossTarget,
+  type PointerTrack,
   type ReaderWordHit,
 } from "@/components/reader/reader-interaction";
 import {
   clearSelection,
   observeReaderSelection,
-  pointerInsideRect,
   readerHitAt,
   readerWordHit,
-  readReaderSelection,
   type ReaderSelection,
-  type ReaderSelectionObserver,
 } from "@/components/reader/sentence-selection";
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
 import { WordGlossSheet } from "@/components/reader/WordGlossSheet";
@@ -65,8 +65,11 @@ import { newInteractionId } from "@/lib/interaction-id";
 import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
   CHAPTER_COMPLETION_RATIO,
+  CLICK_PAIRING_MS,
   PROGRESS_FLUSH_MS,
   PROGRESS_FLUSH_PARAGRAPHS,
+  TAP_SLOP_PX,
+  WORD_TAP_SNAP_PX,
 } from "@/lib/reading/constants";
 import {
   readerStyleVars,
@@ -314,8 +317,28 @@ export function ReaderShell({
   }, []);
 
   // ── words ─────────────────────────────────────────────────────────────────
+  // THE TAPPED WORD IS HIGHLIGHTED WHILE ITS SHEET IS OPEN, and only while.
+  // On a phone there is no resting underline any more (§45 as rewritten: a book
+  // is not a page of hyperlinks), so this is the only feedback that says "yes,
+  // THAT word" — and a mark left behind after the sheet closes would become a
+  // fourth permanent state in the prose, which is exactly what this work removed.
+  const activeWordRef = useRef<HTMLElement | null>(null);
+
+  const setActiveWord = useCallback((element: HTMLElement | null) => {
+    if (activeWordRef.current && activeWordRef.current !== element) {
+      delete activeWordRef.current.dataset.active;
+    }
+    activeWordRef.current = element;
+    if (element) element.dataset.active = "true";
+  }, []);
+
+  const closeGloss = useCallback(() => {
+    setGloss(null);
+    setActiveWord(null);
+  }, [setActiveWord]);
+
   const openGloss = useCallback(
-    (word: ReaderWordHit) => {
+    (word: ReaderWordHit, element: HTMLElement | null) => {
       // The sentence comes from the DOM rather than from props: it is already on
       // the page, and shipping every sentence twice would double the payload of
       // a chapter for a string that is only ever needed one at a time.
@@ -329,6 +352,7 @@ export function ReaderShell({
       const target = glossTargetFrom(word, sentence);
       if (!target) return;
       setGloss(target);
+      setActiveWord(element);
 
       // A LOOKUP IS NOT A FAILED TEST — the weight of this evidence is decided
       // in `readingLookupEvidence`, not here. Fire and forget: recording it must
@@ -346,7 +370,7 @@ export function ReaderShell({
         });
       }
     },
-    [chapter.id, chapter.itemId],
+    [chapter.id, chapter.itemId, setActiveWord],
   );
 
   // ── the native selection, observed rather than discovered ─────────────────
@@ -355,12 +379,21 @@ export function ReaderShell({
   // it settles. On iOS that is the only thing that works — a long-press
   // selection emits no click — and it is what lets a tap on a word stay a tap on
   // a word.
-  const selectionRef = useRef<ReaderSelectionObserver | null>(null);
+  // A ref rather than a dependency: the observer subscribes once for the life of
+  // the chapter and must not be torn down and rebuilt every time a sheet opens.
+  const glossOpenRef = useRef(false);
+  useEffect(() => {
+    glossOpenRef.current = gloss !== null;
+  }, [gloss]);
 
   useEffect(() => {
     const observer = observeReaderSelection(
       () => contentRef.current,
       (selected) => {
+        // A bar behind an open word sheet is a control nobody can reach and an
+        // offer nobody asked for — and on a phone the sheet is modal anyway.
+        if (glossOpenRef.current) return;
+
         setBar((previous) => {
           if (selected && isUsableSelection(selected)) {
             return { mode: "selection", selection: selected };
@@ -372,47 +405,76 @@ export function ReaderShell({
         });
       },
     );
-    selectionRef.current = observer;
-    return () => {
-      selectionRef.current = null;
-      observer.stop();
+    return () => observer.stop();
+  }, []);
+
+  // ── the tap channel ───────────────────────────────────────────────────────
+  // IT DOES NOT LOOK AT THE SELECTION. That is the whole fix, and the reason
+  // this is the third attempt: every previous version tried to teach the tap
+  // which selections to ignore, and on iOS there is no test that separates "a
+  // drag that just ended here" from "a range Safari is still holding" reliably
+  // enough to bet a word tap on it. What IS reliable is how far the pointer
+  // moved — so that is what is tracked, and nothing else.
+  const trackRef = useRef<PointerTrack | null>(null);
+
+  const onContentPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    trackRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      endX: null,
+      endY: null,
+      endedAt: null,
+      pointerType: event.pointerType,
     };
+  }, []);
+
+  const onContentPointerUp = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const track = trackRef.current;
+    if (!track) return;
+    track.endX = event.clientX;
+    track.endY = event.clientY;
+    track.endedAt = Date.now();
   }, []);
 
   const onContentClick = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
-      const root = contentRef.current;
-      const hit = readerHitAt(root, event);
-      const selection = readReaderSelection(root);
+      const track = trackRef.current;
+      // Consumed here: a gesture answers exactly one click, so a pointerdown
+      // whose click never came (a scroll, a drag out of the prose) can never be
+      // paired with a later one that arrived without a pointerdown of its own.
+      trackRef.current = null;
+
+      const hit = readerHitAt(
+        contentRef.current,
+        event,
+        // A finger gets the snap; a mouse is precise and keeps the gap between
+        // two words as a place it can deliberately click.
+        isCoarse(track) ? WORD_TAP_SNAP_PX : 0,
+      );
 
       const intent = resolveReaderIntent({
         word: hit.word ? readerWordHit(hit.word) : null,
         sentenceId: hit.sentenceId,
-        selection,
-        // THE STALE-SELECTION GUARD. A selection outranks this tap only while it
-        // is still unshown AND the tap happened inside it. Safari's leftovers
-        // fail both; a drag ending on a word passes both.
-        selectionIsUncommitted: selectionRef.current?.isUncommitted() ?? false,
-        pointerInsideSelection: pointerInsideRect(selection?.rect, event),
+        isDrag: isDragGesture(track, Date.now(), TAP_SLOP_PX, CLICK_PAIRING_MS),
       });
 
-      if (intent.kind === "selection") {
-        // A drag that ended, not a tap. The observer already owns the bar for
-        // it — and the selection is left exactly as the learner made it.
+      if (intent.kind === "ignore") {
+        // The trailing click of a drag. The selection channel already owns this
+        // gesture — and the selection is left exactly as the learner made it.
         return;
       }
 
       if (intent.kind === "word") {
-        // RULE 1, AND IT IS ABSOLUTE. A tap on a word opens the word sheet.
+        // RULE 2, AND IT IS ABSOLUTE. A tap on a word opens the word sheet.
         setBar(null);
-        openGloss(intent.word);
+        openGloss(intent.word, hit.word);
         return;
       }
 
       if (intent.kind === "sentence" && hit.sentence) {
-        // Tapping the SENTENCE — the space between the words, the punctuation —
-        // offers what can be done with a whole sentence (§9, §97). Deliberately
-        // the fallback: it never takes a word tap over.
+        // Tapping the SENTENCE and nothing nearer — offers what can be done with
+        // a whole sentence (§9, §97). Deliberately the fallback: it never takes
+        // a word tap over.
         setBar({
           mode: "sentence",
           sentenceId: intent.sentenceId,
@@ -433,10 +495,17 @@ export function ReaderShell({
   // with the hierarchy it belongs to — and is unit tested there.
   const plan = bar ? readerBarPlan(bar) : null;
 
-  const closeActionBar = useCallback(() => {
+  // TWO WAYS THE BAR GOES AWAY, AND THEY ARE NOT THE SAME EVENT. Choosing an
+  // action finishes with the selection, so it is released. The bar merely being
+  // dismissed — a scroll, a tap elsewhere — says nothing about the selection, and
+  // a learner who selected a passage to copy it out of the book would lose it to
+  // a toolbar tidying up after itself (§30).
+  const finishAction = useCallback(() => {
     setBar(null);
     clearSelection();
   }, []);
+
+  const dismissActionBar = useCallback(() => setBar(null), []);
 
   const actions: ReaderAction[] = [];
   if (plan && !plan.note) {
@@ -466,21 +535,25 @@ export function ReaderShell({
             kind,
             existing,
           });
-          closeActionBar();
+          finishAction();
         },
       });
     }
 
     actions.push({
       id: "translate",
-      label: "Przetłumacz",
+      // NOT "Przetłumacz". The bar can be about a word, a phrase or a sentence,
+      // and the three are different notes in different tables (§3) — a label
+      // that does not say which one it means is a label that gets the learner
+      // the wrong note. This action is always about the sentence.
+      label: "Przetłumacz zdanie",
       icon: <NotebookPen className="size-3.5" />,
       onSelect: () => {
         setNoteTarget({
           sentenceId: plan.sentenceId,
           sentenceText: plan.sentenceText,
         });
-        closeActionBar();
+        finishAction();
       },
     });
 
@@ -494,18 +567,36 @@ export function ReaderShell({
             sentenceId: plan.sentenceId,
             sentenceText: plan.sentenceText,
           });
-          closeActionBar();
+          finishAction();
         },
       });
     }
   }
 
   // ── marking what has been written down ────────────────────────────────────
-  // SUBTLE, AND ONLY WHERE THERE IS SOMETHING TO MARK (§45, §48). Three data
-  // attributes, applied to elements the server already rendered, styled in
-  // `globals.css` as a faint change of ink — not a highlighter. Done in one pass
-  // over the marks rather than per word, so a chapter with four hundred notes
-  // costs four hundred attribute writes and not four hundred thousand.
+  // FOUR MARKS, AND EACH ONE SAYS A DIFFERENT THING (§45, §48). The rewrite of
+  // this phase was about the language, not the mechanism:
+  //
+  //   a word you gave your own meaning   a thin accent underline
+  //   a phrase you saved                 a faint band across the whole span
+  //   a sentence you translated          a small ✓ after it
+  //   a sentence you flagged             a small ? after it
+  //
+  // NO TWO OF THEM ARE A LINE UNDER A LINE. The old scheme underlined every
+  // interactive word AND underlined a translated sentence, so a rule under
+  // *sollten* could mean "tappable", "you wrote something here", or "you
+  // translated this sentence" — three claims, one mark, on a phone where the
+  // resting underline was on a quarter of the page. Underlining is now reserved
+  // for one thing: a note on THESE tokens. Whole-sentence facts are markers at
+  // the end of the sentence, where they cannot be confused with the words.
+  //
+  // Applied as data attributes to elements the server already rendered, in one
+  // pass over the marks rather than per word, so a chapter with four hundred
+  // notes costs four hundred attribute writes and not four hundred thousand.
+  // Nothing here inserts a node into the prose: `.reader-sentence` textContent is
+  // byte-for-byte `sentences.text`, which is what makes a DOM offset convertible
+  // into the character offset a note is anchored on (§4). The ✓ is a
+  // pseudo-element for exactly that reason.
   useEffect(() => {
     const root = contentRef.current;
     if (!root || !marks) return;
@@ -536,10 +627,30 @@ export function ReaderShell({
       );
       for (const word of words) {
         const position = Number(word.dataset.position);
-        if (spans.some(([from, to]) => position >= from && position <= to)) {
+        if (!Number.isFinite(position)) continue;
+
+        const covering = spans.filter(
+          (span) => position >= span.start && position <= span.end,
+        );
+        if (covering.length === 0) continue;
+
+        // The two are independent facts and a token can carry both: *machen* in
+        // a saved *Angst machen* may also have its own contextual meaning.
+        if (covering.some((span) => span.kind === "word")) {
           word.dataset.noted = "true";
-          touched.push(word);
         }
+
+        const phrase = covering.find((span) => span.kind === "phrase");
+        if (phrase) {
+          // Where the band is rounded off. Without this a phrase reads as a
+          // string of separate highlights rather than one saved unit.
+          const first = position === phrase.start;
+          const last = position === phrase.end;
+          word.dataset.phrase =
+            first && last ? "only" : first ? "start" : last ? "end" : "inner";
+        }
+
+        touched.push(word);
       }
     }
 
@@ -548,6 +659,7 @@ export function ReaderShell({
         delete element.dataset.noteTranslated;
         delete element.dataset.noteUnclear;
         delete element.dataset.noted;
+        delete element.dataset.phrase;
       }
     };
   }, [marks]);
@@ -558,7 +670,7 @@ export function ReaderShell({
       const word = (event.target as HTMLElement).closest<HTMLElement>(".reader-word");
       if (!word) return;
       event.preventDefault();
-      openGloss(readerWordHit(word));
+      openGloss(readerWordHit(word), word);
     },
     [openGloss],
   );
@@ -667,6 +779,8 @@ export function ReaderShell({
       <main className="px-5 pb-24 pt-8">
         <div
           ref={contentRef}
+          onPointerDown={onContentPointerDown}
+          onPointerUp={onContentPointerUp}
           onClick={onContentClick}
           onKeyDown={onContentKeyDown}
           role="presentation"
@@ -744,20 +858,20 @@ export function ReaderShell({
         rect={bar === null ? null : bar.mode === "selection" ? bar.selection.rect : bar.rect}
         actions={actions}
         note={plan?.note ?? null}
-        onDismiss={closeActionBar}
+        onDismiss={dismissActionBar}
       />
 
       <WordGlossSheet
         target={gloss}
         readingSessionId={sessionId}
-        onClose={() => setGloss(null)}
+        onClose={closeGloss}
         // Both editors are opened from here, and both are the SAME component the
         // selection bar opens. The word sheet closes first so the two sheets
         // never stack — on a phone that is a dialog inside a dialog, and the
         // learner cannot tell which one Escape will close.
         onAddMeaning={(target) => {
           if (target.sentenceId === null || target.tokenPosition === null) return;
-          setGloss(null);
+          closeGloss();
           setAnnotation({
             sentenceId: target.sentenceId,
             sentenceText: target.sentence,
@@ -775,7 +889,7 @@ export function ReaderShell({
           });
         }}
         onTranslateSentence={(sentenceId, sentenceText) => {
-          setGloss(null);
+          closeGloss();
           setNoteTarget({ sentenceId, sentenceText });
         }}
       />
@@ -797,6 +911,23 @@ export function ReaderShell({
         onClose={() => setSettingsOpen(false)}
       />
     </div>
+  );
+}
+
+/**
+ * Was this gesture made with a finger?
+ *
+ * Asked of the gesture itself rather than of the device, because a tablet with a
+ * keyboard and a laptop with a touchscreen are both, and the answer that matters
+ * is which one is touching the text right now. Only when the gesture cannot say
+ * — a click with no pointer behind it — does the device get asked, and then
+ * `(pointer: coarse)` is exactly the question the reader's own CSS asks.
+ */
+function isCoarse(track: PointerTrack | null): boolean {
+  if (track) return track.pointerType !== "mouse";
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches
   );
 }
 

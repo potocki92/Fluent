@@ -176,30 +176,43 @@
   margin-inline-start: 1.2em;
 }
 
-/* AN INTERACTIVE WORD SHOULD LOOK LIKE A WORD.
-   Roughly a quarter of the tokens on a page resolve to the dictionary; giving
-   each of them a background turns a book into a Christmas tree and makes the
-   text harder to read than the plain version. So the resting state is a faint
-   underline that disappears at reading distance, and the colour only arrives on
-   hover, focus or while the gloss for that word is open. */
+/* AN INTERACTIVE WORD SHOULD LOOK LIKE A WORD — AND ON A PHONE, LIKE NOTHING
+   ELSE AT ALL.
+   Roughly a quarter of the tokens on a page resolve to the dictionary. A dotted
+   rule under every one of them is a book that reads as a page of hyperlinks, and
+   it competed with the marks that mean something — a note of your own, a
+   translated sentence — until no line on the page could be told from any other.
+   So on a touch screen there is no resting state: the word is just the word, and
+   it is still tappable. The hint survives only where there is a pointer to
+   reveal it with, because a cursor can hover and a finger cannot. */
 .reader-word {
   cursor: pointer;
   border-radius: 0.2em;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.22em;
-  text-decoration-color: color-mix(in srgb, var(--reader-accent) 45%, transparent);
+  /* iOS paints its own grey box over a tapped element; the reader has a better
+     one below, in the learner's accent colour. */
+  -webkit-tap-highlight-color: transparent;
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
+  .reader-word {
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.22em;
+    text-decoration-color: color-mix(in srgb, var(--reader-accent) 45%, transparent);
+  }
+
   .reader-word:hover {
     background-color: color-mix(in srgb, var(--reader-accent) 16%, transparent);
     color: var(--reader-accent);
   }
 }
 
+/* THE ONE MOMENT A PLAIN WORD IS MARKED: while its sheet is open. It answers
+   "yes, THAT word" for a tap the learner cannot see under their own thumb, and
+   `ReaderShell` removes it when the sheet closes — a highlight that outlived the
+   sheet would become a fourth permanent state in the prose. */
 .reader-word:focus-visible,
 .reader-word[data-active="true"] {
   outline: none;
@@ -219,46 +232,102 @@
    ─────────────────────────────────────────────────────────────────────────────
    §45: a book is not a Christmas tree. Roughly a quarter of the tokens on a page
    are already interactive, and a learner who annotates well will end up with
-   marks on a good fraction of them — so every mark below is a change of INK, not
-   a block of colour. At reading distance the page still reads as prose; when
-   you look for your own work, it is there.
+   marks on a good fraction of them — so every mark below is as quiet as it can
+   be while still being findable.
 
-   The three states say three different things and are deliberately not the same
-   colour: a saved word or phrase is accent-toned (something you chose to keep),
-   a translated sentence carries the faintest possible rule underneath it
-   (something you did), and an unclear sentence is dotted (something unfinished).
-   None of them uses a background fill — that is what `:hover` and the open gloss
-   use, and a permanent fill would make the two indistinguishable. */
+   ONE MARK, ONE MEANING. This is what the earlier scheme got wrong, and it was
+   not subtlety that failed: a rule under *sollten* could mean "tappable", "you
+   wrote a meaning here" or "you translated this sentence", because all three
+   were underlines. So the vocabulary is now split by SHAPE, not by opacity:
 
+     a line under tokens   → a note about THOSE tokens, and nothing else
+     a band behind tokens  → those tokens are one saved phrase
+     a mark after a sentence → a fact about the whole sentence
+
+   which means a learner never has to work out which system a line belongs to.
+   There is only one system that draws lines. */
+
+/* A word you gave your own meaning to, in this place. A hairline, not a
+   highlighter: at reading distance it is a slightly heavier word, and when you
+   are looking for your own work it is unmistakable. */
 .reader-word[data-noted="true"] {
+  text-decoration-line: underline;
   text-decoration-style: solid;
-  text-decoration-thickness: 2px;
-  text-decoration-color: color-mix(in srgb, var(--reader-accent) 80%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--reader-accent) 70%, transparent);
 }
 
-/* A sentence you have translated. `text-underline-offset` puts the rule below
-   the descenders so it never touches the type. */
-.reader-sentence[data-note-translated="true"] {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--reader-accent) 28%, transparent);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.35em;
+/* A saved phrase. A band rather than another line, because a phrase is a GROUP —
+   *Angst machen* is one thing, and three separate underlines would say it is
+   two. The inline padding (with the margin cancelling it) is what bridges the
+   spaces between the words so the band reads as one mark; the corners are
+   rounded only at the ends of the span. */
+.reader-word[data-phrase] {
+  padding-inline: 0.16em;
+  margin-inline: -0.16em;
+  border-radius: 0;
+}
+
+/* The tapped word keeps its own highlight: while a sheet is open, "which word is
+   this about" outranks "this word is part of a phrase you saved". The padding
+   above stays either way, so nothing shifts as the band gives way. */
+.reader-word[data-phrase]:not([data-active="true"]):not(:focus-visible) {
+  background-color: color-mix(in srgb, var(--reader-accent) 13%, transparent);
+}
+
+.reader-word[data-phrase="start"],
+.reader-word[data-phrase="only"] {
+  border-start-start-radius: 0.25em;
+  border-end-start-radius: 0.25em;
+}
+
+.reader-word[data-phrase="end"],
+.reader-word[data-phrase="only"] {
+  border-start-end-radius: 0.25em;
+  border-end-end-radius: 0.25em;
+}
+
+/* A SENTENCE'S OWN STATE IS MARKED AFTER THE SENTENCE, NEVER UNDER IT.
+   A pseudo-element, deliberately: `.reader-sentence` text content is
+   byte-for-byte the `sentences.text` the pipeline stored, and that is what makes
+   a browser selection convertible into the character offsets a note is anchored
+   on — so nothing may be inserted into the prose. It also keeps the mark out of
+   what the learner copies out of the book.
+
+   It costs no vertical space: `line-height: 0` on a smaller inline box leaves the
+   line box to the paragraph's own strut, so a marked sentence sits on exactly the
+   same baseline grid as an unmarked one. The `content: "…" / "…"` form gives
+   assistive technology the sentence's state in words; the plain `content` before
+   it is what an engine that cannot parse the alt text falls back to. */
+.reader-sentence[data-note-translated="true"]::after,
+.reader-sentence[data-note-unclear="true"]::after {
+  font-size: 0.68em;
+  line-height: 0;
+  vertical-align: 0.15em;
+  margin-inline-start: 0.2em;
+  color: color-mix(in srgb, var(--reader-accent) 85%, transparent);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.reader-sentence[data-note-translated="true"]::after {
+  content: "✓";
+  content: "✓" / "Zdanie ma zapisane tłumaczenie";
 }
 
 /* A sentence you flagged. §48: a state, not a red paragraph — the whole point is
-   that it is findable later, not that it shouts while you are reading. */
-.reader-sentence[data-note-unclear="true"] {
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-decoration-thickness: 1.5px;
-  text-decoration-color: color-mix(in srgb, var(--color-gold) 55%, transparent);
-  text-underline-offset: 0.35em;
+   that it is findable later, not that it shouts while you are reading. It wins
+   over the ✓ when a sentence is both, because "still unclear" is the more useful
+   thing to see while reading; the alt text says both. */
+.reader-sentence[data-note-unclear="true"]::after {
+  content: "?";
+  content: "?" / "Zdanie oznaczone jako niezrozumiałe";
 }
 
-/* Both at once is one sentence with two facts about it, so the dotted rule wins:
-   "still unclear" is the more useful thing to see while reading. */
-.reader-sentence[data-note-unclear="true"][data-note-translated="true"] {
-  text-decoration-style: dotted;
+.reader-sentence[data-note-unclear="true"][data-note-translated="true"]::after {
+  content: "?";
+  content: "?" / "Zdanie oznaczone jako niezrozumiałe, z zapisanym tłumaczeniem";
 }
 
 @media (prefers-reduced-motion: no-preference) {

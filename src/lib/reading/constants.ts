@@ -55,6 +55,63 @@ export const ACTIVE_TICK_MS = 5_000;
 export const MAX_ACTIVE_SECONDS_PER_REPORT = 300;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TOUCHING THE TEXT
+// ─────────────────────────────────────────────────────────────────────────────
+// A finger is about 9mm across; a word in a book is about 2mm tall. Every number
+// here exists because those two facts do not match, and because the browser
+// answers "what is at this point?" with millimetre precision the learner does not
+// have. They are the difference between a reader that opens the word you tapped
+// and one that argues with you about it.
+
+/**
+ * How far from a word a touch may land and still BE that word.
+ *
+ * `elementFromPoint` is an exact hit test. The gap between two words is four or
+ * five pixels wide and the punctuation is glued to the word before it, so a tap
+ * the learner experiences as landing squarely on *sollten* routinely resolves to
+ * the sentence around it — which is how a word tap ended up opening the
+ * SENTENCE's action bar on a phone. So a near miss is resolved to the nearest
+ * word instead, within this radius, measured from the word's own box.
+ *
+ * ONLY ON A COARSE POINTER. A mouse is precise, and on a mouse the gap between
+ * two words is a place you can deliberately click — which is how the sentence's
+ * own actions are reached. On a phone that gesture does not exist, so it is not
+ * pretended to: everything the sentence bar offers is on the word sheet too.
+ */
+export const WORD_TAP_SNAP_PX = 12;
+
+/**
+ * Movement above which a gesture was a DRAG, and therefore not a tap.
+ *
+ * A drag that ends on a word still fires a click on it. That click is the end of
+ * a selection, not a request to open the word — and the selection channel has
+ * already handled it. Below this, a finger that wobbled is still a tap.
+ */
+export const TAP_SLOP_PX = 10;
+
+/**
+ * How long after the pointer came up a click may still be attributed to it.
+ *
+ * iOS delivers some clicks with no `pointerdown` of their own — notably the tap
+ * that dismisses a selection callout. Such a click must not be paired with
+ * whatever pointer gesture happened before it (a scroll, a drag that went
+ * nowhere), so an origin this old is not this click's origin, and a click with
+ * no origin is a TAP. Every uncertain case resolves to "tap", deliberately: on
+ * this screen, opening the word the learner touched is the safe answer.
+ */
+export const CLICK_PAIRING_MS = 700;
+
+/**
+ * How long to wait after a gesture before believing what is selected.
+ *
+ * Safari finalises a selection just AFTER `touchend` — read it on the event and
+ * you get the range as it was mid-drag. It is also the window in which a tap
+ * collapses an old selection. 120ms is long enough for both and short enough
+ * that the bar still feels attached to the finger that asked for it.
+ */
+export const SELECTION_SETTLE_MS = 120;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROGRESS REPORTING
 // ─────────────────────────────────────────────────────────────────────────────
 

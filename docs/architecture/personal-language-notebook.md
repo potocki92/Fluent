@@ -372,64 +372,96 @@ group, no change to progress, resume or typography.
 
 ### The interaction hierarchy
 
-It is ABSOLUTE, it is in this order, and it is decided in one pure function —
+**Two channels, and they do not negotiate.** This is the third version of this
+section, and the first one that does not try to make a tap clever:
+
+* a **tap** is handled on `click`, and asks one question — what is under the
+  finger? It never reads the selection;
+* a **selection** is handled on `selectionchange`, by `observeReaderSelection`,
+  and never involves a click at all.
+
+The tap hierarchy is ABSOLUTE, in this order, and decided in one pure function —
 `resolveReaderIntent` in `src/components/reader/reader-interaction.ts`:
 
 | # | Gesture | Result |
 | --- | --- | --- |
-| 1 | tap on `.reader-word`, no **live** selection | the word sheet, always |
-| — | *live* = usable **and** not yet committed **and** under the pointer | all three, or it is not live |
-| 2 | live selection, one lexical token | „Zapisz znaczenie" |
-| 3 | live selection, 2+ tokens in one sentence | „Zapisz zwrot" |
-| 4 | live selection across sentences | an explanation, and nothing else |
-| 5 | tap inside `.reader-sentence`, not on a word | the sentence's own actions |
-| 6 | anything else | dismiss |
+| 1 | the trailing click of a **drag** | nothing at all — not even a dismiss |
+| 2 | a tap resolving to `.reader-word` | the word sheet, always |
+| 3 | a tap inside `.reader-sentence`, nothing nearer | the sentence's own actions |
+| 4 | anything else | dismiss what is open |
 
-**Rule 1 was the bug.** On iOS a plain tap on *Wir* could open the SENTENCE
-action bar — „Przetłumacz / Nie rozumiem" — instead of the word sheet. Three
-causes, and the fix closes all three:
+and the selection channel, independently:
 
-* *The click handler read the selection first and let anything win.* Safari does
-  not clear a selection on the schedule that assumes: the callout from a
-  long-press two paragraphs ago is still in the document when the next tap's
-  `click` fires, and the tap that dismisses it is delivered to the word
-  underneath. Chromium collapses it on `touchstart`, which is why this only ever
-  showed up on a phone.
-* *"Changed since this gesture's `pointerdown`" is not the same as current.* That
-  was the first fix and it was not enough, which a WebKit run reproduced: iOS
-  delivers the callout-dismissing tap as a click with **no pointerdown of its
-  own**, so the long-press's own selection change still looked like this
-  gesture's. A selection's claim on the next click now ends when the reader
-  COMMITS it — shows the learner its action bar — and a committed selection can
-  swallow nothing, whether or not a pointerdown ever arrived. It must also be
-  under the pointer: a drag ends inside its own selection, a tap on a word
-  elsewhere does not.
-* *A word is a few millimetres of inline box.* A tap a pixel above the ascender
-  is delivered to the enclosing sentence. So when `event.target` is not a word,
-  `readerHitAt` asks the POINT as well, which is the question the learner posed.
-  The test for "is there a point to ask" is the COORDINATES, never
-  `event.detail`: iOS delivers real taps with `detail === 0` often enough that
-  gating on it loses exactly the taps the fallback exists for.
+| Selection | Result |
+| --- | --- |
+| one lexical token | „Zapisz znaczenie" |
+| 2+ tokens in one sentence | „Zapisz zwrot" |
+| across sentences | an explanation, and nothing else |
 
-A leftover range is ignored, never cleared: the learner may be mid-copy, and
-taking that away to win an argument would be the worse bug (§30).
+**Rule 2 was the bug, three times.** On iOS a plain tap on *Wir* opened the
+SENTENCE action bar — „Przetłumacz zdanie / Nie rozumiem" — instead of the word
+sheet. The first two fixes both tried to teach the tap which selections to
+ignore: skip a stale range, skip a committed one, skip one the pointer is
+outside of. It kept coming back, because at the moment a `click` fires on a
+phone none of those tests is decisive:
+
+* a multi-line range's bounding rectangle is the **union** of its lines, so "the
+  pointer is inside the selection" is true for any tap on those lines;
+* the tap's *own* `selectionchange` — Safari moving or dropping the caret — makes
+  a leftover range look uncommitted again, before the settle timer runs;
+* and Safari may simply still be holding the range when the click arrives.
+
+Two guards, both true, on a gesture that was plainly a tap. **So the tap no
+longer reads the selection at all.** There is nothing left to get wrong: if the
+gesture resolves to a `.reader-word`, it is a word.
+
+What still has to be decided is *was this a tap?*, and that is answered from the
+POINTER — how far it travelled between going down and coming up (`isDragGesture`,
+`TAP_SLOP_PX`) — not from what the browser has selected. Every uncertain case
+resolves to "tap": a click with no `pointerdown` of its own (which is how iOS
+delivers the tap that dismisses its selection callout), a pointer still down, a
+gesture too old to be this click's. On this screen, opening the word the learner
+touched is the safe answer.
+
+**And a word is smaller than a finger.** The third cause was never about
+selections at all. A `.reader-word` is an inline box about two millimetres tall;
+the gap between two words is four or five pixels wide; a comma is glued to the
+word before it with no gap. `elementFromPoint` answers to the pixel, so a tap the
+learner is certain landed on *sollten* resolves to the sentence around it — and
+gets answered with a bar about something they did not ask about. `readerHitAt`
+now tries three answers, each less literal than the last: `event.target`, then
+the point, then the NEAREST word within `WORD_TAP_SNAP_PX`.
+
+That snap is **0 on a mouse**, decided from the gesture's own `pointerType`. A
+mouse can deliberately click the space between two words, and on a mouse that is
+how the sentence's actions are reached; a finger cannot, so on a phone the word
+wins the whole line. Which is safe precisely because everything the sentence bar
+offers is also on the word sheet (§14) — the bar is the alternative route, never
+the only one.
 
 **A selection announces itself; it is not discovered by a tap.**
 `observeReaderSelection` watches `selectionchange` and reports once the pointer
-is up and the selection has settled. This is not a refinement — on iOS a
-long-press that selects a word emits **no click at all**, so a reader that only
-looked during a click could not show anything for the commonest way a phrase is
-selected on a phone, until the *next* tap came along and got answered with the
-*previous* gesture's selection. Both halves of the bug were the same mistake.
+is up and the selection has settled. On iOS a long-press that selects a word
+emits **no click at all**, so a reader that only looked during a click could not
+show anything for the commonest way a phrase is selected on a phone.
+
+It also **only ever reports news**, which is the other half of the fix: a
+selection is read only when `selectionchange` actually fired, so a tap that
+changed nothing cannot surface a range left over from a gesture two paragraphs
+ago; and a reading identical to the one already shown is dropped, so a range
+Safari is still holding after the learner has finished with it never returns as a
+fresh offer. What the browser is holding is never, by itself, a request.
 
 Nothing here implements selection: no `selectstart` handler, no custom handles,
-no `removeAllRanges` to force an outcome. The browser selects; Fluent asks.
+no `removeAllRanges` to force an outcome. The browser selects; Fluent asks. A
+leftover range is ignored, never cleared — and the selection is released only
+when the learner *chooses an action*, never when the bar merely goes away, because
+someone who selected a passage to copy it out of the book is mid-gesture (§30).
 
-**The action bar is not gone and is not demoted.** It remains the alternative
-route to a sentence's actions (§9, §97) — it simply cannot outrank a word tap. A
-selection and a tapped sentence are now two variants of one state rather than a
-tapped sentence faked as a zero-width selection, which is how a word tap could
-render offers nobody asked for.
+**The action bar says which thing it means.** „Przetłumacz" became „Przetłumacz
+zdanie". The bar can be about a word, a phrase or a sentence, and those are three
+different notes in three different shapes (§3); a label that does not say which
+one it means is a label that gets the learner the wrong note.
 
 ### The word sheet
 
@@ -469,11 +501,39 @@ without it a note has nowhere to anchor.
 opened from the word sheet *and* from a selection; both mount `AnnotationSheet`.
 Both wrap `NoteSheet`, which owns the mobile behaviour.
 
-**Marks in the prose.** Three data attributes, applied in one pass over the
-chapter's notes, styled as a change of ink rather than a highlighter: a saved
-span gets a solid accent underline, a translated sentence the faintest rule, an
-unclear one a dotted rule. A quarter of the tokens on a page are already
-interactive; a book must not become a Christmas tree.
+**Marks in the prose: one mark, one meaning.** The first version was subtle and
+still unreadable, and subtlety was not what failed. Every interactive word
+carried a dotted underline, a saved span a solid one, a translated sentence a
+faint rule — so a line under *sollten* could mean "tappable", "you wrote a
+meaning here" or "you translated this sentence", and on a phone the first of
+those was on a quarter of the page. Three claims, one shape.
+
+The vocabulary is now split by SHAPE, not by opacity:
+
+| State | Mark |
+| --- | --- |
+| an interactive word, at rest, on a touch screen | **nothing** — it is a book, not a page of hyperlinks |
+| an interactive word, at rest, with a mouse | the faint dotted hint, which a cursor can reveal and a finger cannot |
+| the word whose sheet is open | an accent highlight, removed when the sheet closes |
+| a word you gave your own meaning | a thin accent underline |
+| a phrase you saved | one faint band across the whole span |
+| a sentence you translated | a small ✓ after it |
+| a sentence you flagged | a small ? after it |
+
+So underlining means exactly one thing — a note on *these tokens* — and a fact
+about a whole sentence is marked after the sentence, where it cannot be mistaken
+for one about the words. The phrase band is one mark rather than three underlines
+because *Angst machen* is one thing.
+
+The sentence markers are **pseudo-elements**, and that is not a styling
+preference: `.reader-sentence` text content is byte-for-byte the `sentences.text`
+the pipeline stored, which is what makes a browser selection convertible into the
+character offsets a note is anchored on (§4). Nothing may be inserted into the
+prose. It also keeps the mark out of what the learner copies out of the book, and
+out of the line box — `line-height: 0` on a smaller inline box leaves the line to
+the paragraph's own strut, so a marked sentence sits on the same baseline grid as
+an unmarked one. `content: "✓" / "Zdanie ma zapisane tłumaczenie"` is what gives
+a screen reader the state in words.
 
 **Deep links.** `?sentence=<id>` beats resume. Arriving from the notebook means
 "take me to *this* sentence", which is a different request from "take me back to
@@ -487,6 +547,8 @@ where I stopped".
 | `100vh` is taller than the screen with the address bar showing | `max-h-[85svh]`, plus `env(safe-area-inset-bottom)` |
 | iOS zooms the page when focusing a small input, throwing away the scroll position | every field is ≥ 16px |
 | The native selection callout sits **above** the selection | the action bar sits **below** it |
+| A word is smaller than the finger tapping it | a near miss resolves to the nearest word within `WORD_TAP_SNAP_PX`; on a mouse the snap is 0 |
+| iOS paints its own grey box over a tapped element | `-webkit-tap-highlight-color: transparent`, and the reader's own accent highlight instead |
 | Losing the learner's place | the sheets are Radix dialogs (no document scroll, focus returns to the opener); the action bar is positioned in viewport coordinates and dismisses on scroll |
 | A refetch overwriting a half-typed note | `NoteSheet` re-seeds only when `seedKey` changes, which the callers change only on opening a different note |
 
@@ -605,6 +667,7 @@ src/hooks/useKeyboardInset.ts      the iOS keyboard
 src/components/notebook/           NoteSheet + the two editors, the list, the deck
 src/components/reader/reader-interaction.ts   what a gesture MEANS — pure, tested
 src/components/reader/sentence-selection.ts   what the browser SAYS — selection, hit test
+src/lib/reading/constants.ts                  the tap thresholds: snap, slop, pairing, settle
 src/components/reader/             the reordered word sheet, the action bar
 src/app/notebook/page.tsx
 src/app/review/notebook/page.tsx

@@ -5,12 +5,27 @@ import { useQuery } from "@tanstack/react-query";
 import type { NotebookEntry } from "@/hooks/useNotebook";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 
+/**
+ * One saved span of a sentence, in the terms the prose is marked with.
+ *
+ * THE KIND TRAVELS WITH THE SPAN because the two are marked differently and say
+ * different things: a word you gave your own meaning to is one token with a
+ * meaning of its own, a phrase is several tokens that only mean anything
+ * together. Collapsing them into one mark is how a reader ends up with a page of
+ * underlines nobody can tell apart (§45).
+ */
+export interface ChapterSpan {
+  start: number;
+  end: number;
+  kind: "word" | "phrase";
+}
+
 /** Which sentences and which token spans of a chapter carry a note. */
 export interface ChapterMarks {
   translatedSentences: ReadonlySet<number>;
   unclearSentences: ReadonlySet<number>;
-  /** Saved spans, as `sentenceId -> [startPosition, endPosition][]`. */
-  spans: ReadonlyMap<number, [number, number][]>;
+  /** Saved spans, by sentence id. */
+  spans: ReadonlyMap<number, ChapterSpan[]>;
   entries: NotebookEntry[];
 }
 
@@ -58,7 +73,7 @@ export function useChapterNotebook(chapterId: string | null) {
 
       const translated = new Set<number>();
       const unclear = new Set<number>();
-      const spans = new Map<number, [number, number][]>();
+      const spans = new Map<number, ChapterSpan[]>();
 
       for (const entry of data ?? []) {
         if (entry.sentence_id === null) continue;
@@ -69,7 +84,11 @@ export function useChapterNotebook(chapterId: string | null) {
         }
         if (entry.start_position === null || entry.end_position === null) continue;
         const list = spans.get(entry.sentence_id) ?? [];
-        list.push([entry.start_position, entry.end_position]);
+        list.push({
+          start: entry.start_position,
+          end: entry.end_position,
+          kind: entry.entry_type === "phrase" ? "phrase" : "word",
+        });
         spans.set(entry.sentence_id, list);
       }
 
