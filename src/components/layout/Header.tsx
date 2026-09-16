@@ -24,9 +24,14 @@ export function Header() {
           <span className="bg-gradient-to-r from-gold to-blue bg-clip-text text-lg font-bold tracking-tight text-transparent">
             Fluent
           </span>
-          <span className="text-xs text-muted2">DE · PL</span>
+          {/* Below ~360px the wordmark, the level ring, four controls and the
+              account button do not all fit; the tag line is the one piece that
+              carries no function. */}
+          <span className="hidden text-xs text-muted2 min-[360px]:inline">
+            DE · PL
+          </span>
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {hasAccount ? (
             <>
               <AdminNavLink />

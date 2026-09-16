@@ -87,8 +87,8 @@ export function AdminWordList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold">Słownik</h1>
           <p className="text-sm text-muted2">
             Dodawaj i edytuj słowa, uzupełniaj tłumaczenia i przykłady.
@@ -104,7 +104,7 @@ export function AdminWordList() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-48 flex-1">
+        <div className="relative min-w-48 flex-1 basis-full sm:basis-auto">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchInput}
@@ -172,7 +172,7 @@ export function AdminWordList() {
             {words.map((word) => (
               <div
                 key={word.id}
-                className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="truncate font-medium text-main">
@@ -200,10 +200,11 @@ export function AdminWordList() {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="-ml-2.5 flex shrink-0 items-center gap-1 sm:ml-0">
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    className="size-9 sm:size-8"
                     aria-label="Edytuj"
                     onClick={() => setEditing(word)}
                   >
@@ -213,7 +214,7 @@ export function AdminWordList() {
                     variant="ghost"
                     size="icon-sm"
                     aria-label="Usuń"
-                    className="text-red hover:text-red"
+                    className="size-9 text-red hover:text-red sm:size-8"
                     onClick={() => setToDelete(word)}
                   >
                     <Trash2 className="size-4" />

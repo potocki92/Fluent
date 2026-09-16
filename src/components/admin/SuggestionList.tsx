@@ -70,7 +70,7 @@ export function SuggestionList() {
           {suggestions.map((s) => (
             <div
               key={s.id}
-              className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -87,11 +87,11 @@ export function SuggestionList() {
                 )}
               </div>
 
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="-ml-2.5 flex shrink-0 items-center gap-1 sm:ml-0">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-green hover:text-green"
+                  className="h-9 text-green hover:text-green sm:h-8"
                   disabled={busyId === s.id}
                   onClick={() => review(s, "approved")}
                 >
@@ -101,7 +101,7 @@ export function SuggestionList() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-red hover:text-red"
+                  className="h-9 text-red hover:text-red sm:h-8"
                   disabled={busyId === s.id}
                   onClick={() => review(s, "rejected")}
                 >

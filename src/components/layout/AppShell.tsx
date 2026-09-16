@@ -34,7 +34,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-24 pt-4">
+      {/* The bottom padding clears the fixed tab bar, so it has to clear the
+          safe-area inset the bar now carries too — otherwise the last row of a
+          list sits under the home indicator. */}
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4">
         {children}
       </main>
       <BottomNav />
