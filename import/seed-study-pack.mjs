@@ -244,7 +244,7 @@ function emitSql(pack, rows, { fillMissing }) {
   const cols = COLUMNS.join(", ");
   const values = rows
     .map((row, i) =>
-      "  (" +
+      "    (" +
       COLUMNS.map((col) => {
         const literal = sqlLiteral(row[col], COLUMN_TYPES[col]);
         // Only the first row needs casts; it fixes the column types for the rest.
@@ -254,59 +254,64 @@ function emitSql(pack, rows, { fillMissing }) {
     .join(",\n");
 
   const fill = FILLABLE.map(
-    (col) => `       ${col} = coalesce(w.${col}, p.${col})`,
+    (col) => `           ${col} = coalesce(w.${col}, p.${col})`,
   ).join(",\n");
 
+  // ONE statement, on purpose. The Supabase SQL editor runs each statement in
+  // its own transaction on a pooled connection, so a `create temporary table
+  // … on commit drop` is gone before the next statement can see it, and an
+  // explicit `begin` / `commit` pair buys nothing. A single data-modifying CTE
+  // is atomic by itself and runs anywhere.
   return `-- ${pack.title ?? "fluent-vocabulary-study-pack"}
 -- Wygenerowane przez import/seed-study-pack.mjs — nie edytuj ręcznie.
 -- ${rows.length} haseł. Wklej całość do edytora SQL w Supabase i uruchom.
 --
 -- Skrypt jest idempotentny: hasło o tym samym lemacie i tej samej części mowy
--- nie zostanie dodane po raz drugi ani nadpisane.
-
-begin;
-
-create temporary table fluent_study_pack (
-${COLUMNS.map((col) => `  ${col.padEnd(15)} ${COLUMN_TYPES[col]}${["lemma", "display", "word_type"].includes(col) ? " not null" : ""}`).join(",\n")}
-) on commit drop;
-
-insert into fluent_study_pack (${cols}) values
-${values};
-
--- 1. Nowe hasła. \`words.id\` nie jest kolumną identity, więc numerujemy od
---    bieżącego maksimum; podzapytanie liczone jest raz, przed wstawieniem.
-insert into public.words (id, ${cols})
-select (select coalesce(max(id), 0) from public.words)
-         + row_number() over (order by p.lemma, p.word_type),
-       ${COLUMNS.map((col) => `p.${col}`).join(", ")}
-  from fluent_study_pack p
- where not exists (
-         select 1
-           from public.words w
-          where lower(w.lemma) = lower(p.lemma)
-            and w.word_type = p.word_type
-       );
-${fillMissing ? `
--- 2. Uzupełnienie pustych kolumn w istniejących hasłach. \`coalesce\` pilnuje,
---    by nic już wypełnionego nie zostało nadpisane.
-update public.words w
-   set
+-- nie zostanie dodane po raz drugi ani nadpisane. Całość to JEDNA instrukcja,
+-- więc wykonuje się w całości albo wcale.
+with pack (${cols}) as (
+  values
+${values}
+),
+-- Hasła, których jeszcze nie ma w słowniku. \`words.id\` nie jest kolumną
+-- identity, więc numerujemy je od bieżącego maksimum.
+fresh as (
+  select p.*,
+         row_number() over (order by p.lemma, p.word_type) as rn
+    from pack p
+   where not exists (
+           select 1
+             from public.words w
+            where lower(w.lemma) = lower(p.lemma)
+              and w.word_type = p.word_type
+         )
+),
+inserted as (
+  insert into public.words (id, ${cols})
+  select (select coalesce(max(id), 0) from public.words) + f.rn,
+         ${COLUMNS.map((col) => `f.${col}`).join(", ")}
+    from fresh f
+  returning 1
+)${fillMissing ? `,
+-- Uzupełnienie pustych kolumn w istniejących hasłach. \`coalesce\` pilnuje, by
+-- nic już wypełnionego nie zostało nadpisane; ta gałąź widzi ten sam snapshot
+-- co insert powyżej, więc dotyka wyłącznie haseł, które były w bazie wcześniej.
+filled as (
+  update public.words w
+     set
 ${fill}
-  from fluent_study_pack p
- where lower(w.lemma) = lower(p.lemma)
-   and w.word_type = p.word_type;
-` : ""}
--- Podsumowanie (temp table znika przy commit, więc liczymy przed nim).
-select count(*)                             as hasla_w_pakiecie,
-       count(w.id)                          as hasla_w_slowniku,
-       count(*) filter (where w.id is null) as brakujace
-  from fluent_study_pack p
-  left join public.words w
-    on lower(w.lemma) = lower(p.lemma)
-   and w.word_type = p.word_type;
-
-commit;
-`;
+    from pack p
+   where lower(w.lemma) = lower(p.lemma)
+     and w.word_type = p.word_type
+  returning 1
+)
+select (select count(*) from inserted) as dodane_hasla,
+       (select count(*) from filled)   as uzupelnione_hasla,
+       ${rows.length}                  as hasel_w_pakiecie;
+` : `
+select (select count(*) from inserted) as dodane_hasla,
+       ${rows.length}                  as hasel_w_pakiecie;
+`}`;
 }
 
 // ------------------------------------------------------------- Supabase mode

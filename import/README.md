@@ -76,7 +76,10 @@ node import/seed-study-pack.mjs import/prolog_study_pack.json \
   --sql import/prolog_study_pack.sql
 ```
 
-`import/prolog_study_pack.sql` is that file, regenerated from the pack. Both
+`import/prolog_study_pack.sql` is that file, regenerated from the pack. It is
+a SINGLE statement built from data-modifying CTEs — the Supabase SQL editor
+runs each statement in its own transaction on a pooled connection, so a temp
+table would be gone before the next statement could read it. Both
 paths are idempotent and **never overwrite an existing entry**: a word is
 identified by `(lower(lemma), word_type)`, so *sein* the verb and *sein* the
 pronoun stay two rows and a re-run inserts nothing. Add `--fill-missing` to also
