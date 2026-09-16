@@ -33,7 +33,10 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#374151] bg-[#2d3748]/95 backdrop-blur">
+    // The bar is the last thing above the home indicator on a modern phone, so
+    // it pays the safe-area inset itself — `env()` is 0 everywhere else, so the
+    // desktop bar is unchanged.
+    <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-[#374151] bg-[#2d3748]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       <ul className="mx-auto flex max-w-2xl items-stretch justify-around px-2">
         {NAV.map(({ href, label, icon: Icon, also }) => {
           const active = isActive(pathname, href, also);

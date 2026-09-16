@@ -81,6 +81,7 @@ export function QuestionList({
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    className="size-9 sm:size-8"
                     aria-label="Edytuj pytanie"
                     onClick={() => setEditingId(question.id)}
                   >
@@ -90,7 +91,7 @@ export function QuestionList({
                     variant="ghost"
                     size="icon-sm"
                     aria-label="Usuń pytanie"
-                    className="text-red hover:text-red"
+                    className="size-9 text-red hover:text-red sm:size-8"
                     onClick={() => setToDelete(question)}
                   >
                     <Trash2 className="size-4" />

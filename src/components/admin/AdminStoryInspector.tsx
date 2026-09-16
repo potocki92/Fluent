@@ -100,7 +100,7 @@ function ChapterCard({ chapter }: { chapter: StoryChapterSummary }) {
         </button>
       </header>
 
-      <dl className="grid grid-cols-4 gap-2 text-xs">
+      <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         {QUESTION_KINDS.map((kind) => (
           <div key={kind} className="rounded-lg bg-[#374151]/40 px-2 py-1.5">
             <dt className="text-[11px] text-muted2">{KIND_LABEL[kind]}</dt>

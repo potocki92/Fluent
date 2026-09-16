@@ -60,8 +60,8 @@ export function AdminTextList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold">Teksty</h1>
           <p className="text-sm text-muted2">
             Zarządzaj tekstami i pytaniami do nauki.
@@ -94,7 +94,7 @@ export function AdminTextList() {
           {texts.map((text) => (
             <div
               key={text.id}
-              className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-2 border-b border-border p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <div className="min-w-0 space-y-1">
                 <p className="truncate font-medium text-main">{text.title}</p>
@@ -122,21 +122,37 @@ export function AdminTextList() {
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-1">
+              {/* A 32px icon is a comfortable desktop target and a miss on a
+                  phone, so the row keeps its compact `sm` sizing and grows to
+                  36px where the input is a thumb. */}
+              <div className="-ml-3 flex shrink-0 items-center gap-1 sm:ml-0">
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="h-9 sm:h-8"
                   onClick={() => onToggleStatus(text)}
                   disabled={toggling === text.id}
                 >
                   {text.status === "published" ? "Cofnij" : "Publikuj"}
                 </Button>
-                <Button asChild variant="ghost" size="icon-sm" aria-label="Podgląd">
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-9 sm:size-8"
+                  aria-label="Podgląd"
+                >
                   <Link href={`/admin/texts/${text.id}/preview`}>
                     <Eye className="size-4" />
                   </Link>
                 </Button>
-                <Button asChild variant="ghost" size="icon-sm" aria-label="Edytuj">
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-9 sm:size-8"
+                  aria-label="Edytuj"
+                >
                   <Link href={`/admin/texts/${text.id}`}>
                     <Pencil className="size-4" />
                   </Link>
@@ -145,7 +161,7 @@ export function AdminTextList() {
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Usuń"
-                  className="text-red hover:text-red"
+                  className="size-9 text-red hover:text-red sm:size-8"
                   onClick={() => setToDelete(text)}
                 >
                   <Trash2 className="size-4" />
