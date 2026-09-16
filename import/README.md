@@ -55,3 +55,37 @@ node import/seed-texts.mjs
 Each text links vocabulary to word lemmas via `<mark data-lemma="…">` and ships
 three Polish questions (easy / medium / hard); question difficulty is anchored
 on the CEFR→Elo scale from `src/lib/cefr.ts`.
+
+## 3. Study packs — vocabulary harvested from one text
+
+A *study pack* (`format: "fluent-vocabulary-study-pack"`) is a German→Polish
+word list prepared outside the app for one piece of content — e.g.
+`prolog_study_pack.json`, the 423 headwords of the prologue fragment. Load it
+with:
+
+```bash
+node import/seed-study-pack.mjs import/prolog_study_pack.json --dry-run
+node import/seed-study-pack.mjs import/prolog_study_pack.json
+```
+
+No key at hand? Generate SQL for the Supabase SQL editor instead — same result,
+no network:
+
+```bash
+node import/seed-study-pack.mjs import/prolog_study_pack.json \
+  --sql import/prolog_study_pack.sql
+```
+
+`import/prolog_study_pack.sql` is that file, regenerated from the pack. Both
+paths are idempotent and **never overwrite an existing entry**: a word is
+identified by `(lower(lemma), word_type)`, so *sein* the verb and *sein* the
+pronoun stay two rows and a re-run inserts nothing. Add `--fill-missing` to also
+write the pack's translations, plurals and genders into columns that are still
+`NULL` — useful on top of the DTZ headwords, which ship untranslated.
+
+Only `entries[]` becomes a word. `phrases`, `proper_names`, `wordforms` and
+`context_examples` are counted in the report and then dropped: a phrase in
+`words` would poison the matcher (`dictionary-match.ts` indexes an entry by the
+last word of `display`, so "Angst machen" would claim every *machen*), a proper
+name is not vocabulary, and a contextual meaning belongs to one learner's
+notebook rather than to the shared dictionary.
