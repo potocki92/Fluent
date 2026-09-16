@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ChapterList } from "@/components/library/ChapterList";
 import { DeletePrivateBook } from "@/components/library/import/DeletePrivateBook";
+import { RefreshBookVocabulary } from "@/components/library/import/RefreshBookVocabulary";
 import { ChapterPrepCard } from "@/components/story/ChapterPrepCard";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -33,6 +34,14 @@ export async function generateMetadata({
  * gets chapter 8. Artificial gating buys nothing here; spoiler protection is a
  * separate, deliberate feature.
  */
+/**
+ * `maxDuration` is raised because "Odśwież słownictwo" re-runs the content
+ * pipeline from this page, and Next applies a page's `maxDuration` to the Server
+ * Actions invoked from it. The work is batched per chapter regardless — this
+ * buys one batch enough room, not a whole book.
+ */
+export const maxDuration = 300;
+
 export default async function LibraryItemPage({
   params,
 }: {
@@ -161,7 +170,8 @@ export default async function LibraryItemPage({
       {/* Only an owner sees this, and only for their own import: RLS means
           nobody else can even load this page for a private book. */}
       {item.rights === "private_import" && (
-        <div className="pt-2">
+        <div className="space-y-3 pt-2">
+          <RefreshBookVocabulary itemId={item.id} />
           <DeletePrivateBook itemId={item.id} />
         </div>
       )}
