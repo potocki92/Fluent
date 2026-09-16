@@ -490,6 +490,23 @@ state is a faint dotted underline; colour arrives on hover, focus, or while that
 word's gloss is open. LingQ-style per-word mastery colouring is explicitly not in
 this phase.
 
+**Loudness is a rendering decision; resolving is not.** `matchToken` used to
+return null for closed-class words before it even looked them up, so that the
+page would not fill with marks. That put a presentation rule inside the
+linguistic layer, and it cost more than particles: `GERMAN_FUNCTION_WORDS`
+contains *haben*, *sein*, *werden*, *können*, *müssen*, *sollen* and *wollen*, so
+a learner could import *wir* into the dictionary, see it in `/browse`, and find
+it dead in the book — on the Prolog fragment that silenced 64 of 423 imported
+entries and one lexical token in five. The matcher resolves every token now, and
+the reader decides how loudly to mark one: a closed-class word is tappable and
+highlights, but carries no dotted underline (`data-function-word`, styled only
+in the hover-capable media query — a touch device never drew underlines at all,
+so the old rule was buying nothing there). The set still governs
+`isReportableGap`, where "a missing *der* is not a curation task" is exactly
+right. The cost is real and accepted: a chapter now stores an occurrence per
+closed-class token, so `word_occurrences` grows and `dictionary_match_rate`
+rises. `CONTENT_PROCESSOR_VERSION` moved to `content_v2` for it.
+
 ## Today integration
 
 The Today engine was built so this would be additive, and it was: one candidate

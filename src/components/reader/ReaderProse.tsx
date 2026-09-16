@@ -1,3 +1,5 @@
+import { isFunctionWord } from "@/lib/content/dictionary-match";
+import { normalizeToken } from "@/lib/content/tokenize";
 import type { ReaderParagraph, ReaderSentence } from "@/lib/library/queries";
 
 /**
@@ -123,6 +125,13 @@ function renderSentence(sentence: ReaderSentence) {
         // be marked without re-tokenizing the chapter in the browser.
         data-position={occurrence.position}
         data-lemma={occurrence.lemma}
+        // LOUDNESS IS DECIDED HERE, not by refusing to resolve the word. A
+        // closed-class token is glossable like any other — tapping *wir* must
+        // answer *my* — but it carries no dotted underline, because underlining
+        // every *der* is how a page turns into a Christmas tree. On a touch
+        // device the reader draws no underlines at all, so this changes nothing
+        // there and the tap works either way.
+        data-function-word={isFunctionWord(normalizeToken(occurrence.surface)) || undefined}
       >
         {sentence.text.slice(occurrence.charStart, occurrence.charEnd)}
       </span>,

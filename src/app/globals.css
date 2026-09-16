@@ -203,6 +203,13 @@
     text-decoration-color: color-mix(in srgb, var(--reader-accent) 45%, transparent);
   }
 
+  /* A closed-class word is glossable but never advertised: it is still tappable
+     and still highlights on hover, it just does not carry the dotted underline
+     that would put a mark under every second word on the page. */
+  .reader-word[data-function-word] {
+    text-decoration-line: none;
+  }
+
   .reader-word:hover {
     background-color: color-mix(in srgb, var(--reader-accent) 16%, transparent);
     color: var(--reader-accent);

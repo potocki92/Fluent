@@ -37,30 +37,46 @@ export default async function BrowsePage({
   const queryClient = getQueryClient();
   const supabase = await createServerSupabaseClient();
 
+  // THE HEADLINE NUMBER IS COUNTED, NOT WRITTEN DOWN. It used to be the literal
+  // string "2 588 słów", which was a fact about one import of one wordlist and
+  // stopped being true the first time the dictionary grew — and then quietly
+  // said "nothing was added" to anyone who had just added something. `head:
+  // true` fetches no rows. Unfiltered on purpose: the list below already prints
+  // the filtered count.
+  const totalWords = async (): Promise<number | null> => {
+    const { count, error } = await supabase
+      .from("words")
+      .select("id", { count: "exact", head: true });
+    return error ? null : (count ?? null);
+  };
+
   // Best-effort prefetch: failures degrade to the client hooks fetching on
   // mount, so a prefetch error never crashes the Server Component render.
-  await Promise.allSettled([
-    queryClient.prefetchInfiniteQuery({
-      queryKey: ["words", filters],
-      queryFn: ({ pageParam }) =>
-        fetchWordsOffsetPage(pageParam as number, filters),
-      initialPageParam: 0,
-      getNextPageParam: (lastPage) => lastPage.nextPage,
-      pages: 1,
-    }),
-    // Prime the saved-words cache so the "w nauce" count and status dots render
-    // on first paint instead of after a second client round-trip.
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from("saved_words")
-        .select(SAVED_WORD_COLUMNS)
-        .order("due_at", { ascending: true });
-      queryClient.setQueryData(SAVED_WORDS_KEY, (data ?? []) as SavedWord[]);
-    })(),
+  const [total] = await Promise.all([
+    totalWords(),
+    Promise.allSettled([
+      queryClient.prefetchInfiniteQuery({
+        queryKey: ["words", filters],
+        queryFn: ({ pageParam }) =>
+          fetchWordsOffsetPage(pageParam as number, filters),
+        initialPageParam: 0,
+        getNextPageParam: (lastPage) => lastPage.nextPage,
+        pages: 1,
+      }),
+      // Prime the saved-words cache so the "w nauce" count and status dots
+      // render on first paint instead of after a second client round-trip.
+      (async () => {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+          .from("saved_words")
+          .select(SAVED_WORD_COLUMNS)
+          .order("due_at", { ascending: true });
+        queryClient.setQueryData(SAVED_WORDS_KEY, (data ?? []) as SavedWord[]);
+      })(),
+    ]),
   ]);
 
   return (
@@ -71,7 +87,9 @@ export default async function BrowsePage({
             Słownik DTZ
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            2 588 słów · lista DTZ (Goethe-Institut / telc)
+            {total === null
+              ? "lista DTZ (Goethe-Institut / telc) i hasła z lektur"
+              : `${total.toLocaleString("pl-PL")} słów · lista DTZ (Goethe-Institut / telc) i hasła z lektur`}
           </p>
         </header>
 
