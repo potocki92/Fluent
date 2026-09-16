@@ -12,4 +12,8 @@
  * changed normalisation rule. Do not bump it for comments or refactors that
  * cannot move a boundary.
  */
-export const CONTENT_PROCESSOR_VERSION = "content_v1";
+export const CONTENT_PROCESSOR_VERSION = "content_v2";
+
+// v1 → v2: `matchToken` no longer refuses closed-class words, so a chapter now
+// carries occurrences for *wir*, *haben*, *sollen* and the rest. Same text,
+// different occurrences — exactly the case this stamp exists for.

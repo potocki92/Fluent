@@ -199,8 +199,27 @@ describe("processChapterContent", () => {
   it("numbers occurrences by lexical token, not by match", () => {
     const result = processChapterContent("Das Kind liest das Buch.", DICT);
     const occurrences = result.paragraphs[0].sentences[0].occurrences;
-    // "Das"(0) is a function word; Kind is token 1 and Buch is token 4.
+    // "das" is not in DICT, so it produces no occurrence; Kind is token 1 and
+    // Buch is token 4. The positions are addresses in the sentence's lexical
+    // tokens, which is what a notebook note is anchored on — they must not
+    // renumber just because a neighbour did or did not match.
     expect(occurrences.map((o) => o.position)).toEqual([1, 4]);
+  });
+
+  it("resolves a closed-class word like any other — *wir* is a word", () => {
+    // It used to refuse before the lookup, so an imported *wir* was in the
+    // dictionary and dead in the book. Loudness is the reader's decision now.
+    const dict = [
+      ...DICT,
+      { id: 7, lemma: "wir", display: "wir" },
+      { id: 8, lemma: "sollen", display: "sollen" },
+    ];
+    const result = processChapterContent("Wir sollen das Buch lesen.", dict);
+    const occurrences = result.paragraphs[0].sentences[0].occurrences;
+
+    expect(occurrences.map((o) => o.lemma)).toEqual(["wir", "sollen", "Buch"]);
+    // Still addressed by lexical token: Wir(0) sollen(1) das(2) Buch(3).
+    expect(occurrences.map((o) => o.position)).toEqual([0, 1, 3]);
   });
 
   it("aggregates the chapter's vocabulary by frequency", () => {

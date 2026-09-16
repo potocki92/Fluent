@@ -82,7 +82,16 @@ export function buildDictionaryIndex(
   return index;
 }
 
-/** Closed-class words are never interactive — see `GERMAN_FUNCTION_WORDS`. */
+/**
+ * Is this a closed-class word — an article, pronoun, preposition, conjunction
+ * or auxiliary form?
+ *
+ * A PRESENTATION FACT, NOT A LINGUISTIC VERDICT. It says "do not shout about
+ * this one", which is why the reader uses it to decide how loudly to mark a
+ * token. It does NOT decide whether the token means something: *wir* means
+ * *my*, and a learner reading their first German novel is exactly the person
+ * who needs to be told that.
+ */
 export function isFunctionWord(normalized: string): boolean {
   return GERMAN_FUNCTION_WORDS.has(normalized.toLowerCase());
 }
@@ -92,16 +101,27 @@ export function isFunctionWord(normalized: string): boolean {
  *
  * Tries the surface form first and then the de-inflected candidates in rank
  * order, so an exact dictionary form always beats a stem that happens to
- * collide. Function words return null before any lookup: several of them exist
- * as dictionary rows, and marking every *der* in a book is how a page turns into
- * a Christmas tree.
+ * collide.
+ *
+ * FUNCTION WORDS RESOLVE LIKE ANY OTHER TOKEN. They used to return null here,
+ * before any lookup, so that a page would not turn into a Christmas tree. That
+ * mixed the two decisions this module exists to keep apart: "is *Wir* the word
+ * *wir*?" is linguistic and the answer is yes, while "should every *der* be
+ * underlined?" is presentation and belongs to the reader — which already draws
+ * no marks at all on a touch device, so the rule was buying nothing there and
+ * costing the tap.
+ *
+ * It was also costing far more than particles. `GERMAN_FUNCTION_WORDS` holds
+ * *haben*, *sein*, *werden*, *können*, *müssen*, *sollen* and *wollen*: on the
+ * Prolog fragment this silenced 64 of 423 imported entries and one lexical
+ * token in five, which is the difference between a readable page and a page
+ * where the modal verb a sentence turns on is dead text.
  */
 export function matchToken(
   surface: string,
   index: DictionaryIndex,
 ): DictionaryHit | null {
   const normalized = normalizeToken(surface);
-  if (isFunctionWord(normalized)) return null;
 
   const direct = index.get(foldUmlauts(normalized));
   if (direct) return direct;
@@ -117,7 +137,8 @@ export function matchToken(
 /**
  * Is this token worth reporting as a dictionary GAP when it does not match?
  *
- * Short tokens and function words are noise; proper nouns are unavoidable in
+ * Short tokens and function words are noise — a missing *der* is not a gap a
+ * curator should chase; proper nouns are unavoidable in
  * fiction. What is left is the useful signal: content words a learner will meet
  * and Fluent cannot gloss. See `chapters.unmatched_sample`.
  */
