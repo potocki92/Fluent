@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import { compilePassage, type CompiledPassage, type DictEntry } from "@/lib/text-compiler";
 
 /** Supabase caps a single select at 1000 rows; the dictionary is larger. */

@@ -1,4 +1,4 @@
-import { isCurrentUserAdmin } from "@/lib/admin";
+import { isCurrentUserAdmin } from "@/lib/auth/server";
 import { AdminNav } from "@/components/admin/AdminNav";
 
 /**

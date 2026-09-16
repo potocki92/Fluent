@@ -1,6 +1,5 @@
-import Link from "next/link";
-
 import { NotebookView, type NotebookBook } from "@/components/notebook/NotebookView";
+import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Mój zeszyt · Fluent" };
@@ -31,26 +30,7 @@ export default async function NotebookPage({
 }) {
   const { book } = await searchParams;
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold">Mój zeszyt</h1>
-        <p className="text-sm text-muted2">
-          Zaloguj się, aby zobaczyć swoje notatki z książek.
-        </p>
-        <Link
-          href="/auth"
-          className="inline-flex h-11 items-center rounded-xl bg-gold px-4 text-sm font-semibold text-[#1a202c]"
-        >
-          Zaloguj się
-        </Link>
-      </div>
-    );
-  }
+  const user = await requireAccountUser("/notebook", supabase);
 
   return (
     <div className="space-y-4">

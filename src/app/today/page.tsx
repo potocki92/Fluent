@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { getOrCreateTodayPlan } from "@/actions/today-plan";
+import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { localHour, normalizeTimeZone } from "@/lib/learning/planner/learning-day";
 import { TodayHeader } from "@/components/today/TodayHeader";
@@ -22,11 +23,10 @@ export const metadata: Metadata = { title: "Dzisiaj · Fluent" };
  */
 export default async function TodayPage() {
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return <SignedOut />;
+  // The proxy already turned away anyone without an account (§81). This is the
+  // second lock on the same door, and it is what hands the page a `user` it does
+  // not have to null-check.
+  const user = await requireAccountUser("/today", supabase);
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -68,19 +68,6 @@ export default async function TodayPage() {
   );
 }
 
-function SignedOut() {
-  return (
-    <Card className="items-center gap-3 p-5 text-center">
-      <p className="text-lg font-bold">Witaj w Fluent</p>
-      <p className="text-sm text-muted2">
-        Zaloguj się, aby Fluent przygotował Twój plan nauki na dziś.
-      </p>
-      <Button asChild>
-        <Link href="/auth">Zaloguj się</Link>
-      </Button>
-    </Card>
-  );
-}
 
 /**
  * The fallback when the plan could not be built.

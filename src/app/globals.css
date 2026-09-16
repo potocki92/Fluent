@@ -266,3 +266,86 @@
     transition: text-decoration-color 160ms ease;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   AUTH
+   ─────────────────────────────────────────────────────────────────────────────
+   The one screen a learner sees before they are a learner. It gets its own
+   surface for the same reason the reader does: the app chrome is built around
+   somebody who is already signed in, and a tab bar linking to four locked
+   screens is noise around the only control that matters here.
+
+   Everything below is expressed in the existing Fluent tokens — no new palette,
+   no stray hexes. The "ambient" layer is two very low-opacity washes of gold and
+   blue mixed against the app background; at full brightness it should read as
+   depth, never as a gradient anyone notices. */
+
+.auth-screen {
+  /* `dvh` so the iOS keyboard shrinking the viewport does not leave the card
+     scrolled under the URL bar; `vh` first as the fallback for anything that
+     does not know the dynamic units. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.auth-ambient {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--color-dark);
+}
+
+.auth-ambient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      55rem 38rem at 12% -12%,
+      color-mix(in srgb, var(--color-gold) 13%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 32rem at 104% 4%,
+      color-mix(in srgb, var(--color-blue) 10%, transparent),
+      transparent 58%
+    ),
+    radial-gradient(
+      40rem 28rem at 50% 118%,
+      color-mix(in srgb, var(--color-gold) 7%, transparent),
+      transparent 60%
+    );
+}
+
+/* The card itself: a calm surface with one hairline of warm light along the top
+   edge, which is the whole of the "depth" budget. */
+.auth-surface {
+  position: relative;
+  background-color: color-mix(in srgb, var(--color-card2) 55%, var(--color-dark));
+  border: 1px solid color-mix(in srgb, var(--color-gold) 14%, var(--color-border));
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--color-gold) 10%, transparent) inset,
+    0 24px 48px -24px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .auth-enter {
+    animation: auth-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes auth-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

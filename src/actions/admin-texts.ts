@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import { CEFR_DIFFICULTY } from "@/lib/cefr";
 import type { Text, TextInput, TextStatus } from "@/types";
 

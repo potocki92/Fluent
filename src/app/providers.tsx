@@ -1,27 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
+import { AuthProvider } from "@/components/auth/AuthProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { FluentUser } from "@/lib/auth/identity";
 
-export function Providers({ children }: { children: React.ReactNode }) {
-  // Create the client once per browser session (not on every render).
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutes
-            refetchOnWindowFocus: false,
-          },
-        },
-      }),
-  );
-
+/**
+ * The browser-side provider tree.
+ *
+ * The QueryClient used to be created here and live for the whole browser
+ * session. It now belongs to `AuthProvider`, because its lifetime is the
+ * lifetime of an IDENTITY, not of a tab — see `src/lib/auth/client-state.ts`.
+ */
+export function Providers({
+  initialUser,
+  children,
+}: {
+  initialUser: FluentUser | null;
+  children: React.ReactNode;
+}) {
   return (
-    <QueryClientProvider client={queryClient}>
+    <AuthProvider initialUser={initialUser}>
       <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
-    </QueryClientProvider>
+    </AuthProvider>
   );
 }

@@ -10,6 +10,7 @@ import {
   DEFAULT_READER_PREFERENCES,
   parseReaderPreferences,
 } from "@/lib/reading/preferences";
+import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function generateMetadata({
@@ -51,9 +52,11 @@ export default async function ChapterPage({
   if (!Number.isInteger(position) || position < 1) notFound();
 
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Reading a chapter is an account activity: it records progress, logs lookups
+  // and writes the personal notebook, and a privately imported book is readable
+  // by exactly one person. The proxy enforces this for the route; this is the
+  // page's own lock (§7, §81).
+  const user = await requireAccountUser(`/library/${slug}/${position}`, supabase);
 
   const loaded = await getReaderChapter(supabase, slug, position);
   if (!loaded) notFound();
@@ -64,13 +67,11 @@ export default async function ChapterPage({
     return <NotReady slug={slug} title={loaded.item.title} />;
   }
 
-  const { data: profile } = user
-    ? await supabase
-        .from("profiles")
-        .select("reader_preferences")
-        .eq("id", user.id)
-        .maybeSingle()
-    : { data: null };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("reader_preferences")
+    .eq("id", user.id)
+    .maybeSingle();
 
   const preferences = profile
     ? parseReaderPreferences(profile.reader_preferences)
@@ -79,7 +80,7 @@ export default async function ChapterPage({
   // Whether the completion card may offer a Challenge. Resolved here rather than
   // in the client so the reader never has to ask, and so a chapter with no bank
   // simply does not show the button instead of showing one that fails.
-  const story = user ? await getChapterStoryState(loaded.id) : null;
+  const story = await getChapterStoryState(loaded.id);
 
   return (
     <ReaderShell

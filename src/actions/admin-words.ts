@@ -1,6 +1,6 @@
 "use server";
 
-import { requireAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/auth/server";
 import { toTopic } from "@/lib/word-topics";
 import type { SuggestionStatus, Word, WordInput } from "@/types";
 

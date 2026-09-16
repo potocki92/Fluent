@@ -2,6 +2,7 @@ import Link from "next/link";
 import { NotebookPen, PartyPopper } from "lucide-react";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
+import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getQueryClient } from "@/lib/query-client";
 import { ReviewModeSwitch } from "@/components/flashcard/ReviewModeSwitch";
@@ -30,9 +31,7 @@ export default async function ReviewPage({
   searchParams: Promise<{ words?: string }>;
 }) {
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await requireAccountUser("/review", supabase);
 
   const now = new Date().toISOString();
 
@@ -42,12 +41,9 @@ export default async function ReviewPage({
   const { words: requestedWords } = await searchParams;
   const planWordIds = parseWordIds(requestedWords);
 
-  let dueCards: SavedWordWithWord[] = [];
-  let extraCards: SavedWordWithWord[] = [];
-  let notebookDue = 0;
   const queryClient = getQueryClient();
 
-  if (user && planWordIds.length > 0) {
+  if (planWordIds.length > 0) {
     const planned = await buildPlannedCards(supabase, user.id, planWordIds, now);
     if (planned.length > 0) {
       await primeWordGoal(supabase, queryClient);
@@ -66,26 +62,24 @@ export default async function ReviewPage({
     }
   }
 
-  if (user) {
-    const { data } = await supabase
-      .from("saved_words")
-      .select(`*, word:words(${WORD_COLS})`)
-      .eq("user_id", user.id)
-      .eq("is_mastered", false)
-      .lte("due_at", now)
-      .order("due_at", { ascending: true })
-      .limit(20);
-    // The joined `word` can come back null under RLS / data gaps — drop those
-    // so ReviewSession never dereferences a missing dictionary entry.
-    dueCards = ((data ?? []) as unknown as SavedWordWithWord[]).filter(
-      (c) => c.word != null,
-    );
+  const { data } = await supabase
+    .from("saved_words")
+    .select(`*, word:words(${WORD_COLS})`)
+    .eq("user_id", user.id)
+    .eq("is_mastered", false)
+    .lte("due_at", now)
+    .order("due_at", { ascending: true })
+    .limit(20);
+  // The joined `word` can come back null under RLS / data gaps — drop those so
+  // ReviewSession never dereferences a missing dictionary entry.
+  const dueCards = ((data ?? []) as unknown as SavedWordWithWord[]).filter(
+    (c) => c.word != null,
+  );
 
-    extraCards = await buildExtraCards(supabase, user.id, now);
-    notebookDue = await countDueNotebookCards(supabase, user.id, now);
+  const extraCards = await buildExtraCards(supabase, user.id, now);
+  const notebookDue = await countDueNotebookCards(supabase, user.id, now);
 
-    await primeWordGoal(supabase, queryClient);
-  }
+  await primeWordGoal(supabase, queryClient);
 
   // Nothing to review *and* nothing to learn ahead — the only true dead end.
   if (dueCards.length === 0 && extraCards.length === 0 && notebookDue === 0) {

@@ -2,6 +2,7 @@ import { Flame, MessageSquare, BookmarkCheck, CheckCircle2 } from "lucide-react"
 
 import { WordGoalStat } from "@/components/flashcard/WordGoalStat";
 
+import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { LevelSummary } from "@/components/level/LevelSummary";
 import { CefrMilestones } from "@/components/level/CefrMilestones";
@@ -18,42 +19,38 @@ const CHART_POINTS = 50;
 
 export default async function StatsPage() {
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Gated centrally by the proxy; re-checked here so the queries below can be
+  // written for a learner who exists rather than branching on one who might not.
+  const user = await requireAccountUser("/stats", supabase);
 
-  const profilePromise = user
-    ? supabase.from("profiles").select("*").eq("id", user.id).maybeSingle()
-    : Promise.resolve({ data: null });
+  const profilePromise = supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
 
   // The chart plots the learner's MOST RECENT attempts. Ordering ascending and
   // then limiting took the OLDEST 50 instead, so past 50 answers the graph
   // froze on ancient history. Take the newest rows, then reverse for display so
   // the line still reads left-to-right in time order.
-  const attemptsPromise = user
-    ? supabase
-        .from("attempts")
-        .select("ability_after, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(CHART_POINTS)
-    : Promise.resolve({ data: [] as AbilityChartAttempt[] });
+  const attemptsPromise = supabase
+    .from("attempts")
+    .select("ability_after, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(CHART_POINTS);
 
-  const savedCountPromise = user
-    ? supabase
-        .from("saved_words")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-    : Promise.resolve({ count: 0 });
+  const savedCountPromise = supabase
+    .from("saved_words")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id);
 
-  const masteredCountPromise = user
-    ? supabase
-        .from("saved_words")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("is_mastered", true)
-    : Promise.resolve({ count: 0 });
+  const masteredCountPromise = supabase
+    .from("saved_words")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("is_mastered", true);
 
   const [
     { data: profile },
