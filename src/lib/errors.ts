@@ -108,3 +108,28 @@ export function failFrom(
 ): FluentFailure {
   return fail(classifyError(error), context, error);
 }
+
+/**
+ * Await a Server Action and never let it fail silently.
+ *
+ * A Server Action can fail in two shapes. The expected half returns a
+ * {@link FluentFailure}; the unexpected half — a network drop between the
+ * browser and the action, a redacted production error, a serialization failure —
+ * REJECTS, and a caller that only inspects `result.ok` never sees it. The UI
+ * then unsets its spinner and shows nothing, which reads to the learner as "the
+ * click did nothing".
+ *
+ * This collapses both halves into the one shape the UI already branches on, so
+ * a rejected action is a classified failure with Polish copy rather than an
+ * unhandled promise. The technical detail goes to the console, never on screen.
+ */
+export async function settleAction<T>(
+  run: () => Promise<ActionResult<T>>,
+  context: string,
+): Promise<ActionResult<T>> {
+  try {
+    return await run();
+  } catch (error) {
+    return fail("database_error", `${context}: action threw`, error);
+  }
+}

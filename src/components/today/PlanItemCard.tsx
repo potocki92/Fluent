@@ -57,11 +57,18 @@ export function PlanItemCard({
   isNext,
   onSkip,
   skipping,
+  skipDisabled,
+  skipError,
 }: {
   item: TodayPlanItem;
   isNext: boolean;
   onSkip: (itemId: string) => void;
+  /** This task's own skip is in flight — the spinner belongs to it. */
   skipping: boolean;
+  /** Some skip is in flight. One write at a time, whichever task it belongs to. */
+  skipDisabled: boolean;
+  /** Polish copy from the error taxonomy when skipping THIS task failed. */
+  skipError: string | null;
 }) {
   const Icon = ICONS[item.type];
   const done = item.status === "completed";
@@ -147,13 +154,21 @@ export function PlanItemCard({
           ) : (
             <PlanReason reason={{ code: item.reasonCode, data: item.reasonData }} />
           )}
+
+          {/* A failed skip says so where the learner is looking, and the task is
+              untouched — tapping again is the retry. */}
+          {skipError && (
+            <p role="alert" className="text-xs text-red">
+              {skipError}
+            </p>
+          )}
         </div>
 
         {!done && !skipped && (
           <button
             type="button"
             onClick={() => onSkip(item.id)}
-            disabled={skipping}
+            disabled={skipping || skipDisabled}
             aria-label={`Pomiń na dziś: ${PLAN_ITEM_TITLE_PL[item.type]}`}
             className="rounded-md p-1.5 text-muted2 outline-none transition-colors hover:bg-secondary hover:text-main focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
           >

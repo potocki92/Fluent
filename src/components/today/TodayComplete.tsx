@@ -2,7 +2,11 @@ import Link from "next/link";
 import { PartyPopper, TrendingUp } from "lucide-react";
 
 import type { TodayPlanItem } from "@/actions/today-plan";
-import { PLAN_ITEM_TITLE_PL, renderMinutes } from "@/lib/learning/planner/reasons";
+import {
+  PLAN_ITEM_TITLE_PL,
+  renderEstimatedTime,
+  renderSkippedTasks,
+} from "@/lib/learning/planner/reasons";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -14,33 +18,45 @@ import { Card } from "@/components/ui/card";
  * progress is legible — bolting a currency onto that would add a second, louder
  * reason to come back, and it would be a worse one.
  *
- * So the reward is the truth: what you did, how long it took, and the one thing
- * that measurably improved.
+ * So the reward is the truth: what you did, roughly how long it was planned to
+ * take, and the one thing that measurably improved.
+ *
+ * AND THE TRUTH INCLUDES WHAT FLUENT DOES NOT KNOW. It does not measure how long
+ * anyone studied (`today-engine.md` §14), so this screen never says "X min
+ * nauki" — that would dress the planner's estimate up as a statistic, and it
+ * would be wrong in both directions: overstated for the learner who raced
+ * through the plan, understated for the one who laboured over it. The estimate
+ * is shown as an estimate, and it counts COMPLETED activities only, so skipping
+ * three tasks cannot inflate it.
  */
 export function TodayComplete({
   items,
-  minutes,
+  completedEstimatedMinutes,
   streak,
   improved,
 }: {
   items: readonly TodayPlanItem[];
-  minutes: number;
+  /** Planner estimate for the finished activities — never a measured duration. */
+  completedEstimatedMinutes: number;
   streak: number;
   /** Polish label of the concept the day's practice pushed hardest, if any. */
   improved: string | null;
 }) {
   const completed = items.filter((item) => item.status === "completed");
   const skipped = items.filter((item) => item.status === "skipped").length;
+  const estimate =
+    completedEstimatedMinutes > 0
+      ? renderEstimatedTime(completedEstimatedMinutes)
+      : null;
+  const streakLine = streak > 1 ? `${streak} dni z rzędu` : null;
+  const subtitle = [estimate, streakLine].filter(Boolean).join(" · ");
 
   return (
     <Card className="items-center gap-3 p-5 text-center">
       <PartyPopper className="size-8 text-gold" aria-hidden />
       <div className="space-y-1">
         <p className="text-lg font-bold">Dzisiejszy plan ukończony</p>
-        <p className="text-sm text-muted2">
-          {renderMinutes(minutes)} nauki
-          {streak > 1 ? ` · ${streak} dni z rzędu` : ""}
-        </p>
+        {subtitle && <p className="text-sm text-muted2">{subtitle}</p>}
       </div>
 
       <ul className="w-full space-y-1 text-left text-sm">
@@ -63,8 +79,7 @@ export function TodayComplete({
 
       {skipped > 0 && (
         <p className="text-xs text-muted2">
-          {skipped === 1 ? "1 zadanie pominięte" : `${skipped} zadania pominięte`} —
-          wrócą w kolejnych planach.
+          {renderSkippedTasks(skipped)} — wrócą w kolejnych planach.
         </p>
       )}
 
