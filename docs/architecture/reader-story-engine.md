@@ -386,6 +386,22 @@ processing twice leaves exactly the same row counts and the same positions.
 input could differ — a new abbreviation, a different token regex, a changed
 normalisation rule. Not for comments or refactors that cannot move a boundary.
 
+**The dictionary is the third input, and nothing hashes it.** `content_hash`
+describes the source and `processor_version` describes the pipeline; neither
+says anything about `words`. So a chapter processed yesterday keeps yesterday's
+occurrences forever, and a word added today is in `/browse` but dead text in the
+book — the pipeline only writes an occurrence for a token it could MATCH, and an
+unmatched token is not a tappable span at all. Growing the dictionary therefore
+needs an explicit reprocess: `force: true`, which is what `/admin/library`'s
+"Przetwórz" passes for first-party content and what `refreshBookVocabulary`
+passes for a private import, whose owner has no admin panel to reach (the admin
+list filters owned items out by design). It is safe to run because the source is
+unchanged and the pipeline is deterministic: every position comes back identical,
+so bookmarks, notebook notes and saved words survive and only `word_id` changes.
+Stamping a dictionary fingerprint on the chapter would let a plain reprocess
+notice by itself; that is a schema change and a deliberate task, not a side
+effect of importing a wordlist.
+
 ### Content quality
 
 Processing produces a report per chapter, stored on it:

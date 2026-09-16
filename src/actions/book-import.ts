@@ -592,3 +592,146 @@ async function removeStoredObjects(paths: readonly string[]): Promise<void> {
     console.error("[fluent:import] storage cleanup unavailable", cause);
   }
 }
+
+/**
+ * Re-link an owned book's chapters to the dictionary as it is NOW.
+ *
+ * WHY THIS HAS TO EXIST. A chapter's interactive words are `word_occurrences`
+ * rows, and the pipeline only creates one for a token it could MATCH — an
+ * unmatched token is plain, untappable prose. Those rows are computed once, at
+ * processing time, against the dictionary as it stood then. So growing the
+ * dictionary afterwards changes nothing for a chapter that is already `ready`:
+ * the word is in `/browse`, and in the book it is still dead text.
+ *
+ * `content_hash` + `processor_version` cannot notice, because neither of them
+ * describes the dictionary. That is exactly what `force` is for, and until now
+ * only an admin could reach it (`/admin/library`), while `listLibraryContent`
+ * filters owned items out — leaving the owner of a private import with no way
+ * to do this to their own book at all.
+ *
+ * SAFE TO RUN, and worth saying why: the source text has not changed, the
+ * pipeline is deterministic, so every paragraph, sentence and token position
+ * comes back identical. Bookmarks, notebook notes and saved words are anchored
+ * on those positions, so they survive; what changes is which tokens carry a
+ * `word_id`.
+ *
+ * BATCHED, because a serverless function cannot hold a 42-chapter book. One
+ * batch per call, the cursor is a chapter position, and the caller loops — the
+ * same shape as `processImportBatch`.
+ */
+export interface VocabularyRefreshProgress {
+  /** Chapters in the book. */
+  total: number;
+  /** Chapters re-linked so far, including this batch. */
+  refreshed: number;
+  /** Cursor for the next call. */
+  afterPosition: number;
+  done: boolean;
+}
+
+export async function refreshBookVocabulary(input: {
+  libraryItemId: string;
+  afterPosition?: number;
+}): Promise<ActionResult<VocabularyRefreshProgress>> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail("unauthorized", "refreshBookVocabulary: no session");
+
+  // THE AUTHORITY IS OWNERSHIP, stated here rather than inferred from the fact
+  // that RLS let the read through. An admin is not an owner (§ private import),
+  // and first-party content is reprocessed from `/admin/library`.
+  const { data: item, error } = await supabase
+    .from("library_items")
+    .select("id, slug, owner_user_id, rights")
+    .eq("id", input.libraryItemId)
+    .maybeSingle();
+  if (error) return failFrom(error, `refreshBookVocabulary: load ${input.libraryItemId}`);
+  if (!item || item.owner_user_id !== user.id || item.rights !== "private_import") {
+    return fail("not_found", `refreshBookVocabulary: not owned ${input.libraryItemId}`);
+  }
+
+  let service;
+  try {
+    service = createServiceRoleSupabaseClient();
+  } catch (cause) {
+    return fail("config_error", "refreshBookVocabulary: service role", cause);
+  }
+
+  const after = input.afterPosition ?? 0;
+
+  const { count, error: countError } = await supabase
+    .from("chapters")
+    .select("id", { count: "exact", head: true })
+    .eq("library_item_id", item.id)
+    .eq("status", "ready");
+  if (countError) return failFrom(countError, "refreshBookVocabulary: count");
+
+  const { data: chapters, error: chaptersError } = await supabase
+    .from("chapters")
+    .select("id, position")
+    .eq("library_item_id", item.id)
+    .eq("status", "ready")
+    .gt("position", after)
+    .order("position", { ascending: true })
+    .limit(IMPORT_PROCESS_BATCH_SIZE);
+  if (chaptersError) return failFrom(chaptersError, "refreshBookVocabulary: chapters");
+
+  const batch = chapters ?? [];
+  let cursor = after;
+
+  if (batch.length > 0) {
+    let index;
+    try {
+      index = await loadDictionaryIndex(supabase);
+    } catch (cause) {
+      return fail("database_error", "refreshBookVocabulary: dictionary", cause);
+    }
+
+    for (const chapter of batch) {
+      const result = await processChapterById({
+        read: supabase,
+        service,
+        chapterId: chapter.id,
+        index,
+        force: true,
+      });
+      // ONE BAD CHAPTER IS NOT A BAD BOOK — the cursor advances either way, so a
+      // chapter whose pipeline throws is recorded as failed and the rest of the
+      // book still gets re-linked.
+      console.info("[fluent:import] refresh", {
+        itemId: item.id,
+        chapterId: chapter.id,
+        ok: result.ok,
+      });
+      cursor = chapter.position;
+    }
+  }
+
+  const done = batch.length < IMPORT_PROCESS_BATCH_SIZE;
+  if (done) {
+    revalidatePath("/library");
+    revalidatePath(`/library/${item.slug}`);
+  }
+
+  // DERIVED, NEVER ASSERTED. "How far are we" is counted from the chapter rows
+  // the cursor has passed, not accumulated in the client — positions need not be
+  // contiguous, and a client-side tally would drift the moment one call is
+  // retried.
+  const { count: behind, error: behindError } = await supabase
+    .from("chapters")
+    .select("id", { count: "exact", head: true })
+    .eq("library_item_id", item.id)
+    .eq("status", "ready")
+    .lte("position", cursor);
+  if (behindError) return failFrom(behindError, "refreshBookVocabulary: progress");
+
+  return {
+    ok: true,
+    total: count ?? 0,
+    refreshed: behind ?? 0,
+    afterPosition: cursor,
+    done,
+  };
+}
