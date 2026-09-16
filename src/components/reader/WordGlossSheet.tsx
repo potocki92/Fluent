@@ -259,6 +259,11 @@ export function WordGlossSheet({
             {/* 3. THE SENTENCE, and the learner's own Polish for it. */}
             {target.sentence && target.sentenceId !== null && (
               <div className="space-y-2">
+                {/* §24 again: the sheet's third claim, and the only one that was
+                    unlabelled. "W tym miejscu" is about the word, "Słownik" is
+                    about the lexeme, and this is about the sentence — which is
+                    also what the two actions underneath it act on. */}
+                <SectionLabel>W tym zdaniu</SectionLabel>
                 <blockquote
                   className={cn(
                     "rounded-lg border-l-2 bg-[#374151]/60 px-3 py-2 text-sm italic leading-relaxed text-main",
@@ -419,11 +424,25 @@ function Section({
 }) {
   return (
     <section>
-      <h3 className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted2">
-        {label}
-      </h3>
+      <SectionLabel>{label}</SectionLabel>
       <div className="mt-1">{children}</div>
     </section>
+  );
+}
+
+/**
+ * The heading of one labelled block.
+ *
+ * Its own component because the sentence block needs the same label without the
+ * wrapper: it is a stack of its own (the quote, the learner's Polish, the flag)
+ * rather than one piece of content, and two spellings of the same heading would
+ * be two headings within a month.
+ */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted2">
+      {children}
+    </h3>
   );
 }
 
