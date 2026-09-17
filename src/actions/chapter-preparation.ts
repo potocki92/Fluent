@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { reconcileChapterFully } from "@/lib/content/reconciler";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import {
   evidenceJson,
@@ -81,6 +82,30 @@ export async function startChapterPreparation(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return fail("unauthorized", "startChapterPreparation: no session");
+
+  // PREPARATION READS THE STORED AGGREGATE, so the aggregate has to be current
+  // before it is read. `chapter_vocabulary` is derived from the occurrences'
+  // `word_id`s, and a chapter imported before a word existed carries none for it
+  // — which would have preparation insist a chapter contains no *ziehen* while
+  // the reader glosses *zog* as exactly that. Reconciling first is cheap (a
+  // chapter already stamped with the current dictionary revision returns
+  // immediately) and it is the same idempotent pass the reader triggers.
+  //
+  // Best effort: a chapter that cannot be reconciled is still worth preparing
+  // from what is stored.
+  try {
+    const service = createServiceRoleSupabaseClient();
+    const reconciled = await reconcileChapterFully({
+      read: supabase,
+      service,
+      chapterId: input.chapterId,
+    });
+    if (!reconciled.ok) {
+      console.error("[fluent:story] preparation reconcile failed", reconciled.message);
+    }
+  } catch (error) {
+    console.error("[fluent:story] preparation reconcile unavailable", error);
+  }
 
   const state = await getChapterStoryState(input.chapterId);
   if (!state.ok) return state;

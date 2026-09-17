@@ -17,6 +17,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getDictionarySnapshot } from "@/lib/content/dictionary-snapshot";
+import { resolveNormalizedForms } from "@/lib/content/dictionary-match";
+import { normalizeToken, tokenize } from "@/lib/content/tokenize";
 import { estimateCoverage, type CoverageEstimate } from "@/lib/reading/coverage";
 import { itemProgressRatio } from "@/lib/reading/progress";
 import type { Database } from "@/types/database";
@@ -126,6 +129,10 @@ const ITEM_COLUMNS =
 
 const CHAPTER_COLUMNS =
   "id, position, title, word_count, paragraph_count, estimated_reading_minutes, status";
+
+/** The reader also needs the dictionary this chapter's `word_id`s came from. */
+const READER_CHAPTER_COLUMNS =
+  "id, position, title, word_count, paragraph_count, estimated_reading_minutes, status, dictionary_revision";
 
 type ItemRow = {
   id: string;
@@ -341,9 +348,23 @@ export async function getLibraryItem(
   };
 }
 
-/** One interactive word, as the reader renders it. */
+/**
+ * One interactive word, as the reader renders it.
+ *
+ * `id` IS NULLABLE, and that is not a defect. A chapter processed before every
+ * lexical token got a row has gaps in its occurrences; rather than leave those
+ * words dead until a maintenance pass has run, the reader fills them in from the
+ * same tokenizer that produced the stored rows. Such a token has everything that
+ * matters — its surface, its offsets and its position, which is what a notebook
+ * note is anchored on — but no row id yet. Reconciliation gives it one, and until
+ * then the reader simply does not claim an occurrence it does not have.
+ *
+ * `wordId` is the CURRENT dictionary's answer, which is not necessarily the one
+ * stored with the row: see {@link getReaderChapter}.
+ */
 export interface ReaderOccurrence {
-  id: number;
+  /** The `word_occurrences` row, or null for a token not stored as one yet. */
+  id: number | null;
   position: number;
   surface: string;
   lemma: string;
@@ -379,13 +400,44 @@ export interface ReaderChapter {
   previousPosition: number | null;
   nextPosition: number | null;
   paragraphs: ReaderParagraph[];
+  /**
+   * The stored rows disagree with today's dictionary, and the page was rendered
+   * from the dictionary.
+   *
+   * The reader passes this to `syncChapterDictionary`, which writes down what
+   * this render worked out — so the aggregate views (coverage, preparation, the
+   * question bank) catch up too, and the next render takes the cheap path.
+   * Nothing on screen depends on it: the words are already correct.
+   */
+  needsDictionarySync: boolean;
 }
 
 /**
- * Load one chapter's structured content.
+ * Load one chapter's structured content, resolved against TODAY's dictionary.
  *
  * The whole chapter, and nothing but the chapter. Three queries, all bounded by
  * `chapter_id`, so the cost tracks the chapter's length and not the book's.
+ *
+ * AND THEN THE SECOND LAYER. What is stored is what the dictionary knew when the
+ * chapter was processed. That is a fact about the past, and a learner who added
+ * *ziehen* to the dictionary this morning is asking a question about the present,
+ * so before any of it reaches the page the unresolved tokens are offered to the
+ * current dictionary — through the very same `matchToken` the processor used, so
+ * *zog* resolves here exactly as it would have resolved there.
+ *
+ * WHAT THIS BUYS. A word added at any point after an import is tappable in every
+ * existing book on the next page view. No reprocessing, no "odśwież słownictwo",
+ * no `force: true`, no rewritten paragraphs — and therefore no risk to a single
+ * bookmark, note or saved word, because none of those rows are touched.
+ *
+ * WHAT IT COSTS. Nothing on the common path: a chapter already stamped with the
+ * current `dictionary_revision` skips the whole pass, and the revision itself is
+ * a cached primary-key read. When a chapter IS behind, the cost is one map lookup
+ * per DISTINCT unresolved form — a few thousand, once, in memory.
+ *
+ * IT IS A READ. It writes nothing: a GET that repairs the database is how a page
+ * view becomes a transaction. Persisting the same conclusion is a Server Action,
+ * triggered by the reader (see {@link ReaderChapter.needsDictionarySync}).
  */
 export async function getReaderChapter(
   supabase: Client,
@@ -403,7 +455,7 @@ export async function getReaderChapter(
 
   const { data: chapter } = await supabase
     .from("chapters")
-    .select(CHAPTER_COLUMNS)
+    .select(READER_CHAPTER_COLUMNS)
     .eq("library_item_id", item.id)
     .eq("position", position)
     .maybeSingle();
@@ -428,7 +480,10 @@ export async function getReaderChapter(
       readAll((from, to) =>
         supabase
           .from("sentences")
-          .select("id, paragraph_id, position, text")
+          // `word_count` is the sentence's LEXICAL TOKEN count, written by the
+          // pipeline. It is what makes "does this sentence have all its
+          // occurrences?" a comparison rather than a re-tokenization.
+          .select("id, paragraph_id, position, text, word_count")
           .eq("chapter_id", chapter.id)
           .order("chapter_position", { ascending: true })
           .range(from, to),
@@ -459,18 +514,31 @@ export async function getReaderChapter(
     occurrencesBySentence.set(occurrence.sentence_id, list);
   }
 
-  const sentencesByParagraph = new Map<number, ReaderSentence[]>();
-  for (const sentence of sentences) {
-    const list = sentencesByParagraph.get(sentence.paragraph_id) ?? [];
-    list.push({
+  const readerSentences: PendingSentence[] = sentences.map(
+    (sentence) => ({
+      paragraphId: sentence.paragraph_id,
       id: sentence.id,
       position: sentence.position,
       text: sentence.text,
       occurrences: (occurrencesBySentence.get(sentence.id) ?? []).sort(
         (a, b) => a.charStart - b.charStart,
       ),
-    });
-    sentencesByParagraph.set(sentence.paragraph_id, list);
+      // Carried only as far as the resolution pass below.
+      tokenCount: sentence.word_count,
+    }),
+  );
+
+  const needsDictionarySync = await resolveAgainstCurrentDictionary(
+    supabase,
+    chapter.dictionary_revision === null ? null : Number(chapter.dictionary_revision),
+    readerSentences,
+  );
+
+  const sentencesByParagraph = new Map<number, ReaderSentence[]>();
+  for (const sentence of readerSentences) {
+    const list = sentencesByParagraph.get(sentence.paragraphId) ?? [];
+    list.push(sentence);
+    sentencesByParagraph.set(sentence.paragraphId, list);
   }
 
   const positions = (neighbours ?? []).map((row) => row.position);
@@ -497,8 +565,137 @@ export async function getReaderChapter(
         (a, b) => a.position - b.position,
       ),
     })),
+    needsDictionarySync,
   };
 }
+
+/**
+ * Just enough of a chapter to title a page.
+ *
+ * `generateMetadata` and the page body both run for one request, and loading the
+ * whole chapter twice to put a string in `<title>` was always wasteful. It stopped
+ * being merely wasteful once rendering also resolves the chapter's unresolved
+ * tokens against the current dictionary: that is real work, and doing it for a
+ * heading would double it for nothing.
+ */
+export async function getReaderChapterTitle(
+  supabase: Client,
+  slug: string,
+  position: number,
+): Promise<{ title: string | null; position: number; itemTitle: string } | null> {
+  const { data, error } = await supabase
+    .from("chapters")
+    .select("title, position, library_items!inner(title, slug, archived_at)")
+    .eq("library_items.slug", slug)
+    .eq("position", position)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  // PostgREST types an embedded one-to-one as an array in some versions and an
+  // object in others; normalising here keeps the ambiguity out of the caller.
+  const item = (Array.isArray(data.library_items)
+    ? data.library_items[0]
+    : data.library_items) as { title: string; archived_at: string | null } | null;
+  if (!item || item.archived_at !== null) return null;
+
+  return { title: data.title, position: data.position, itemTitle: item.title };
+}
+
+/** A sentence being assembled: its paragraph, and the token count the pipeline recorded. */
+type PendingSentence = ReaderSentence & { paragraphId: number; tokenCount: number };
+
+/**
+ * Bring one chapter's occurrences up to date with the current dictionary, in
+ * memory, for this render only.
+ *
+ * TWO REPAIRS, AND THEY ARE DIFFERENT AGES OF THE SAME BUG:
+ *
+ *   GAPS — a chapter processed before every lexical token got a row simply has
+ *     no occurrence for *zog* at all. The sentence's stored `word_count` says how
+ *     many tokens it should have, so a mismatch is detected without tokenizing,
+ *     and only a mismatched sentence is re-tokenized. The synthesized occurrences
+ *     carry no row id, which is honest: there is no row yet.
+ *   UNRESOLVED — an occurrence exists with `word_id = null` because nothing
+ *     matched it then. It is offered to the dictionary again now.
+ *
+ * Returns whether anything was found to be behind, which is what the reader uses
+ * to ask for the same conclusion to be written down.
+ *
+ * The lookup key is `normalizeToken(surface)` — the tokenizer's own rule, not a
+ * second lowercasing — so a stored row and a filled gap are asked the identical
+ * question. `normalized` itself is deliberately not shipped to the browser: it is
+ * derivable, and one fewer string per token is real bytes over a whole chapter.
+ *
+ * FAILURE IS NOT FATAL. If the dictionary cannot be read, the chapter renders
+ * from exactly what is stored — which is what it did before this existed. A
+ * degraded gloss is a much smaller problem than a chapter that will not open.
+ */
+async function resolveAgainstCurrentDictionary(
+  supabase: Client,
+  storedRevision: number | null,
+  sentences: PendingSentence[],
+): Promise<boolean> {
+  let snapshot;
+  try {
+    snapshot = await getDictionarySnapshot(supabase);
+  } catch (error) {
+    console.error("[fluent:reader] dictionary unavailable", error);
+    return false;
+  }
+
+  const behind = storedRevision === null || storedRevision !== snapshot.revision;
+  const gaps = sentences.some(
+    (sentence) => sentence.occurrences.length < sentence.tokenCount,
+  );
+  if (!behind && !gaps) return false;
+
+  for (const sentence of sentences) {
+    if (sentence.occurrences.length >= sentence.tokenCount) continue;
+
+    const byPosition = new Map(
+      sentence.occurrences.map((occurrence) => [occurrence.position, occurrence]),
+    );
+    // The SAME tokenizer that produced the stored rows, over the STORED text, so
+    // a filled gap lands on exactly the position the reconciler will insert.
+    sentence.occurrences = tokenize(sentence.text).map(
+      (token) =>
+        byPosition.get(token.position) ?? {
+          id: null,
+          position: token.position,
+          surface: token.surface,
+          lemma: token.normalized,
+          wordId: null,
+          charStart: token.charStart,
+          charEnd: token.charEnd,
+        },
+    );
+  }
+
+  const unresolved = new Set<string>();
+  for (const sentence of sentences) {
+    for (const occurrence of sentence.occurrences) {
+      if (occurrence.wordId === null) {
+        unresolved.add(normalizeToken(occurrence.surface));
+      }
+    }
+  }
+  if (unresolved.size === 0) return behind || gaps;
+
+  const resolved = resolveNormalizedForms(unresolved, snapshot.index);
+  for (const sentence of sentences) {
+    for (const occurrence of sentence.occurrences) {
+      if (occurrence.wordId !== null) continue;
+      const hit = resolved.get(normalizeToken(occurrence.surface));
+      if (!hit) continue;
+      occurrence.wordId = hit.wordId;
+      occurrence.lemma = hit.lemma;
+    }
+  }
+
+  return true;
+}
+
 
 /**
  * "How much of this chapter's vocabulary do I already know?"

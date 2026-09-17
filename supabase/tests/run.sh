@@ -32,6 +32,7 @@ MIGRATIONS=(
   supabase/migrations/20260914180000_story_learning_engine.sql
   supabase/migrations/20260915120000_private_book_import.sql
   supabase/migrations/20260915180000_personal_language_notebook.sql
+  supabase/migrations/20260917120000_dictionary_independent_occurrences.sql
 )
 
 # The suites run against the same database, in order: 01 exercises the test
@@ -46,6 +47,7 @@ SUITES=(
   supabase/tests/05_story_engine_security.sql
   supabase/tests/06_book_import_security.sql
   supabase/tests/07_notebook_security.sql
+  supabase/tests/08_dictionary_sync_security.sql
 )
 
 if ! "$PSQL" -d "$ADMIN_DB" -tAc 'select 1' >/dev/null 2>&1; then

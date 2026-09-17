@@ -199,11 +199,58 @@ describe("processChapterContent", () => {
   it("numbers occurrences by lexical token, not by match", () => {
     const result = processChapterContent("Das Kind liest das Buch.", DICT);
     const occurrences = result.paragraphs[0].sentences[0].occurrences;
-    // "das" is not in DICT, so it produces no occurrence; Kind is token 1 and
-    // Buch is token 4. The positions are addresses in the sentence's lexical
-    // tokens, which is what a notebook note is anchored on — they must not
-    // renumber just because a neighbour did or did not match.
-    expect(occurrences.map((o) => o.position)).toEqual([1, 4]);
+    // EVERY lexical token gets a row, and the position is its address among the
+    // sentence's lexical tokens — which is what a notebook note is anchored on,
+    // so it must not renumber because a neighbour did or did not match.
+    expect(occurrences.map((o) => o.position)).toEqual([0, 1, 2, 3, 4]);
+    expect(occurrences.map((o) => o.surface)).toEqual([
+      "Das",
+      "Kind",
+      "liest",
+      "das",
+      "Buch",
+    ]);
+    // …and only the two the dictionary knows carry an entry.
+    expect(occurrences.map((o) => o.wordId)).toEqual([null, 4, null, null, 3]);
+  });
+
+  it("writes an occurrence for a token the dictionary has never heard of", () => {
+    // TEST A, and the whole point of the phase. `ziehen` is in DICT here; the
+    // regression this guards is the OPPOSITE case — see the suite below, where
+    // the dictionary does not have it and *zog* must still be a row.
+    const result = processChapterContent("Er zog sein Schwert.", []);
+    const occurrences = result.paragraphs[0].sentences[0].occurrences;
+
+    expect(occurrences.map((o) => o.surface)).toEqual([
+      "Er",
+      "zog",
+      "sein",
+      "Schwert",
+    ]);
+    expect(occurrences.every((o) => o.wordId === null)).toBe(true);
+    // The provisional lemma is the normalized surface: a stand-in for a headword
+    // nobody has curated, never a claim about German.
+    expect(occurrences.map((o) => o.lemma)).toEqual([
+      "er",
+      "zog",
+      "sein",
+      "schwert",
+    ]);
+  });
+
+  it("keeps the statistics about the DICTIONARY, not about the rows", () => {
+    // The rows now exist either way, so `matchRate` would be a meaningless 1.0 if
+    // it counted them. It counts real matches, exactly as before.
+    const known = processChapterContent("Das Kind liest das Buch.", DICT);
+    const unknown = processChapterContent("Das Kind liest das Buch.", []);
+
+    expect(known.stats.matchedTokenCount).toBe(2);
+    expect(unknown.stats.matchedTokenCount).toBe(0);
+    expect(unknown.stats.matchRate).toBe(0);
+    expect(unknown.stats.matchedWordCount).toBe(0);
+    expect(unknown.vocabulary).toEqual([]);
+    // …while both produced the same five rows.
+    expect(unknown.paragraphs[0].sentences[0].occurrences).toHaveLength(5);
   });
 
   it("resolves a closed-class word like any other — *wir* is a word", () => {
@@ -217,9 +264,18 @@ describe("processChapterContent", () => {
     const result = processChapterContent("Wir sollen das Buch lesen.", dict);
     const occurrences = result.paragraphs[0].sentences[0].occurrences;
 
-    expect(occurrences.map((o) => o.lemma)).toEqual(["wir", "sollen", "Buch"]);
-    // Still addressed by lexical token: Wir(0) sollen(1) das(2) Buch(3).
-    expect(occurrences.map((o) => o.position)).toEqual([0, 1, 3]);
+    expect(occurrences.map((o) => o.lemma)).toEqual([
+      "wir",
+      "sollen",
+      "das",
+      "Buch",
+      "lesen",
+    ]);
+    // Still addressed by lexical token: Wir(0) sollen(1) das(2) Buch(3) lesen(4).
+    expect(occurrences.map((o) => o.position)).toEqual([0, 1, 2, 3, 4]);
+    // *das* and *lesen* are rows without an entry; *wir* and *sollen* are rows
+    // with one. The difference is the column, never the row's existence.
+    expect(occurrences.map((o) => o.wordId)).toEqual([7, 8, null, 3, null]);
   });
 
   it("aggregates the chapter's vocabulary by frequency", () => {

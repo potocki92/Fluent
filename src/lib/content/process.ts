@@ -9,6 +9,26 @@
  *        ↓ dictionary     token → word_id, via the shared de-inflection rules
  *        = ProcessedChapter
  *
+ * TWO LAYERS, AND THE SECOND ONE MOVES ON ITS OWN. Everything above the
+ * dictionary line is STRUCTURE — paragraphs, sentences, tokens, positions — and
+ * it depends only on the source text. The dictionary line is KNOWLEDGE, and it
+ * is the only part of the output that depends on what `words` happens to contain
+ * today. They are deliberately not fused: every lexical token gets an
+ * occurrence, and `wordId` is simply null when Fluent cannot gloss it yet.
+ *
+ * That is the invariant this file exists to protect:
+ *
+ *     Every lexical token gets an occurrence. Dictionary resolution is
+ *     OPTIONAL and may evolve independently of the immutable reading structure.
+ *
+ * It used to be the opposite — a token only became a row if it matched — which
+ * made the structure of a book a function of the dictionary as it stood on the
+ * day it was imported. Adding *ziehen* a month later could then only reach an
+ * existing book by REPROCESSING it: rewriting paragraphs, sentences and
+ * occurrences to change one nullable column. Now the rows are already there and
+ * resolution is a separate, cheap, idempotent pass
+ * (`src/lib/content/dictionary-sync.ts`).
+ *
  * PURE. No Supabase, no clock, no randomness, no I/O — persisting the result is
  * `src/actions/admin-library.ts`'s job, and the split is what lets the whole
  * pipeline be unit-tested on a fixture instead of against a database.
@@ -41,14 +61,30 @@ import { splitSentences } from "@/lib/content/sentences";
 import { tokenize } from "@/lib/content/tokenize";
 import { CONTENT_PROCESSOR_VERSION } from "@/lib/content/version";
 
-/** One interactive word inside a sentence. */
+/**
+ * One interactive word inside a sentence — EVERY lexical token gets one.
+ *
+ * `surface` is the token exactly as the page shows it (*Bücher*, *zog*, *E-Mail*)
+ * and is what the reader renders; `normalized` is the lookup key — lowercased
+ * with the apostrophe variants folded, umlauts intact — and is what dictionary
+ * resolution is keyed on, now and in every later pass.
+ *
+ * `wordId` is the CURRENT dictionary's answer, and `null` is a legitimate one: it
+ * says "no entry today", never "this is not a word". `lemma` is then PROVISIONAL
+ * — the normalized surface standing in for a headword nobody has curated yet —
+ * and both fields are replaced, in place, the moment the dictionary learns the
+ * word (`src/lib/content/dictionary-sync.ts`). Nothing else about the occurrence
+ * ever changes: its position, its offsets and its row id are structure.
+ */
 export interface ProcessedOccurrence {
   /** Index among the sentence's lexical tokens — NOT among its matched ones. */
   position: number;
   surface: string;
   normalized: string;
+  /** The dictionary headword, or the normalized surface while there is none. */
   lemma: string;
-  wordId: number;
+  /** Null until some dictionary knows this token. Never a reason to skip a row. */
+  wordId: number | null;
   charStart: number;
   charEnd: number;
 }
@@ -162,18 +198,23 @@ export function processWithIndex(
         uniqueWords.add(token.normalized);
 
         const hit = matchToken(token.surface, index);
+
+        // THE ROW IS WRITTEN EITHER WAY. This single `push` outside the `if` is
+        // the whole architectural change: what the dictionary knows decides what
+        // the occurrence SAYS, never whether it exists.
+        occurrences.push({
+          position: token.position,
+          surface: token.surface,
+          normalized: token.normalized,
+          lemma: hit?.lemma ?? token.normalized,
+          wordId: hit?.wordId ?? null,
+          charStart: token.charStart,
+          charEnd: token.charEnd,
+        });
+
         if (hit) {
           matchedTokens += 1;
           reportableTokens += 1;
-          occurrences.push({
-            position: token.position,
-            surface: token.surface,
-            normalized: token.normalized,
-            lemma: hit.lemma,
-            wordId: hit.wordId,
-            charStart: token.charStart,
-            charEnd: token.charEnd,
-          });
 
           const known = vocabulary.get(hit.wordId);
           if (known) {
@@ -190,6 +231,12 @@ export function processWithIndex(
           continue;
         }
 
+        // THE STATISTICS STILL MEAN WHAT THEY MEANT. `matchRate`,
+        // `unmatchedSample` and `chapter_vocabulary` are about the DICTIONARY's
+        // reach, not about how many rows were written, so they keep counting
+        // real matches only — otherwise a chapter full of unknown words would
+        // report a perfect match rate the day this changed.
+        //
         // A gap worth reporting is a content word Fluent cannot gloss. Function
         // words and two-letter tokens are neither a gap nor a failure.
         if (isReportableGap(token.surface)) {

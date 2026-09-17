@@ -205,8 +205,16 @@
 
   /* A closed-class word is glossable but never advertised: it is still tappable
      and still highlights on hover, it just does not carry the dotted underline
-     that would put a mark under every second word on the page. */
-  .reader-word[data-function-word] {
+     that would put a mark under every second word on the page.
+
+     A word the dictionary has no entry for is treated the same way, and for the
+     same reason. Every lexical token is a `.reader-word` now — that is what lets
+     a word added to the dictionary next month work in this book without
+     rebuilding it — but underlining all of them would turn a novel into a page
+     of hyperlinks. The mark means "Fluent can gloss this"; tappability is not a
+     mark at all. */
+  .reader-word[data-function-word],
+  .reader-word[data-unknown] {
     text-decoration-line: none;
   }
 

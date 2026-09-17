@@ -96,7 +96,23 @@ export interface ReaderWordHit {
 
 /** What the reader knows about the word that was tapped. */
 export interface GlossTarget {
-  occurrenceId: number;
+  /**
+   * The `word_occurrences` row, or null for a token that has no row YET.
+   *
+   * A chapter processed before every lexical token got a row has gaps, which the
+   * reader fills in from the same tokenizer for the render. Such a token is fully
+   * usable — it has a sentence, a token position and a surface, which is
+   * everything a note, a lookup or a saved word is anchored on — it simply cannot
+   * name a row that does not exist. Reconciliation creates it; nothing waits for
+   * that.
+   */
+  occurrenceId: number | null;
+  /**
+   * The entry the STORED row points at, which may be out of date in one
+   * direction only: null when the dictionary has learned the word since. The
+   * gloss resolves the surface against today's dictionary and
+   * {@link resolveGlossWordId} decides which answer the reader acts on.
+   */
   wordId: number | null;
   sentenceId: number | null;
   /** The token's index among the sentence's lexical tokens. The note's anchor. */
@@ -239,19 +255,28 @@ export function distanceToRect(box: Box, x: number, y: number): number {
  *
  * A TOKEN WITHOUT A `wordId` STILL OPENS THE SHEET. "Not in Fluent's dictionary"
  * is a fact about the dictionary, not about the learner's interest in the word —
- * the sheet is where they add it to their own (§4, §82). Only a missing
- * occurrence id is fatal, because without it there is no place to anchor
- * anything.
+ * the sheet is where they add it to their own (§4, §82). And it is a fact with a
+ * short shelf life now: the sheet asks the CURRENT dictionary about the surface,
+ * so the same tap on the same word answers differently the week after somebody
+ * adds it.
+ *
+ * A TOKEN WITHOUT AN `occurrenceId` ALSO OPENS IT. That used to be fatal, back
+ * when a row existed only for a matched token and "no row" meant "no word". Now
+ * it means "a row this chapter has not been reconciled into yet", and everything
+ * the sheet does is anchored on the sentence and the token position, both of
+ * which are present. Only a token with no surface is refused, because there is
+ * nothing to ask about.
  */
 export function glossTargetFrom(
   word: ReaderWordHit,
   sentenceText: string,
 ): GlossTarget | null {
-  const occurrenceId = toNumber(word.occurrenceId);
-  if (occurrenceId === null) return null;
+  // A surface is the one thing a tapped word cannot do without: without it there
+  // is nothing to look up and nothing to show.
+  if (!word.surface.trim()) return null;
 
   return {
-    occurrenceId,
+    occurrenceId: toNumber(word.occurrenceId),
     wordId: toNumber(word.wordId),
     sentenceId: toNumber(word.sentenceId),
     tokenPosition: toNumber(word.position),
@@ -345,4 +370,40 @@ function toNumber(value: string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * WHICH DICTIONARY ENTRY THE READER IS ACTING ON — decided once, here.
+ *
+ * The tapped token carries the entry it was STORED with, and the gloss asks the
+ * dictionary about its surface as it stands today. Those can disagree, and every
+ * downstream action — recording the lookup, saving the word to the review deck,
+ * showing "Dodaj do powtórek" at all — has to agree about the answer or a learner
+ * ends up saving one word and reviewing another.
+ *
+ * THE RULE, IN ORDER:
+ *
+ *   1. The dictionary's answer, once it has given one. It is the freshest, and
+ *      it is the only one that can resolve *zog* to *ziehen* through the
+ *      de-inflection rules.
+ *   2. While it is still being asked, the stored id — so a word that was already
+ *      resolved at processing time is actionable instantly rather than after a
+ *      round trip.
+ *   3. Once the dictionary has answered "nothing", NOTHING. A stored id that no
+ *      longer resolves belongs to a deleted entry, and offering to save it would
+ *      be offering a dangling reference.
+ *
+ * Pure, so the three components that need it cannot each grow their own
+ * `target.wordId ?? data?.id ?? null`.
+ */
+export function resolveGlossWordId(input: {
+  target: GlossTarget | null;
+  /** The dictionary entry the gloss query returned, when it has returned. */
+  word: { id: number } | null | undefined;
+  /** False while the lookup is still in flight. */
+  settled: boolean;
+}): number | null {
+  if (!input.target) return null;
+  if (input.word) return input.word.id;
+  return input.settled ? null : input.target.wordId;
 }

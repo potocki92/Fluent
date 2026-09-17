@@ -1107,6 +1107,15 @@ export type Database = {
           dictionary_match_rate: number | null;
           unmatched_sample: Json;
           vocabulary_stats: Json;
+          /**
+           * Which dictionary this chapter's occurrence `word_id`s agree with.
+           *
+           * The third stamp, beside `content_hash` (the source) and
+           * `processor_version` (the pipeline). NULL means "never reconciled",
+           * which is every chapter processed before the dictionary became an
+           * independent layer.
+           */
+          dictionary_revision: number | null;
           /** Set when the chapter came from a private book import. */
           import_id: string | null;
           created_at: string;
@@ -1132,6 +1141,7 @@ export type Database = {
           dictionary_match_rate?: number | null;
           unmatched_sample?: Json;
           vocabulary_stats?: Json;
+          dictionary_revision?: number | null;
           import_id?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -1333,6 +1343,29 @@ export type Database = {
         ];
       };
       /** "This word, in this sentence, here." The datum behind the old `<mark>`. */
+      /**
+       * "Has the dictionary changed?" — one row, bumped by a trigger on `words`.
+       *
+       * Read on chapter renders, so it must stay a primary-key lookup: a
+       * `count(*)` would grow with the dictionary and a `max(updated_at)` could
+       * not see a DELETE.
+       */
+      dictionary_revision: {
+        Row: {
+          id: boolean;
+          revision: number;
+          updated_at: string;
+        };
+        Insert: {
+          id?: boolean;
+          revision?: number;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["dictionary_revision"]["Insert"]
+        >;
+        Relationships: [];
+      };
       word_occurrences: {
         Row: {
           id: number;
@@ -2757,6 +2790,24 @@ export type Database = {
       /** service_role only — writes a chapter's structure in one transaction. */
       replace_chapter_content: {
         Args: { p_chapter_id: string; p_payload: Json };
+        Returns: Json;
+      };
+      /**
+       * Reconcile one chapter with the current dictionary, IN PLACE.
+       *
+       * Inserts occurrence rows for token positions that have none and fills in
+       * `word_id` on rows that had no answer yet — never deletes, never
+       * renumbers, never touches text. `p_finalize` recomputes
+       * `chapter_vocabulary` and stamps `chapters.dictionary_revision`.
+       */
+      sync_chapter_dictionary: {
+        Args: {
+          p_chapter_id: string;
+          p_occurrences?: Json;
+          p_resolutions?: Json;
+          p_revision?: number | null;
+          p_finalize?: boolean;
+        };
         Returns: Json;
       };
       /**
