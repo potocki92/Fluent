@@ -1,5 +1,8 @@
 "use server";
 
+import { getDictionarySnapshot } from "@/lib/content/dictionary-snapshot";
+import { matchToken } from "@/lib/content/dictionary-match";
+import { reconcileChapterFully } from "@/lib/content/reconciler";
 import {
   EMPTY_SNAPSHOT,
   evidenceJson,
@@ -345,6 +348,150 @@ export async function saveWordFromReader(input: {
 
   const row = data?.[0];
   return { ok: true, wasNew: row?.was_new ?? false, context: row?.context_de ?? null };
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// the dictionary, as of right now
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The dictionary entry behind a tapped word, exactly as the gloss shows it. */
+export interface ReaderDictionaryWord {
+  id: number;
+  lemma: string;
+  display: string;
+  article: string | null;
+  word_type: string;
+  translation_pl: string | null;
+  example_de: string | null;
+  example_pl: string | null;
+  ipa: string | null;
+  plural: string | null;
+}
+
+const GLOSS_COLUMNS =
+  "id, lemma, display, article, word_type, translation_pl, example_de, example_pl, ipa, plural";
+
+/**
+ * "What does the dictionary say about THIS word, right now?"
+ *
+ * THE ONE PLACE THE READER ASKS. The gloss used to query `words` from the
+ * browser: by `id` when the occurrence carried one, and otherwise by
+ * `ilike("lemma", …)` — a second, much stupider matcher that could only ever find
+ * a word whose headword was spelled exactly like the token on the page. *zog* is
+ * not spelled *ziehen*, so for every inflected form the answer was "spoza
+ * słownika" even when the entry existed.
+ *
+ * So resolution happens HERE, on the server, through {@link matchToken} — the
+ * same function the processor and the reconciler use, over the same index, with
+ * the same de-inflection rules. One algorithm, one answer, everywhere.
+ *
+ * WHY IT IS A SERVER ACTION and not a browser query: matching needs the whole
+ * dictionary in memory. The server keeps one cached copy per instance; shipping
+ * it to every reader would be absurd, and shipping a simplified matcher instead
+ * is exactly the bug above.
+ *
+ * `wordId` is an OPTIMISATION, not the authority — when the occurrence already
+ * knows its entry there is nothing to resolve. A stored id that no longer exists
+ * falls through to the surface, so a deleted-and-recreated entry re-resolves
+ * instead of showing nothing.
+ */
+export async function resolveReaderWord(input: {
+  wordId: number | null;
+  surface: string;
+}): Promise<ActionResult<{ word: ReaderDictionaryWord | null }>> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail("unauthorized", "resolveReaderWord: no session");
+
+  if (input.wordId !== null) {
+    const { data, error } = await supabase
+      .from("words")
+      .select(GLOSS_COLUMNS)
+      .eq("id", input.wordId)
+      .maybeSingle();
+    if (error) return failFrom(error, `resolveReaderWord: ${input.wordId}`);
+    if (data) return { ok: true, word: data };
+  }
+
+  const surface = input.surface.trim();
+  if (!surface) return { ok: true, word: null };
+
+  let hit;
+  try {
+    const dictionary = await getDictionarySnapshot(supabase);
+    hit = matchToken(surface, dictionary.index);
+  } catch (cause) {
+    return fail("database_error", "resolveReaderWord: dictionary", cause);
+  }
+  if (!hit) return { ok: true, word: null };
+
+  const { data, error } = await supabase
+    .from("words")
+    .select(GLOSS_COLUMNS)
+    .eq("id", hit.wordId)
+    .maybeSingle();
+  if (error) return failFrom(error, `resolveReaderWord: ${surface}`);
+
+  return { ok: true, word: data ?? null };
+}
+
+/**
+ * Write down what the reader already worked out: this chapter's tokens, against
+ * this dictionary.
+ *
+ * NOT WHAT MAKES THE WORDS WORK. The page is already correct — `getReaderChapter`
+ * resolved it for the render. This is about everything that reads the STORED
+ * rows rather than the page: vocabulary coverage, chapter preparation, the
+ * question bank. Without it the reader would say *zog = ziehen* while preparation
+ * insisted the chapter contains no *ziehen*, which is the kind of disagreement
+ * that makes a learner stop trusting both.
+ *
+ * SAFE FOR ANYONE WHO MAY READ THE CHAPTER, and that is the point of the design:
+ * the caller supplies a chapter id and nothing else, and the rows written are
+ * derived entirely from that chapter's own stored sentences and from `words`. A
+ * learner cannot smuggle content into a book through it, cannot reach a chapter
+ * RLS hides from them, and cannot delete or move anything — the pass only ever
+ * adds a missing token row or fills in a null column.
+ *
+ * BEST EFFORT AND RESUMABLE. It is called fire-and-forget and returns a cursor;
+ * an interrupted run leaves the chapter unstamped and simply happens again.
+ */
+export async function syncChapterDictionary(input: {
+  chapterId: string;
+  afterPosition?: number;
+}): Promise<ActionResult<{ done: boolean; cursor: number; inserted: number; resolved: number }>> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail("unauthorized", "syncChapterDictionary: no session");
+
+  let service;
+  try {
+    service = createServiceRoleSupabaseClient();
+  } catch (error) {
+    return fail("config_error", "syncChapterDictionary: service role", error);
+  }
+
+  const result = await reconcileChapterFully({
+    // RLS IS THE AUTHORISATION: a chapter this learner may not read is not found.
+    read: supabase,
+    service,
+    chapterId: input.chapterId,
+    afterPosition: input.afterPosition,
+  });
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    done: result.done,
+    cursor: result.cursor,
+    inserted: result.inserted,
+    resolved: result.resolved,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

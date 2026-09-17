@@ -19,7 +19,9 @@ import type { ReaderParagraph, ReaderSentence } from "@/lib/library/queries";
  * NO PER-WORD COMPONENT. An interactive word is a `<span>` carrying data
  * attributes, not a React component: a 15 000-word chapter would otherwise mean
  * thousands of components to mount and diff for something that never re-renders.
- * `ReaderShell` handles every one of them with a single delegated listener.
+ * `ReaderShell` handles every one of them with a single delegated listener. That
+ * is what makes "every lexical token is interactive" affordable at all — the cost
+ * of the change is spans, not components, and one listener either way.
  *
  * ACCESSIBILITY. The words are NOT buttons. `role="button"` on every glossable
  * word would make a screen reader announce "button" a thousand times a chapter
@@ -99,6 +101,12 @@ function Sentence({
  * sentence with no searching and no ambiguity about WHICH "sein" was matched.
  * An occurrence whose span does not line up (only possible if the rows and the
  * text ever diverged) is skipped rather than allowed to corrupt the text.
+ *
+ * EVERY LEXICAL TOKEN ARRIVES HERE, including the ones no dictionary knows. The
+ * reader no longer asks "did this word match when the book was imported?" — a
+ * question about the past that a learner tapping a word today does not care
+ * about — it asks what is under the finger, and finds out what it means
+ * afterwards.
  */
 function renderSentence(sentence: ReaderSentence) {
   const nodes: React.ReactNode[] = [];
@@ -114,10 +122,13 @@ function renderSentence(sentence: ReaderSentence) {
 
     nodes.push(
       <span
-        key={occurrence.id}
+        // Keyed on the POSITION, not the row id: a token the chapter has no
+        // occurrence row for yet is rendered from the tokenizer and has no id,
+        // and `(sentence, position)` identifies it just as uniquely.
+        key={`${sentence.id}-${occurrence.position}`}
         className="reader-word"
         tabIndex={0}
-        data-occurrence-id={occurrence.id}
+        data-occurrence-id={occurrence.id ?? ""}
         data-word-id={occurrence.wordId ?? ""}
         data-sentence-id={sentence.id}
         // The token's index among the sentence's LEXICAL tokens — the durable
@@ -132,6 +143,14 @@ function renderSentence(sentence: ReaderSentence) {
         // device the reader draws no underlines at all, so this changes nothing
         // there and the tap works either way.
         data-function-word={isFunctionWord(normalizeToken(occurrence.surface)) || undefined}
+        // EVERY TOKEN IS TAPPABLE; NOT EVERY TOKEN IS ADVERTISED. Now that a row
+        // exists for words the dictionary has never heard of, the dotted
+        // underline would land under most of a page of fiction — which says
+        // nothing and reads as damage. So "unknown" is marked the same way a
+        // closed-class word is: no underline, full interactivity. The two
+        // questions the old reader conflated stay apart — whether a word can be
+        // tapped, and whether the page should point at it.
+        data-unknown={occurrence.wordId === null || undefined}
       >
         {sentence.text.slice(occurrence.charStart, occurrence.charEnd)}
       </span>,

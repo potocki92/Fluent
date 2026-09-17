@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  loadDictionaryIndex,
+  loadDictionarySnapshot,
   processChapterById,
   type ProcessingReport,
 } from "@/lib/content/processor";
@@ -348,9 +348,9 @@ export async function processPendingChapters(
     return { ok: true, processed: 0, failed: 0, reports: [] };
   }
 
-  let index;
+  let snapshot;
   try {
-    index = await loadDictionaryIndex(supabase);
+    snapshot = await loadDictionarySnapshot(supabase);
   } catch (cause) {
     return fail("database_error", "processPendingChapters: dictionary", cause);
   }
@@ -363,7 +363,7 @@ export async function processPendingChapters(
       read: supabase,
       service,
       chapterId: chapter.id,
-      index,
+      snapshot,
     });
     if (result.ok) reports.push(result);
     else failed += 1;

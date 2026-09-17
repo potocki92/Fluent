@@ -27,6 +27,7 @@ import {
   recordWordLookup,
   reportReadingProgress,
   startReadingSession,
+  syncChapterDictionary,
   type ChapterSummary,
 } from "@/actions/reading";
 import { markChapterReading } from "@/actions/chapter-analysis";
@@ -59,6 +60,7 @@ import {
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
 import { WordGlossSheet } from "@/components/reader/WordGlossSheet";
 import { useActiveReadingClock } from "@/hooks/useActiveReadingClock";
+import { useReaderWord } from "@/hooks/useReaderWord";
 import { useChapterNotebook } from "@/hooks/useChapterNotebook";
 import { useVisibleParagraph } from "@/hooks/useVisibleParagraph";
 import { newInteractionId } from "@/lib/interaction-id";
@@ -66,6 +68,7 @@ import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
   CHAPTER_COMPLETION_RATIO,
   CLICK_PAIRING_MS,
+  DICTIONARY_SYNC_MAX_CALLS,
   PROGRESS_FLUSH_MS,
   PROGRESS_FLUSH_PARAGRAPHS,
   TAP_SLOP_PX,
@@ -93,6 +96,16 @@ export interface ReaderChapterMeta {
   legacyTextId: number | null;
   /** True when a validated question bank can fill a Chapter Challenge. */
   hasChallenge: boolean;
+  /**
+   * The stored rows are behind the current dictionary, and the page was rendered
+   * from the dictionary rather than from them.
+   *
+   * Nothing on screen waits for this: the words are already resolved. It only
+   * asks the reader to have the same conclusion WRITTEN DOWN, so the views built
+   * on the stored rows — coverage, preparation, the question bank — agree with
+   * what the learner can see.
+   */
+  needsDictionarySync: boolean;
 }
 
 /**
@@ -140,7 +153,15 @@ export function ReaderShell({
 
   const [preferences, setPreferences] = useState(initialPreferences);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [gloss, setGloss] = useState<GlossTarget | null>(null);
+  // THE TAP, NOT JUST THE WORD. The interaction id is minted when the sheet
+  // opens and travels with it, because the lookup can only be recorded once the
+  // dictionary has answered — which is later, and possibly after a refetch. One
+  // id per tap is what makes "record it when we know what it is" and "never
+  // count one tap twice" the same statement.
+  const [gloss, setGloss] = useState<{
+    target: GlossTarget;
+    interactionId: string;
+  } | null>(null);
   const [summary, setSummary] = useState<ChapterSummary | null>(null);
   const [ratio, setRatio] = useState(0);
   const [chromeHidden, setChromeHidden] = useState(false);
@@ -230,6 +251,44 @@ export function ReaderShell({
       cancelled = true;
     };
   }, [chapter.id]);
+
+  // ── the dictionary, written down ──────────────────────────────────────────
+  // THIS IS NOT WHAT MAKES THE WORDS WORK. The page was rendered against the
+  // current dictionary, so every word on it is already tappable and already
+  // glossed — that happens on the server, in `getReaderChapter`, and it is why
+  // adding a word to the dictionary needs no refresh, no reprocessing and no
+  // button.
+  //
+  // What this does is persist the same conclusion, so the things that read the
+  // STORED rows rather than the page agree with it: vocabulary coverage, chapter
+  // preparation, the question bank. Without it the reader would say *zog =
+  // ziehen* while preparation insisted the chapter has no *ziehen* in it.
+  //
+  // Fire and forget, batched, idempotent, and deliberately silent: nothing on
+  // screen changes when it finishes, so there is nothing to wait for and nothing
+  // to refresh.
+  useEffect(() => {
+    if (!chapter.needsDictionarySync) return;
+    let cancelled = false;
+
+    void (async () => {
+      let cursor = 0;
+      for (let call = 0; call < DICTIONARY_SYNC_MAX_CALLS; call += 1) {
+        const result = await syncChapterDictionary({
+          chapterId: chapter.id,
+          afterPosition: cursor,
+        });
+        // A failure is not worth telling the learner about: the chapter they are
+        // reading is correct either way, and the next open tries again.
+        if (cancelled || !result.ok || result.done) return;
+        cursor = result.cursor;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chapter.id, chapter.needsDictionarySync]);
 
   // ── progress ──────────────────────────────────────────────────────────────
   const flush = useCallback(
@@ -351,27 +410,51 @@ export function ReaderShell({
 
       const target = glossTargetFrom(word, sentence);
       if (!target) return;
-      setGloss(target);
+      // The lookup is NOT recorded here any more. Which dictionary entry this
+      // word is may not be known yet — the occurrence can have been stored
+      // before the entry existed — so it is recorded once the dictionary has
+      // answered, against the id it actually gave. See the effect below.
+      setGloss({ target, interactionId: newInteractionId() });
       setActiveWord(element);
-
-      // A LOOKUP IS NOT A FAILED TEST — the weight of this evidence is decided
-      // in `readingLookupEvidence`, not here. Fire and forget: recording it must
-      // never delay showing the translation, and the interaction id makes a
-      // retry settle the same lookup rather than count the word unknown twice.
-      if (target.wordId) {
-        void recordWordLookup({
-          interactionId: newInteractionId(),
-          chapterId: chapter.id,
-          libraryItemId: chapter.itemId,
-          wordId: target.wordId,
-          sentenceId: target.sentenceId,
-          occurrenceId: target.occurrenceId,
-          readingSessionId: sessionRef.current,
-        });
-      }
     },
-    [chapter.id, chapter.itemId, setActiveWord],
+    [setActiveWord],
   );
+
+  // ── what the dictionary says about the tapped word, TODAY ─────────────────
+  // Resolved here rather than inside the sheet because three things need the same
+  // answer and must not disagree: what the sheet shows, what "Dodaj do powtórek"
+  // saves, and what the lookup is recorded against.
+  const glossTarget = gloss?.target ?? null;
+  const dictionary = useReaderWord(glossTarget);
+
+  // A LOOKUP IS NOT A FAILED TEST — the weight of this evidence is decided in
+  // `readingLookupEvidence`, not here. What changed is WHEN it can be recorded:
+  // an occurrence stored with no `word_id` may still be a word Fluent knows now,
+  // and a lookup recorded against nothing would lose exactly the evidence the
+  // learner just generated. So it waits for the answer, and fires against the id
+  // that came back.
+  //
+  // ONE TAP, ONE LOOKUP. The id is minted when the sheet opens, and the ref
+  // remembers which tap has already been recorded, so a refetch, a re-render or
+  // React re-running the effect cannot produce a second one — and even if a
+  // retry does reach the server, `apply_reading_lookup` settles the same
+  // interaction id rather than counting the word unknown twice.
+  const recordedLookupRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!gloss || dictionary.wordId === null) return;
+    if (recordedLookupRef.current === gloss.interactionId) return;
+    recordedLookupRef.current = gloss.interactionId;
+
+    void recordWordLookup({
+      interactionId: gloss.interactionId,
+      chapterId: chapter.id,
+      libraryItemId: chapter.itemId,
+      wordId: dictionary.wordId,
+      sentenceId: gloss.target.sentenceId,
+      occurrenceId: gloss.target.occurrenceId,
+      readingSessionId: sessionRef.current,
+    });
+  }, [chapter.id, chapter.itemId, dictionary.wordId, gloss]);
 
   // ── the native selection, observed rather than discovered ─────────────────
   // A SELECTION IS NEVER HIJACKED (§30) AND NEVER INFERRED FROM A TAP. The
@@ -862,7 +945,10 @@ export function ReaderShell({
       />
 
       <WordGlossSheet
-        target={gloss}
+        target={glossTarget}
+        // The sheet RENDERS the dictionary's answer; it does not go and get it.
+        // One resolution per tap, shared by the sheet, the save and the lookup.
+        dictionary={dictionary}
         readingSessionId={sessionId}
         onClose={closeGloss}
         // Both editors are opened from here, and both are the SAME component the

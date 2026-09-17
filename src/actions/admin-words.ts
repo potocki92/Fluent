@@ -1,5 +1,6 @@
 "use server";
 
+import { invalidateDictionarySnapshot } from "@/lib/content/dictionary-snapshot";
 import { requireAdmin } from "@/lib/auth/server";
 import { toTopic } from "@/lib/word-topics";
 import type { SuggestionStatus, Word, WordInput } from "@/types";
@@ -110,6 +111,14 @@ export async function createWord(
       .single();
     if (error) throw error;
 
+    // THE DICTIONARY JUST CHANGED, AND THE READER MUST NOT WAIT TO FIND OUT.
+    // The cached index is keyed on `dictionary_revision`, which a trigger has
+    // already bumped, so every instance notices within
+    // `DICTIONARY_REVISION_TTL_MS`. This is the one that accepted the change
+    // dropping its copy immediately: "I added the word" and "the word works"
+    // should be the same moment.
+    invalidateDictionarySnapshot();
+
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: actionErrorMessage(err) };
@@ -132,6 +141,10 @@ export async function updateWord(
       .single();
     if (error) throw error;
 
+    // An edited lemma or `display` changes what the index resolves, exactly as an
+    // insert does.
+    invalidateDictionarySnapshot();
+
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: actionErrorMessage(err) };
@@ -147,6 +160,10 @@ export async function deleteWord(id: number): Promise<{ id: number }> {
 
   const { error } = await supabase.from("words").delete().eq("id", id);
   if (error) throw error;
+
+  // A deletion matters as much as an insert: the occurrences that pointed here
+  // are nulled by the foreign key, and the index must stop claiming the word.
+  invalidateDictionarySnapshot();
 
   return { id };
 }
@@ -189,6 +206,8 @@ export async function reviewSuggestion(
       .update(patch)
       .eq("id", suggestion.word_id);
     if (applyError) throw applyError;
+
+    invalidateDictionarySnapshot();
   }
 
   const { error: markError } = await supabase

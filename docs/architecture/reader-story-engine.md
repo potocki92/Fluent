@@ -151,11 +151,40 @@ A `word_occurrence` is the datum behind it: a specific token, at a specific
 position, resolved to a specific dictionary entry. That is what lets a lookup be
 recorded against *a place in a book* rather than against a string.
 
-Only tokens that resolve to the dictionary get a row. An occurrence exists to be
-interacted with, and a token Fluent cannot gloss has nothing to show; unmatched
-content words are counted and sampled on the chapter instead
-(`unmatched_sample`), which surfaces the dictionary gap without storing a row per
-*"the"*.
+**Every lexical token gets a row.** This is the invariant, and it replaced the
+opposite one:
+
+> Every lexical token gets an occurrence. Dictionary resolution is **optional**
+> and may evolve independently of the immutable reading structure.
+
+The original rule was "only tokens that resolve to the dictionary get a row",
+which sounded like good hygiene and was in fact a coupling: it made the
+*structure* of a book a function of the dictionary on the day it was imported.
+See [The dictionary is the third input](#the-dictionary-is-the-third-input) for
+what that cost and how it works now.
+
+The four fields that carry the distinction:
+
+| Field | What it is | Depends on the dictionary? |
+| ----- | ---------- | -------------------------- |
+| `surface` | the token exactly as written — *Bücher*, *zog*, *E-Mail-Adresse* | no |
+| `normalized` | the lookup key: lowercased, apostrophes folded, umlauts kept | no |
+| `lemma` | the dictionary headword, or — while there is none — the normalized surface, standing in **provisionally** | yes |
+| `word_id` | the entry, or `NULL` meaning "no entry **today**" | yes |
+
+`position`, `char_start` and `char_end` are structure and never move. `word_id`
+and `lemma` are knowledge and are rewritten in place as the dictionary grows.
+
+A `NULL` `word_id` is not a defect and never a reason to skip a row: the reader
+renders such a token as an ordinary interactive word (quietly — see
+[Loudness](#loudness-is-a-separate-question)), the learner can give it a
+contextual meaning of their own, and the day somebody adds the entry it resolves
+without the chapter changing at all.
+
+The dictionary GAP is still reported on the chapter (`unmatched_sample`,
+`dictionary_match_rate`, `chapter_vocabulary`). Those count **real matches**, not
+rows, so growing the row set did not silently turn every chapter into a perfect
+score.
 
 **Towards lexeme → sense → occurrence.** Phase 4 does not build a lexical
 database, and the current schema deliberately does not assume `lemma → exactly
@@ -386,18 +415,106 @@ processing twice leaves exactly the same row counts and the same positions.
 input could differ — a new abbreviation, a different token regex, a changed
 normalisation rule. Not for comments or refactors that cannot move a boundary.
 
-**The dictionary is the third input, and nothing hashes it.** `content_hash`
-describes the source and `processor_version` describes the pipeline; neither
-says anything about `words`. So a chapter processed yesterday keeps yesterday's
-occurrences forever, and a word added today is in `/browse` but dead text in the
-book — the pipeline only writes an occurrence for a token it could MATCH, and an
-unmatched token is not a tappable span at all. Growing the dictionary therefore
-needs an explicit reprocess: `force: true`, which is what `/admin/library`'s
-"Przetwórz" passes for first-party content and what `refreshBookVocabulary`
-passes for a private import, whose owner has no admin panel to reach (the admin
-list filters owned items out by design). It is safe to run because the source is
-unchanged and the pipeline is deterministic: every position comes back identical,
-so bookmarks, notebook notes and saved words survive and only `word_id` changes.
+### The dictionary is the third input
+
+`content_hash` describes the source and `processor_version` describes the
+pipeline. Neither says anything about `words` — and for one phase, nothing did.
+
+**What that cost.** A chapter processed yesterday kept yesterday's occurrences
+forever. A word added today was in `/browse` and dead text in the book, because
+the pipeline only wrote an occurrence for a token it could MATCH and an unmatched
+token was not a tappable span at all. The only way to connect them was an explicit
+reprocess — `force: true` from `/admin/library`, or "Odśwież słownictwo" for a
+private import — which rewrote every paragraph, sentence and occurrence row in
+the chapter to fill in one nullable column. Safe, because the pipeline is
+deterministic, but enormous, manual, and for a 40-chapter novel absurd: the
+learner's answer to "why is this word dead?" was a button labelled *rebuild my
+book*.
+
+**The third stamp.** `chapters.dictionary_revision` is now that missing input, and
+`dictionary_revision` is a single row bumped by a statement-level trigger on
+`words` — so "has the dictionary changed?" is a primary-key read, and an INSERT, an
+UPDATE and a DELETE all move it. (A `count(*)` misses an update; a
+`max(updated_at)` misses a delete.)
+
+**Two layers, resolved at three moments.** The dictionary index is cached per
+server instance and rebuilt only when the revision changes; the write paths that
+touch `words` also drop it directly, so the instance that accepted a new entry
+never even waits for the check. `DICTIONARY_REVISION_TTL_MS` (30 s) bounds how
+long any other instance can be behind — the only staleness window in the system,
+and a documented number rather than "until the next deploy".
+
+1. **Processing** (`src/lib/content/process.ts`) resolves what it can and writes a
+   row either way, stamping the chapter with the revision it used.
+2. **Rendering** (`getReaderChapter`) compares that stamp with the current
+   revision. If the chapter is behind, its unresolved tokens are offered to the
+   current dictionary *in memory, for this render* — through the same
+   `matchToken`, so the answer is identical to the one processing would have
+   given. This is why a word added at any point works in an existing book on the
+   next page view: no reprocessing, no refresh, no button. It is a READ: it
+   writes nothing, because a GET that repairs the database is how a page view
+   becomes a transaction.
+3. **Reconciliation** (`src/lib/content/reconciler.ts` →
+   `sync_chapter_dictionary`) persists the same conclusion, from a Server Action
+   the reader fires and forgets. It exists for everything that reads the *stored*
+   rows rather than the page — vocabulary coverage, chapter preparation, the
+   question bank — because "the reader says *zog* is *ziehen* but preparation says
+   the chapter has no *ziehen*" is a disagreement a learner notices and nobody can
+   explain.
+
+**Reconciling is not reprocessing**, and the difference is the whole point:
+
+| | `replace_chapter_content` | `sync_chapter_dictionary` |
+| --- | --- | --- |
+| runs when | the TEXT changed | the DICTIONARY changed |
+| paragraphs / sentences | deleted and re-inserted | untouched |
+| occurrence rows | replaced, new ids | added where missing, never deleted |
+| positions and offsets | recomputed (identical, because deterministic) | untouched |
+| authority | admin, or the owner of a private import | anyone who may READ the chapter |
+| cost | the whole chapter | one nullable column, or nothing at all |
+
+It is idempotent — the insert conflicts on the unique `(sentence_id, position)`
+index, the update only touches rows still unresolved — so the reader can fire it
+blindly, a retry is free, and an interrupted run is simply redone. And because it
+never deletes or renumbers anything, reading progress, notebook notes, saved
+words and reading history survive by construction rather than by care.
+
+**One matcher, everywhere.** `matchToken` is the single answer to "surface →
+dictionary word": the processor asks it during an import, the reconciler asks it
+months later for the tokens that had no answer then, and the gloss asks it for a
+word tapped right now (through the `resolveReaderWord` Server Action, because
+matching needs the whole dictionary and that lives on the server). The gloss used
+to run its own `ilike("lemma", surface)` instead — a second, far weaker matcher
+that could only find words spelled exactly like the token on the page, so *zog*
+read "spoza słownika" on a page where the pipeline had resolved it perfectly
+well.
+
+**Legacy chapters need no migration of their own.** A chapter imported under the
+old rule has gaps rather than wrong data. The reader detects them by comparing a
+sentence's stored `word_count` (its lexical token count) with the occurrences it
+actually has, re-tokenizes only the mismatched sentences, and renders the missing
+tokens with no row id — fully interactive, anchored on `(sentence, token
+position)` like every note is. Reconciliation then inserts the real rows. So the
+backfill is the ordinary pass, batched, idempotent and driven by use, rather than
+a one-off script that has to be remembered.
+
+**`CONTENT_PROCESSOR_VERSION` was deliberately NOT bumped** for this change. The
+rule is to bump it when the pipeline's output for the same input could differ in
+a way that moves a stored position — a new abbreviation, a different token regex,
+a changed normalisation rule. Here paragraph positions, sentence positions, token
+positions and character offsets are all byte-for-byte what they were; the change
+is purely additive rows plus a nullable column. Bumping it would have marked
+every learner's notebook note stale (`isNoteStale` treats a version change as
+"the anchor may have moved"), which would be a false alarm about their own work.
+
+### Loudness is a separate question
+
+Every lexical token being tappable does **not** mean every one is advertised.
+`.reader-word[data-unknown]` and `.reader-word[data-function-word]` both drop the
+dotted underline: the mark means "Fluent can gloss this", and tappability is not
+a mark at all. Underlining every token would turn a novel into a page of
+hyperlinks — and on a touch device the reader draws no underlines anyway, so the
+tap works either way.
 Stamping a dictionary fingerprint on the chapter would let a plain reprocess
 notice by itself; that is a schema change and a deliberate task, not a side
 effect of importing a wordlist.
@@ -636,4 +753,8 @@ built.
 | coverage honesty floors | `src/lib/reading/constants.ts` |
 | reading plan sizing | `src/lib/learning/planner/constants.ts` |
 | reader typography/theme options | `src/lib/reading/preferences.ts` + `.reader-surface` in `globals.css` |
-| how a chapter is persisted | `replace_chapter_content` (SQL) + `chapterPayload` (`src/actions/admin-library.ts`) |
+| how a chapter is persisted | `replace_chapter_content` (SQL) + `chapterPayload` (`src/lib/content/processor.ts`) |
+| surface → dictionary word (the ONE matcher) | `src/lib/content/dictionary-match.ts` + `src/lib/german-morphology.ts` |
+| how a chapter catches up with a newer dictionary | `src/lib/content/dictionary-sync.ts` (plan) + `reconciler.ts` (I/O) + `sync_chapter_dictionary` (SQL) |
+| dictionary cache lifetime and sync batch sizes | `src/lib/content/constants.ts` |
+| what the gloss asks, and how long it trusts the answer | `src/hooks/useReaderWord.ts` + `GLOSS_DICTIONARY_STALE_MS` |

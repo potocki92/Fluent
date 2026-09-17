@@ -17,3 +17,19 @@ export const CONTENT_PROCESSOR_VERSION = "content_v2";
 // v1 → v2: `matchToken` no longer refuses closed-class words, so a chapter now
 // carries occurrences for *wir*, *haben*, *sollen* and the rest. Same text,
 // different occurrences — exactly the case this stamp exists for.
+
+// NOT BUMPED for the dictionary-independence change (every lexical token now
+// gets an occurrence), and the reasoning matters more than the decision.
+//
+// The stamp exists because a MOVED POSITION silently invalidates stored reading
+// positions and notebook anchors. That change moves nothing: paragraph
+// positions, sentence positions, token positions and character offsets are
+// byte-for-byte what they were, and the difference is additional rows at
+// positions that previously had none, plus a nullable column.
+//
+// Bumping it anyway would not have been "safely conservative". `isNoteStale`
+// treats a version change as "the anchor may have moved", so every learner's
+// notebook note would have been marked as possibly-about-different-text — a
+// false alarm about their own work, raised by a change that cannot affect them.
+// A legacy chapter is detected precisely instead, per sentence, by comparing its
+// stored `word_count` with the occurrences it actually has.

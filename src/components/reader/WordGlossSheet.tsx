@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookmarkCheck,
   BookmarkPlus,
@@ -24,24 +24,12 @@ import {
   sentenceNotebookKey,
   useSentenceNotebook,
 } from "@/hooks/useSentenceNotebook";
+import type { ReaderWordState } from "@/hooks/useReaderWord";
 import { newInteractionId } from "@/lib/interaction-id";
 import { speakGerman } from "@/lib/speech";
-import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 export type { GlossTarget };
-
-interface GlossWord {
-  id: number;
-  display: string;
-  article: string | null;
-  word_type: string;
-  translation_pl: string | null;
-  example_de: string | null;
-  example_pl: string | null;
-  ipa: string | null;
-  plural: string | null;
-}
 
 /**
  * The gloss — the word sheet, reordered around CONTEXT.
@@ -74,6 +62,21 @@ interface GlossWord {
  * NOTHING EMPTY TAKES UP ROOM (§25). With no contextual meaning there is no
  * empty section — there is one quiet line offering to add one.
  *
+ * THE DICTIONARY IS RESOLVED FOR IT, NOT BY IT (phase 6). This sheet used to run
+ * its own query: by `word_id` when the occurrence had one, and otherwise
+ * `ilike("lemma", surface)` — a second, far weaker matcher that could only find a
+ * word spelled exactly like the token on the page, so *zog* was "spoza słownika"
+ * even with *ziehen* sitting in the dictionary. Resolution now happens once, in
+ * `useReaderWord`, through the same de-inflection rules the content pipeline
+ * uses, and the answer is shared by the three things that must agree about it:
+ * what is displayed here, what "Dodaj do powtórek" saves, and what the recorded
+ * lookup is attributed to.
+ *
+ * WHICH ALSO MEANS "spoza słownika" IS NEVER STALE. The answer is re-asked on
+ * every tap unless it was a hit, so a word added to the dictionary five minutes
+ * ago is found on the next tap — with no page refresh, and certainly without
+ * rebuilding the book.
+ *
  * AND "NIE ROZUMIEM" IS HERE TOO. It used to live only on the sentence action
  * bar, which meant a learner stuck on a sentence had to close the word sheet and
  * then hit the few millimetres of space BETWEEN two words to admit it — on a
@@ -84,12 +87,15 @@ interface GlossWord {
  */
 export function WordGlossSheet({
   target,
+  dictionary,
   readingSessionId,
   onClose,
   onAddMeaning,
   onTranslateSentence,
 }: {
   target: GlossTarget | null;
+  /** What the CURRENT dictionary says about this word — resolved by the shell. */
+  dictionary: ReaderWordState;
   /** Attached to the "nie rozumiem" signal, so it lands in the right session. */
   readingSessionId?: string | null;
   onClose: () => void;
@@ -99,36 +105,25 @@ export function WordGlossSheet({
   onTranslateSentence: (sentenceId: number, sentenceText: string) => void;
 }) {
   const queryClient = useQueryClient();
-  // Which occurrence was saved, rather than a boolean reset by an effect: the
-  // "W powtórkach" state belongs to ONE word, and deriving it means opening the
-  // next word cannot briefly show the previous word's confirmation.
-  const [savedOccurrence, setSavedOccurrence] = useState<number | null>(null);
+  // Which WORD was saved, rather than a boolean reset by an effect: the "W
+  // powtórkach" state belongs to ONE word, and deriving it means opening the next
+  // word cannot briefly show the previous word's confirmation.
+  //
+  // Keyed on the occurrence where there is one and on `(sentence, token)`
+  // otherwise, because a token in a chapter that has not been reconciled yet has
+  // no occurrence row — and "no row" must not mean "every such word shares one
+  // confirmation".
+  const [savedOccurrence, setSavedOccurrence] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const saved = target !== null && savedOccurrence === target.occurrenceId;
+  const savedKey = target ? glossKey(target) : null;
+  const saved = savedKey !== null && savedOccurrence === savedKey;
 
-  // THE DICTIONARY, cached by word — a lexeme's general translation is the same
-  // everywhere it appears, so this cache is shared across the whole book.
-  const { data, isLoading } = useQuery({
-    queryKey: ["reader-gloss", target?.wordId ?? target?.lemma ?? ""],
-    enabled: target !== null,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<GlossWord | null> => {
-      if (!target) return null;
-      const supabase = createClientSupabaseClient();
-      const query = supabase
-        .from("words")
-        .select(
-          "id, display, article, word_type, translation_pl, example_de, example_pl, ipa, plural",
-        )
-        .limit(1);
-
-      const { data, error } = target.wordId
-        ? await query.eq("id", target.wordId).maybeSingle()
-        : await query.ilike("lemma", target.lemma).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
+  // THE DICTIONARY. Resolved once by the shell (`useReaderWord`) and handed down,
+  // so the entry shown here is the same one the save and the lookup use.
+  //
+  // `wordId` is not `target.wordId`: the occurrence may have been stored before
+  // the entry existed, in which case the stored id is null and this one is not.
+  const { word: data, wordId: resolvedWordId, isLoading } = dictionary;
 
   // THE PERSONAL LAYER, cached by SENTENCE — never by word. *ziehen* means
   // different things in different sentences, and a cache keyed by word would
@@ -168,15 +163,25 @@ export function WordGlossSheet({
     contextMeaning?.meaning !== null &&
     normalize(contextMeaning.meaning) === normalize(data?.translation_pl ?? "");
 
+  /**
+   * "Dodaj do powtórek", against the entry the dictionary just resolved.
+   *
+   * IT NO LONGER DEPENDS ON `target.wordId`. That was the id the occurrence was
+   * STORED with, so a word added to the dictionary after the book was imported
+   * could be glossed on this sheet and still not be saveable — the button was
+   * not even rendered. What the deck needs is a real `word_id`, and
+   * `resolvedWordId` is one whether it came from the row or from resolving the
+   * surface a moment ago.
+   */
   async function onSave() {
-    if (!target?.wordId || saving) return;
+    if (resolvedWordId === null || saving) return;
     setSaving(true);
     const result = await saveWordFromReader({
-      wordId: target.wordId,
-      occurrenceId: target.occurrenceId,
+      wordId: resolvedWordId,
+      occurrenceId: target?.occurrenceId ?? null,
     });
     setSaving(false);
-    if (result.ok) setSavedOccurrence(target.occurrenceId);
+    if (result.ok) setSavedOccurrence(savedKey);
   }
 
   return (
@@ -242,7 +247,7 @@ export function WordGlossSheet({
                 <QuietButton
                   icon={<Plus className="size-3.5" />}
                   label={
-                    target.wordId
+                    resolvedWordId !== null
                       ? "Dodaj znaczenie w tym miejscu"
                       : "Dodaj do mojego słownika"
                   }
@@ -374,8 +379,12 @@ export function WordGlossSheet({
             {/* 6. THE REVIEW ACTION. A word Fluent's dictionary does not know
                  cannot enter the word deck — but it is not a dead end either:
                  the personal meaning above IS its notebook entry, and that can
-                 be reviewed (§82, §86). */}
-            {target.wordId ? (
+                 be reviewed (§82, §86).
+
+                 THE CONDITION IS THE RESOLVED ENTRY, not the one stored with the
+                 occurrence: a word added to the dictionary after this book was
+                 imported is glossed above and must be saveable here too. */}
+            {resolvedWordId !== null ? (
               <Button
                 type="button"
                 onClick={onSave}
@@ -493,4 +502,17 @@ function wordTypeLabel(type: string): string {
   if (type === "noun") return "rzeczownik";
   if (type === "verb") return "czasownik";
   return "";
+}
+
+/**
+ * What "this word, here" means for the confirmation state.
+ *
+ * The occurrence id when there is one; the sentence and token position when
+ * there is not, which is a chapter that has not been reconciled into rows yet.
+ * Both are stable addresses of one token in one place.
+ */
+function glossKey(target: GlossTarget): string {
+  return target.occurrenceId !== null
+    ? `o${target.occurrenceId}`
+    : `s${target.sentenceId ?? "?"}:${target.tokenPosition ?? "?"}`;
 }

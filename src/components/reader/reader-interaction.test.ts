@@ -6,7 +6,9 @@ import {
   isDragGesture,
   isUsableSelection,
   readerBarPlan,
+  resolveGlossWordId,
   resolveReaderIntent,
+  type GlossTarget,
   type PointerTrack,
   type ReaderGesture,
   type ReaderWordHit,
@@ -242,9 +244,63 @@ describe("glossTargetFrom", () => {
     expect(glossTargetFrom(word({ position: "0" }), SENTENCE)?.tokenPosition).toBe(0);
   });
 
-  it("refuses a span with no occurrence id, which has nowhere to anchor", () => {
-    expect(glossTargetFrom(word({ occurrenceId: null }), SENTENCE)).toBeNull();
-    expect(glossTargetFrom(word({ occurrenceId: "" }), SENTENCE)).toBeNull();
+  it("opens a token with no occurrence id — it is a word, not a row", () => {
+    // It used to be refused, back when a row existed only for a token the
+    // dictionary matched, so "no row" meant "no word". Now a chapter that has not
+    // been reconciled into rows yet simply has tokens without ids, and everything
+    // the sheet does is anchored on the sentence and the token position.
+    const target = glossTargetFrom(word({ occurrenceId: null }), SENTENCE);
+    expect(target?.occurrenceId).toBeNull();
+    expect(target?.tokenPosition).toBe(0);
+    expect(target?.surface).toBe("Wir");
+    expect(target?.sentenceId).toBe(77);
+
+    expect(glossTargetFrom(word({ occurrenceId: "" }), SENTENCE)?.occurrenceId).toBeNull();
+  });
+
+  it("refuses a span with no surface, which has nothing to look up", () => {
+    expect(glossTargetFrom(word({ surface: "" }), SENTENCE)).toBeNull();
+    expect(glossTargetFrom(word({ surface: "   " }), SENTENCE)).toBeNull();
+  });
+});
+
+describe("resolveGlossWordId", () => {
+  const target = (wordId: number | null): GlossTarget => ({
+    occurrenceId: 7,
+    wordId,
+    sentenceId: 3,
+    tokenPosition: 1,
+    lemma: "zog",
+    surface: "zog",
+    sentence: SENTENCE,
+  });
+
+  it("prefers the dictionary's answer over the one stored with the occurrence", () => {
+    // THE CASE THIS WHOLE PHASE IS ABOUT: the book was imported before *ziehen*
+    // existed, so the row says nothing — and the dictionary now says 123.
+    expect(
+      resolveGlossWordId({ target: target(null), word: { id: 123 }, settled: true }),
+    ).toBe(123);
+  });
+
+  it("uses the stored id while the dictionary is still being asked", () => {
+    // So a word that already resolved at processing time is actionable on the
+    // first frame rather than after a round trip.
+    expect(
+      resolveGlossWordId({ target: target(42), word: undefined, settled: false }),
+    ).toBe(42);
+  });
+
+  it("drops a stored id the dictionary no longer recognises", () => {
+    // The entry was deleted; offering to save it would be offering a dangling
+    // reference.
+    expect(
+      resolveGlossWordId({ target: target(42), word: null, settled: true }),
+    ).toBeNull();
+  });
+
+  it("is null with nothing tapped", () => {
+    expect(resolveGlossWordId({ target: null, word: { id: 1 }, settled: true })).toBeNull();
   });
 });
 

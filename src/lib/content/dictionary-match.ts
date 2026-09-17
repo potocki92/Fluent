@@ -17,6 +17,14 @@
  * exactly the gap `word_occurrences` exists to make fillable later — the
  * occurrence knows its sentence, so a future sense layer can attach to it
  * without any of this changing shape (see `docs/architecture/reader-story-engine.md`).
+ *
+ * ONE ALGORITHM, EVERY CALLER. {@link matchToken} is the single answer to
+ * "surface → dictionary word" in Fluent. The processor asks it while importing a
+ * book, the reconciler asks it again months later for the tokens that had no
+ * answer then, and the reader's gloss asks it for a word tapped right now. A
+ * second, simpler matcher anywhere — an `ilike("lemma", …)` in a component, say —
+ * would mean *zog* resolving in one screen and not in the next, which is
+ * indistinguishable from a bug and impossible to reason about.
  */
 
 import {
@@ -145,4 +153,31 @@ export function matchToken(
 export function isReportableGap(surface: string): boolean {
   const normalized = normalizeToken(surface);
   return normalized.length >= 3 && !isFunctionWord(normalized);
+}
+
+/**
+ * Resolve a set of DISTINCT normalized forms in one pass.
+ *
+ * Resolution depends on nothing but the normalized surface — {@link matchToken}
+ * normalises what it is given before doing anything else — so a chapter with
+ * 6 000 tokens and 1 800 distinct forms costs 1 800 lookups rather than 6 000,
+ * and every occurrence of *zog* necessarily gets the same answer.
+ *
+ * Unresolved forms are ABSENT from the result rather than mapped to null: "the
+ * dictionary has nothing for this today" is not a fact worth storing per token,
+ * and the caller's job is to leave those occurrences exactly as they are.
+ */
+export function resolveNormalizedForms(
+  forms: Iterable<string>,
+  index: DictionaryIndex,
+): Map<string, DictionaryHit> {
+  const resolved = new Map<string, DictionaryHit>();
+
+  for (const form of forms) {
+    if (resolved.has(form)) continue;
+    const hit = matchToken(form, index);
+    if (hit) resolved.set(form, hit);
+  }
+
+  return resolved;
 }

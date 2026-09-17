@@ -6,7 +6,6 @@ import { ArrowLeft } from "lucide-react";
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ChapterList } from "@/components/library/ChapterList";
 import { DeletePrivateBook } from "@/components/library/import/DeletePrivateBook";
-import { RefreshBookVocabulary } from "@/components/library/import/RefreshBookVocabulary";
 import { ChapterPrepCard } from "@/components/story/ChapterPrepCard";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -35,10 +34,15 @@ export async function generateMetadata({
  * separate, deliberate feature.
  */
 /**
- * `maxDuration` is raised because "Odśwież słownictwo" re-runs the content
- * pipeline from this page, and Next applies a page's `maxDuration` to the Server
- * Actions invoked from it. The work is batched per chapter regardless — this
- * buys one batch enough room, not a whole book.
+ * `maxDuration` is raised for the one genuinely long Server Action this page
+ * invokes: deleting a private import, which cascades a whole book's paragraphs,
+ * sentences and occurrences. Next applies a page's `maxDuration` to the Server
+ * Actions called from it, and this is the supported knob for that.
+ *
+ * It is no longer about "Odśwież słownictwo". That button re-ran the content
+ * pipeline over the owner's entire book so that words added to the dictionary
+ * since the import would become tappable; nothing needs to do that any more —
+ * see `src/lib/content/dictionary-sync.ts` — and the button is gone.
  */
 export const maxDuration = 300;
 
@@ -168,10 +172,15 @@ export default async function LibraryItemPage({
       />
 
       {/* Only an owner sees this, and only for their own import: RLS means
-          nobody else can even load this page for a private book. */}
+          nobody else can even load this page for a private book.
+
+          THERE IS NO "ODŚWIEŻ SŁOWNICTWO" HERE ANY MORE, and its absence is the
+          feature. It used to sit next to this button and tell the owner that
+          adding words to the dictionary meant rebuilding their book; a chapter
+          now resolves its unknown tokens against the current dictionary when it
+          is opened, so there is nothing to press. */}
       {item.rights === "private_import" && (
         <div className="space-y-3 pt-2">
-          <RefreshBookVocabulary itemId={item.id} />
           <DeletePrivateBook itemId={item.id} />
         </div>
       )}

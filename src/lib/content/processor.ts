@@ -35,8 +35,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { buildDictionaryIndex, type DictionaryIndex } from "@/lib/content/dictionary-match";
-import { loadDictionaryEntries } from "@/lib/content/dictionary-source";
+import {
+  getDictionarySnapshot,
+  type DictionarySnapshot,
+} from "@/lib/content/dictionary-snapshot";
 import { contentHash, processWithIndex, type ProcessedChapter } from "@/lib/content/process";
 import { CONTENT_PROCESSOR_VERSION } from "@/lib/content/version";
 import { estimatedChapterMinutes } from "@/lib/reading/progress";
@@ -68,14 +70,18 @@ const SKIPPED: Omit<ProcessingReport, "chapterId"> = {
 };
 
 /**
- * Build the dictionary index once for a batch.
+ * Take the dictionary once for a batch.
  *
  * Loading the dictionary is the expensive part of a processing run, and building
  * the index per chapter would make a 42-chapter book forty-two times slower for
- * an identical result.
+ * an identical result. The snapshot also carries the REVISION it was built from,
+ * which is stamped onto every chapter it processes — that is what later tells the
+ * reconciler "this chapter already agrees with dictionary N, leave it alone".
  */
-export async function loadDictionaryIndex(supabase: Client): Promise<DictionaryIndex> {
-  return buildDictionaryIndex(await loadDictionaryEntries(supabase));
+export async function loadDictionarySnapshot(
+  supabase: Client,
+): Promise<DictionarySnapshot> {
+  return getDictionarySnapshot(supabase);
 }
 
 export interface ProcessChapterInput {
@@ -84,8 +90,8 @@ export interface ProcessChapterInput {
   /** A service-role client. The only thing allowed to write structure. */
   service: Client;
   chapterId: string;
-  /** A pre-built index, for batches. Loaded from `read` when absent. */
-  index?: DictionaryIndex;
+  /** A pre-loaded dictionary, for batches. Loaded from `read` when absent. */
+  snapshot?: DictionarySnapshot;
   /** Reprocess even when the hash and processor version say nothing changed. */
   force?: boolean;
 }
@@ -114,9 +120,10 @@ export async function processChapterById(
   }
 
   let processed: ProcessedChapter;
+  let snapshot: DictionarySnapshot;
   try {
-    const index = input.index ?? (await loadDictionaryIndex(input.read));
-    processed = processWithIndex(source, index);
+    snapshot = input.snapshot ?? (await getDictionarySnapshot(input.read));
+    processed = processWithIndex(source, snapshot.index);
   } catch (cause) {
     await recordFailure(input.service, input.chapterId, cause);
     return fail("database_error", `processChapter: pipeline ${input.chapterId}`, cause);
@@ -124,7 +131,7 @@ export async function processChapterById(
 
   const { error: writeError } = await input.service.rpc("replace_chapter_content", {
     p_chapter_id: input.chapterId,
-    p_payload: chapterPayload(processed, hash) as unknown as Json,
+    p_payload: chapterPayload(processed, hash, snapshot.revision) as unknown as Json,
   });
   if (writeError) {
     await recordFailure(input.service, input.chapterId, writeError);
@@ -166,10 +173,19 @@ async function recordFailure(service: Client, chapterId: string, cause: unknown)
 }
 
 /** The jsonb envelope `replace_chapter_content` unpacks. Transport, not storage. */
-function chapterPayload(processed: ProcessedChapter, hash: string) {
+function chapterPayload(
+  processed: ProcessedChapter,
+  hash: string,
+  dictionaryRevision: number,
+) {
   return {
     processor_version: processed.processorVersion,
     content_hash: hash,
+    // The third stamp: WHICH dictionary these `word_id`s came from. Without it
+    // nothing could tell a chapter that is simply behind from one that is
+    // up to date, and reconciliation would have to re-examine every chapter
+    // every time.
+    dictionary_revision: dictionaryRevision,
     word_count: processed.wordCount,
     paragraph_count: processed.paragraphCount,
     sentence_count: processed.sentenceCount,

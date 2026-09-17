@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ReaderProse } from "@/components/reader/ReaderProse";
 import { ReaderShell } from "@/components/reader/ReaderShell";
-import { getReaderChapter } from "@/lib/library/queries";
+import { getReaderChapter, getReaderChapterTitle } from "@/lib/library/queries";
 import {
   DEFAULT_READER_PREFERENCES,
   parseReaderPreferences,
@@ -20,12 +20,24 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug, chapter } = await params;
   const supabase = await createServerSupabaseClient();
-  const loaded = await getReaderChapter(supabase, slug, Number(chapter));
+  // The TITLE, not the chapter: metadata and the page body both run for one
+  // request, and loading a whole chapter — and resolving its vocabulary — twice
+  // to fill in a `<title>` would double the cost of opening a book.
+  const loaded = await getReaderChapterTitle(supabase, slug, Number(chapter));
   if (!loaded) return { title: "Rozdział — Fluent" };
   return {
-    title: `${loaded.title ?? `Rozdział ${loaded.position}`} — ${loaded.item.title}`,
+    title: `${loaded.title ?? `Rozdział ${loaded.position}`} — ${loaded.itemTitle}`,
   };
 }
+
+/**
+ * Opening a chapter can trigger reconciliation — the pass that writes down what
+ * this render already resolved (see `syncChapterDictionary`). It is batched and
+ * resumable, and nothing on screen waits for it, but a chapter that has never
+ * been reconciled does real work on its first open, and Next applies a page's
+ * `maxDuration` to the Server Actions invoked from it.
+ */
+export const maxDuration = 60;
 
 /**
  * The reader.
@@ -98,6 +110,10 @@ export default async function ChapterPage({
         nextPosition: loaded.nextPosition,
         legacyTextId: loaded.item.legacyTextId,
         hasChallenge: story?.ok === true && story.state.hasChallenge,
+        // The prose above was rendered against the CURRENT dictionary, whatever
+        // the stored rows say. This only asks the reader to have that written
+        // down, for the screens built on the stored rows.
+        needsDictionarySync: loaded.needsDictionarySync,
       }}
       initialPreferences={preferences}
     >

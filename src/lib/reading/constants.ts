@@ -193,3 +193,34 @@ export const MIN_COVERAGE_SHARE = 0.2;
  * five taps across five chapters — the signal we actually want — clearly does.
  */
 export const LOOKUP_EVIDENCE_DISCOUNT = 0.5;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE GLOSS'S VIEW OF THE DICTIONARY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How long the gloss trusts a dictionary answer it already has.
+ *
+ * A lexeme's general translation is the same everywhere it appears, so caching it
+ * across a whole book is free and obviously right.
+ *
+ * A MISS IS NOT CACHED AT ALL, and that asymmetry is the point — see
+ * `useReaderWord`. "Fluent has no entry for this" is a statement about the
+ * dictionary at one instant, and the whole purpose of this phase is that it stops
+ * being true the moment somebody adds the word. Cached for five minutes it would
+ * become exactly the stale negative the reader was rebuilt to get rid of: the
+ * learner adds *ziehen*, taps *zog* again, and is told again that it is not in
+ * the dictionary.
+ */
+export const GLOSS_DICTIONARY_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * How many reconciliation calls the reader will make for one chapter.
+ *
+ * The pass is batched and resumable, so this is a ceiling on one page view, not
+ * on the work: a chapter longer than this is finished the next time it is
+ * opened, because the cursor is derived from the rows rather than remembered.
+ * The bound exists so a pathological chapter cannot turn "open a book" into an
+ * unbounded series of background requests.
+ */
+export const DICTIONARY_SYNC_MAX_CALLS = 8;

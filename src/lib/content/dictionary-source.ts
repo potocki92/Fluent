@@ -41,3 +41,31 @@ export async function loadDictionaryEntries(
 
   return entries;
 }
+
+/**
+ * The dictionary's revision number — "has `words` changed since I last looked?"
+ *
+ * ONE ROW, ONE READ, WHATEVER THE DICTIONARY'S SIZE. A statement-level trigger on
+ * `words` bumps this counter on every insert, update and delete, so the question
+ * costs a primary-key lookup rather than a `count(*)` that grows with the
+ * dictionary — and, unlike a `max(updated_at)` heuristic, a DELETE moves it too.
+ *
+ * It is the stamp that lets a chapter say which dictionary its stored `word_id`s
+ * were resolved against (`chapters.dictionary_revision`), which is what makes the
+ * reconciliation pass a no-op when nothing has changed.
+ */
+export async function loadDictionaryRevision(
+  supabase: SupabaseClient<Database>,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("dictionary_revision")
+    .select("revision")
+    .eq("id", true)
+    .maybeSingle();
+  if (error) throw error;
+
+  // A database that predates the trigger has no row. Revision 0 means "unknown",
+  // which every chapter's stamp differs from — the safe answer, because it
+  // resolves rather than skips.
+  return Number(data?.revision ?? 0);
+}
