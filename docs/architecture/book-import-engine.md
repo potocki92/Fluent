@@ -597,6 +597,35 @@ the paths rather than deleting them: the database commits first, and a failed
 object delete leaves a file with no row rather than a row with no file. Of the
 two, the first is the one a cleanup pass can fix.
 
+**What made it fail, and why it is an index problem.** `on delete set null` is
+the right *semantics* and an expensive *mechanism*: Postgres implements it with
+a per-row trigger, so deleting one `word_occurrences` row runs `update <child>
+set <fk> = null where <fk> = $1` once for every column that points at an
+occurrence. A 175-chapter book is ~25 000 occurrences; five referencing columns
+make that ~125 000 statements, and each one that lacks an index on `<fk>` is a
+sequential scan of the learner's entire history. Measured on a representative
+book (175 chapters, 25 200 occurrences, 20 000 learning events, 3 000 saved
+words): **92.8 s** without those indexes, **0.93 s** with them. PostgREST gives
+`authenticated` eight seconds, so before
+`20260917120000_content_delete_indexes.sql` the delete could not finish at all —
+it was cancelled mid-statement, rolled back, and surfaced to the learner as the
+taxonomy's generic "Coś poszło nie tak. Spróbuj ponownie za chwilę.", every
+time.
+
+The subtlety worth remembering: every one of those columns *was* indexed, as
+`(user_id, chapter_id, …)` or `(user_id, sentence_id)`, because that is what the
+screens read. A referential check knows only the content id, so a `user_id`-led
+index is invisible to it. **Both indexes are needed, and they answer different
+questions.** `supabase/tests/08_content_index_coverage.sql` asks the catalog
+rather than a list, so a future table with a `chapter_id` indexed only for its
+screen fails the suite instead of quietly making book deletion slower until one
+day it stops working.
+
+The same arithmetic governs `replace_chapter_content`, which deletes a chapter's
+paragraphs wholesale before reinserting them — "Odśwież słownictwo" was walking
+towards the identical wall from the other direction, and the same indexes fix
+it.
+
 Cancelling an unconfirmed import deletes the preview rows and the uploaded
 original, and keeps the import row as history so the list can say "anulowane"
 rather than show a hole.

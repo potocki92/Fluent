@@ -193,6 +193,13 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   arbitrary HTML. Positions are the bookmark, so the content pipeline must stay
   deterministic and `CONTENT_PROCESSOR_VERSION` must be bumped whenever its
   output for the same input could change.
+- **A foreign key into the content graph is indexed on the referencing side.**
+  `on delete set null` and `on delete cascade` are per-row triggers, so an
+  unindexed `chapter_id`/`sentence_id`/`word_occurrence_id` turns deleting a book
+  or reprocessing a chapter into one sequential scan per content row. The
+  `(user_id, …)`-led index a screen needs is invisible to a referential check —
+  both are required. `supabase/tests/08_content_index_coverage.sql` enforces this
+  from the catalog; a new content-referencing column means a new `*_fk_idx`.
 - **A private import is private, and can only become a book once.** `rights` and
   `owner_user_id` are set by `finalize_book_import` and by nothing else; no code
   path clears `owner_user_id`, and `library_item_readable` refuses an owned item

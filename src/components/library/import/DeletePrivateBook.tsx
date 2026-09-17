@@ -6,6 +6,7 @@ import { Loader2, Trash2 } from "lucide-react";
 
 import { deletePrivateBook } from "@/actions/book-import";
 import { Button } from "@/components/ui/button";
+import { settleAction } from "@/lib/errors";
 
 /**
  * The owner's way out of their own book.
@@ -23,6 +24,12 @@ import { Button } from "@/components/ui/button";
  * Two taps rather than a modal. A confirmation dialog for a single reversible-
  * in-principle action on a phone is more ceremony than the decision needs, and
  * the second tap is deliberately labelled with what it does.
+ *
+ * Through `settleAction`, because this action deletes a whole book: the one
+ * failure mode a bare `await` cannot see is a REJECTION — a dropped connection
+ * mid-delete, a redacted production error — after which the spinner stops and
+ * nothing appears, which reads as "the button is broken". Both halves have to
+ * end in the same Polish sentence.
  */
 export function DeletePrivateBook({ itemId }: { itemId: string }) {
   const router = useRouter();
@@ -62,7 +69,10 @@ export function DeletePrivateBook({ itemId }: { itemId: string }) {
           disabled={pending}
           onClick={() =>
             startTransition(async () => {
-              const result = await deletePrivateBook(itemId);
+              const result = await settleAction(
+                () => deletePrivateBook(itemId),
+                `deletePrivateBook ${itemId}`,
+              );
               if (!result.ok) {
                 setError(result.message);
                 return;
