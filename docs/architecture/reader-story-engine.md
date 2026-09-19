@@ -306,6 +306,25 @@ is — and that single question replaces every scroll-percentage heuristic.
 the screen; the lines below it are the ones they are about to read. At the centre
 every bookmark lands roughly a paragraph late.
 
+**The line is not fixed, and that matters more than it sounds.** Everything
+*below* it can only be brought up to it by scrolling — so whatever is still below
+it when the document stops scrolling can never be reached at all. For a text that
+fits on one screen (a short article, a migrated passage) that is most of the
+chapter, and the bar would sit below half with nothing the learner could do about
+it. It was also why a long chapter's last paragraphs depended on there happening
+to be enough furniture under the prose to push them up.
+
+So the line stays at 38% while there is a screenful of scroll left and **glides
+down to the bottom of the viewport exactly as fast as the remaining scroll runs
+out** (`readingLineY`). At the bottom of a document — or in one that never
+scrolled — the sampling point is the bottom of the screen, which says the obvious
+true thing: everything visible, with nowhere further to go, has been reached. A
+glide rather than a jump, so progress does not lurch on the last screen.
+
+Placing is not sampling: `scrollTo` always aims at the *resting* line, or
+restoring a bookmark near the end of a chapter would aim at the bottom of the
+screen, be clamped by the browser, and land a screenful short.
+
 Resolving it is `document.elementsFromPoint` — **one hit test, independent of the
 chapter's length** — plus a bounded scan of the words inside the sentence it
 found, to say which token the line is on. A 15 000-word chapter costs what a
