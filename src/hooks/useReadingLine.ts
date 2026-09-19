@@ -3,7 +3,7 @@
 import { useMemo, type RefObject } from "react";
 
 import { READING_LINE_RATIO } from "@/lib/reading/constants";
-import type { ReadingAnchor } from "@/lib/reading/position";
+import { readingLineY, type ReadingAnchor } from "@/lib/reading/position";
 
 /**
  * The bridge between the DOM and a reading position — and the only file in the
@@ -42,8 +42,16 @@ import type { ReadingAnchor } from "@/lib/reading/position";
  * cache that is wrong exactly when the learner changes something.
  */
 export interface ReadingLine {
-  /** Where the reading line is, in client coordinates. */
+  /**
+   * Where the reading line is right now, in client coordinates.
+   *
+   * NOT A CONSTANT FRACTION OF THE SCREEN. It glides to the bottom of the
+   * viewport as the document runs out of scroll — see {@link readingLineY} for
+   * why, and for the short-text case that makes it necessary.
+   */
   viewportY(): number;
+  /** Where the line WOULD be with a screenful of scroll left — for placing. */
+  restY(): number;
   /** The place in the text at the reading line, or null if there is none. */
   resolve(): ReadingAnchor | null;
   /** Document-space top of an anchor, or null when it is not rendered. */
@@ -59,14 +67,38 @@ export function useReadingLine(
   // control all hold on to it, and none of them should re-subscribe because a
   // parent re-rendered.
   return useMemo<ReadingLine>(() => {
-    const viewportY = () => {
-      // `visualViewport` is what is ACTUALLY visible: on iOS the layout viewport
-      // does not shrink when Safari's toolbars are showing, so measuring from
-      // `innerHeight` puts the line behind the chrome. `offsetTop` matters only
-      // while pinch-zoomed, and is zero the rest of the time.
+    // `visualViewport` is what is ACTUALLY visible: on iOS the layout viewport
+    // does not shrink when Safari's toolbars are showing, so measuring from
+    // `innerHeight` puts the line behind the chrome. `offsetTop` matters only
+    // while pinch-zoomed, and is zero the rest of the time.
+    const visible = () => {
       const view = window.visualViewport;
-      const height = view?.height ?? window.innerHeight;
-      const top = view?.offsetTop ?? 0;
+      return {
+        top: view?.offsetTop ?? 0,
+        height: view?.height ?? window.innerHeight,
+      };
+    };
+
+    /** Pixels of scrolling left before the document ends. */
+    const scrollGap = () => {
+      const doc = document.documentElement;
+      // The LAYOUT viewport here, deliberately: this is scroll arithmetic, and
+      // `scrollHeight` and `scrollY` are both in layout coordinates.
+      return Math.max(0, doc.scrollHeight - window.scrollY - doc.clientHeight);
+    };
+
+    const viewportY = () => {
+      const { top, height } = visible();
+      return readingLineY({ top, height, scrollGap: scrollGap(), ratio: READING_LINE_RATIO });
+    };
+
+    // PLACING IS NOT SAMPLING. `scrollTo` has to put an anchor where the line
+    // sits when there IS somewhere further to scroll — otherwise restoring a
+    // bookmark near the end of a chapter would aim at the bottom of the screen
+    // and the browser would clamp the scroll anyway, landing the learner a
+    // screenful short of where they were.
+    const restY = () => {
+      const { top, height } = visible();
       return top + height * READING_LINE_RATIO;
     };
 
@@ -106,11 +138,11 @@ export function useReadingLine(
       // THE ANCHOR GOES TO THE READING LINE, not to the top of the screen. Land
       // it at the top and the sentence the learner stopped on is the first thing
       // on the page with nothing above it, which reads as having lost the thread.
-      window.scrollTo({ top: Math.max(0, top - viewportY()), behavior });
+      window.scrollTo({ top: Math.max(0, top - restY()), behavior });
       return true;
     };
 
-    return { viewportY, resolve, documentTop, scrollTo };
+    return { viewportY, restY, resolve, documentTop, scrollTo };
   }, [contentRef]);
 }
 

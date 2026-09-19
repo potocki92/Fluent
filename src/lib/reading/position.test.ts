@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { BOOKMARK_REVEAL_WORDS } from "@/lib/reading/constants";
+import {
+  BOOKMARK_REVEAL_WORDS,
+  READING_LINE_RATIO,
+} from "@/lib/reading/constants";
 import {
   anchorAtOffset,
   anchorRatio,
@@ -13,6 +16,7 @@ import {
   mergeServerProgress,
   movedEnoughToPersist,
   offsetRatio,
+  readingLineY,
   readingPositionFrom,
   returnTarget,
   type ChapterWordIndex,
@@ -151,6 +155,48 @@ describe("the word scale", () => {
     const empty = buildChapterWordIndex([], 0);
     expect(offsetRatio(empty, 10)).toBe(0);
     expect(anchorWordOffset(empty, CHAPTER_START)).toBe(0);
+  });
+});
+
+describe("the reading line", () => {
+  const VIEWPORT = { top: 0, height: 800, ratio: READING_LINE_RATIO };
+  const REST = 800 * READING_LINE_RATIO;
+
+  it("sits at its resting height while there is a screenful of scroll left", () => {
+    expect(readingLineY({ ...VIEWPORT, scrollGap: 5000 })).toBeCloseTo(REST, 5);
+    expect(readingLineY({ ...VIEWPORT, scrollGap: 800 })).toBeCloseTo(REST, 5);
+  });
+
+  it("reaches the bottom of the screen when the document cannot scroll", () => {
+    // THE SHORT-TEXT CASE. A page about Chopin that fits on one screen never
+    // scrolls, so a line fixed at 38% would leave the other 62% of the text
+    // permanently unreadable and the bar stuck below half.
+    expect(readingLineY({ ...VIEWPORT, scrollGap: 0 })).toBe(799);
+  });
+
+  it("glides rather than jumping, so progress does not lurch at the end", () => {
+    const below = 800 - REST;
+    // Exactly half the remaining screen worth of scroll left: half way down.
+    const halfway = readingLineY({ ...VIEWPORT, scrollGap: below / 2 });
+    expect(halfway).toBeCloseTo(REST + below / 2, 5);
+    expect(halfway).toBeGreaterThan(readingLineY({ ...VIEWPORT, scrollGap: below }));
+    expect(halfway).toBeLessThan(readingLineY({ ...VIEWPORT, scrollGap: 0 }));
+  });
+
+  it("is monotonic in the scroll that remains", () => {
+    let previous = Number.POSITIVE_INFINITY;
+    for (const scrollGap of [0, 100, 200, 300, 400, 500, 600, 5000]) {
+      const y = readingLineY({ ...VIEWPORT, scrollGap });
+      expect(y).toBeLessThanOrEqual(previous);
+      previous = y;
+    }
+  });
+
+  it("follows the visible viewport when it is offset or tiny", () => {
+    expect(readingLineY({ top: 120, height: 800, scrollGap: 5000, ratio: 0.38 }))
+      .toBeCloseTo(120 + REST, 5);
+    // A degenerate viewport must not produce a negative probe.
+    expect(readingLineY({ top: 0, height: 0, scrollGap: 0, ratio: 0.38 })).toBeLessThanOrEqual(0);
   });
 });
 

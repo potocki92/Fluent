@@ -222,6 +222,60 @@ export function anchorAtOffset(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// where the reading line actually sits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Where to sample the text, given how much scrolling is left.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE LINE GLIDES TO THE BOTTOM WHEN THE DOCUMENT RUNS OUT
+ * ─────────────────────────────────────────────────────────────────────────────
+ * A fixed line at 38% of the viewport has a blind spot nobody notices until they
+ * open a short text: everything BELOW the line can only be brought up to it by
+ * scrolling, so whatever is still below it when the document stops scrolling can
+ * never be reached at all.
+ *
+ * For a chapter that fits on one screen — a page about Chopin, a short article,
+ * the last screen of any chapter — that is most of the text, and the reader would
+ * sit at 40% with nothing the learner could do about it. It is also why a long
+ * chapter's final paragraphs used to depend on there happening to be enough
+ * furniture (the completion card, the chapter nav) underneath the prose to push
+ * them up past the line.
+ *
+ * So the line is not fixed. It stays at 38% while there is a screenful of scroll
+ * left, and glides down to the bottom of the viewport exactly as fast as the
+ * remaining scroll runs out. At the very bottom of a document — or in a document
+ * that never scrolled at all — the sampling point is the bottom of the screen,
+ * which says the obvious true thing: everything visible, with nowhere further to
+ * go, has been reached.
+ *
+ * It is a glide rather than a jump on purpose; a line that teleported on the last
+ * screen would make progress lurch just as the learner finished the chapter.
+ *
+ * Returns a position in CLIENT coordinates.
+ */
+export function readingLineY(viewport: {
+  /** Top of the visible viewport — non-zero only while pinch-zoomed. */
+  top: number;
+  height: number;
+  /** Pixels of scrolling left before the document ends. */
+  scrollGap: number;
+  ratio: number;
+}): number {
+  const height = Math.max(0, viewport.height);
+  const line = height * clamp(viewport.ratio, 0, 1);
+  // How much of the screen sits below the line, and is therefore unreachable
+  // unless the line comes down to meet it.
+  const below = height - line;
+  const glide = Math.max(0, below - Math.max(0, viewport.scrollGap));
+
+  // One pixel inside the viewport: a hit test exactly on the edge belongs to no
+  // element in some browsers.
+  return viewport.top + Math.min(height - 1, line + glide);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // the position state
 // ─────────────────────────────────────────────────────────────────────────────
 
