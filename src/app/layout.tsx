@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
 import "./globals.css";
@@ -11,10 +11,28 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
+/**
+ * The icons are deliberately ABSENT from this object.
+ *
+ * `src/app/favicon.ico`, `icon.png`, `apple-icon.png` and `manifest.ts` are file
+ * conventions: Next finds them and emits the `<link>` tags itself, with a
+ * content hash that defeats the browser icon cache. Listing them here as well —
+ * or hand-writing `<link rel="icon">` into the document head — would emit each
+ * one twice and let the two copies drift apart.
+ */
 export const metadata: Metadata = {
   title: "Fluent — niemiecki słownik",
   description:
     "Ucz się niemieckiego słownictwa przez czytanie, fiszki i adaptacyjne testy.",
+  applicationName: "Fluent",
+  // The label under the icon on an iOS home screen. Without it iOS uses the
+  // <title>, and "Fluent — niemiecki słownik" is truncated to "Fluent — ni…".
+  appleWebApp: { title: "Fluent", statusBarStyle: "default" },
+};
+
+/** The browser chrome matches the app surface (`--background`, dark). */
+export const viewport: Viewport = {
+  themeColor: "#1a202c",
 };
 
 /**

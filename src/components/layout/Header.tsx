@@ -5,6 +5,7 @@ import { Library, NotebookPen, Settings } from "lucide-react";
 
 import { AccountMenu } from "@/components/auth/AccountMenu";
 import { useAuthUser } from "@/components/auth/AuthProvider";
+import { FluentLogo } from "@/components/brand/FluentLogo";
 import { AdminNavLink } from "@/components/layout/AdminNavLink";
 import { LevelSummary } from "@/components/level/LevelSummary";
 import { isAccountUser } from "@/lib/auth/identity";
@@ -20,16 +21,16 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-2xl items-center justify-between px-4">
-        <Link href="/today" className="flex items-center gap-2">
-          <span className="bg-gradient-to-r from-gold to-blue bg-clip-text text-lg font-bold tracking-tight text-transparent">
-            Fluent
-          </span>
-          {/* Below ~360px the wordmark, the level ring, four controls and the
-              account button do not all fit; the tag line is the one piece that
-              carries no function. */}
-          <span className="hidden text-xs text-muted2 min-[360px]:inline">
-            DE · PL
-          </span>
+        {/* The symbol and the name are one target, and one link to Today. The
+            lockup stacks the tag line under the name, which makes it narrower
+            than the wordmark-plus-tag-line row it replaces — so the controls on
+            the right keep their width down to 320px and nothing has to be
+            hidden at a breakpoint any more. */}
+        <Link
+          href="/today"
+          className="flex shrink-0 items-center rounded-sm outline-ring/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          <FluentLogo priority />
         </Link>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {hasAccount ? (
