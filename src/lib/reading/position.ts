@@ -107,6 +107,39 @@ export interface ChapterWordIndex {
   paragraphCount: number;
 }
 
+/**
+ * A token index meaning "past the end of this sentence, wherever that is".
+ *
+ * The reader needs to say "all of it" about a sentence whose length it does not
+ * know — the reading line has fallen below the last paragraph, so the learner has
+ * the whole thing behind them. Both sides clamp it to the sentence's real token
+ * count ({@link anchorWordOffset} here, `least(p_token, s.word_count)` in SQL),
+ * so any value at or above that length means the same thing.
+ *
+ * IT IS A REAL NUMBER, NOT `Number.MAX_SAFE_INTEGER`. A position is stored in a
+ * PostgreSQL `int`, which stops at 2 147 483 647 — so a JavaScript sentinel of
+ * 9 007 199 254 740 991 does not "clamp", it makes the whole progress report
+ * fail with `integer out of range`. That failure was silent, and it took the
+ * chapter's completion with it: the flush before "Zakończ rozdział" never
+ * landed, so the database still believed the chapter was unread and refused.
+ */
+export const SENTENCE_END_TOKEN = 1_000_000;
+
+/** The largest value a PostgreSQL `int` column can hold. */
+const MAX_STORED_POSITION = 2_147_483_647;
+
+/**
+ * A position the database can actually store.
+ *
+ * Applied on the way OUT of the reader, so no anchor — however it was produced,
+ * and whatever a future sentinel looks like — can turn a progress report into a
+ * range error. Nothing upstream is trusted to have got this right.
+ */
+export function toStoredPosition(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return Math.min(MAX_STORED_POSITION, Math.max(0, Math.trunc(value)));
+}
+
 /** The start of a chapter — and what an unknown position resolves to. */
 export const CHAPTER_START: ReadingAnchor = {
   paragraphPosition: 0,
