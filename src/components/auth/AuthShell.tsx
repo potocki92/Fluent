@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { BookOpen, Sparkles } from "lucide-react";
 
+import { FluentLogo } from "@/components/brand/FluentLogo";
+
 /**
  * The frame every authentication screen sits in.
  *
@@ -18,11 +20,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
     <div className="auth-ambient auth-screen flex flex-col">
       <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-10 lg:flex-row lg:items-center lg:gap-16">
         <section className="flex flex-col gap-5 lg:flex-1 lg:pb-10">
-          <Link href="/" className="inline-flex items-center gap-2 self-start">
-            <span className="bg-gradient-to-r from-gold to-blue bg-clip-text text-2xl font-bold tracking-tight text-transparent">
-              Fluent
-            </span>
-            <span className="text-xs font-medium text-muted2">DE · PL</span>
+          <Link
+            href="/"
+            className="inline-flex self-start rounded-sm outline-ring/50 focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            <FluentLogo size="auth" priority />
           </Link>
 
           <div className="space-y-2">
