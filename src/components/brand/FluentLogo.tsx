@@ -25,17 +25,34 @@ import fluentMark from "./fluent-mark.png";
  * its own takes a real `alt`.
  */
 
-/** The size steps the app actually uses — named, not scattered pixel literals. */
+/**
+ * The size steps, derived from the master lockup rather than picked by eye.
+ *
+ * The one proportion that matters is the symbol against the CAP HEIGHT of
+ * "Fluent" — not against the font size, and not against the line box. Measured
+ * off the master artwork it is 1.59, with the tag line at 0.45 of the same cap
+ * and equal gaps either side of the name. Inter's cap height is 0.727em, so a
+ * step's `mark` is round(1.59 × 0.727 × fontSize): 21px at text-lg, 28px at
+ * text-2xl. Anything larger is what made the symbol read as an image pasted
+ * next to a word instead of one mark. The gap follows the same cap: 0.37 of it,
+ * equal on both sides of the name, which is why it is 5px here and 6px there
+ * rather than the nearest comfortable spacing token.
+ *
+ * The tag line is the one place this deliberately departs from the master: at
+ * 0.45 of the cap it would be an 8px word in a 56px header, so it is held at
+ * half the name's font size instead — the smallest step that still reads at
+ * arm's length on a phone.
+ */
 const LOCKUP = {
   header: {
-    mark: 28,
-    gap: "gap-2.5",
+    mark: 21,
+    gap: "gap-1",
     name: "text-lg",
-    tagline: "text-[0.625rem]",
+    tagline: "text-[0.5625rem]",
   },
   auth: {
-    mark: 40,
-    gap: "gap-3",
+    mark: 28,
+    gap: "gap-1.5",
     name: "text-2xl",
     tagline: "text-xs",
   },
@@ -79,15 +96,16 @@ export function FluentMark({
 }
 
 /**
- * Symbol, name and the DE · PL pair, stacked:
+ * The lockup, on one line:
  *
- *     [symbol]  Fluent
- *               DE · PL
+ *     [symbol]  Fluent  DE · PL
  *
- * Stacking is what makes this fit a 320px header. Side by side the three pieces
- * are as wide as the name plus the tag line plus two gaps; stacked, the block is
- * only as wide as the name, so the new lockup is NARROWER than the wordmark it
- * replaces was on a phone — the controls on the right keep their room.
+ * `leading-none` on both words is what lets `items-center` do the right thing.
+ * With normal leading each span carries half-leading above and below, and since
+ * "Fluent" has no descenders its ink sits high in that box — centring the boxes
+ * would then leave the symbol visibly low against the letters. Collapsed to the
+ * em box, the two texts share the same cap-centre fraction, so one `items-center`
+ * aligns symbol, name and tag line on the same optical line.
  */
 export function FluentLogo({
   size = "header",
@@ -103,23 +121,21 @@ export function FluentLogo({
   return (
     <span className={cn("flex items-center", step.gap, className)}>
       <FluentMark size={step.mark} priority={priority} />
-      <span className="flex flex-col justify-center">
-        <span
-          className={cn(
-            "bg-gradient-to-r from-gold to-blue bg-clip-text font-bold leading-tight tracking-tight text-transparent",
-            step.name,
-          )}
-        >
-          Fluent
-        </span>
-        <span
-          className={cn(
-            "font-medium leading-tight text-muted2",
-            step.tagline,
-          )}
-        >
-          DE · PL
-        </span>
+      <span
+        className={cn(
+          "bg-gradient-to-r from-gold to-blue bg-clip-text font-bold leading-none tracking-tight text-transparent",
+          step.name,
+        )}
+      >
+        Fluent
+      </span>
+      <span
+        className={cn(
+          "font-medium leading-none tracking-wider text-muted2",
+          step.tagline,
+        )}
+      >
+        DE · PL
       </span>
     </span>
   );

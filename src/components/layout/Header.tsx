@@ -22,10 +22,10 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-2xl items-center justify-between px-4">
         {/* The symbol and the name are one target, and one link to Today. The
-            lockup stacks the tag line under the name, which makes it narrower
-            than the wordmark-plus-tag-line row it replaces — so the controls on
-            the right keep their width down to 320px and nothing has to be
-            hidden at a breakpoint any more. */}
+            lockup is a single line, so it is wider than the bare wordmark this
+            header used to show below 360px — see FluentLogo for the measured
+            proportions, and the responsive check for how much room the controls
+            on the right are left with. */}
         <Link
           href="/today"
           className="flex shrink-0 items-center rounded-sm outline-ring/50 focus-visible:outline-2 focus-visible:outline-offset-2"
