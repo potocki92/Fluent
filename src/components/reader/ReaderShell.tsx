@@ -404,12 +404,32 @@ export function ReaderShell({
       };
       lastFlushRef.current = Date.now();
 
-      const result = await reportReadingProgress({
-        sessionId,
-        resume: state.resume,
-        furthest: state.furthest,
-        activeSeconds: seconds,
-      });
+      const report = (id: string) =>
+        reportReadingProgress({
+          sessionId: id,
+          resume: state.resume,
+          furthest: state.furthest,
+          activeSeconds: seconds,
+        });
+
+      let result = await report(sessionId);
+
+      // A SEALED SESSION IS NOT A DEAD END. A second tab, a restore from the
+      // back/forward cache, or simply having been away long enough can leave the
+      // reader holding a session the server has finished with — and without
+      // this, the rest of the sitting would silently write nothing and the
+      // chapter could never be completed. Opening a new one is exactly what
+      // arriving on the page does, so do that and say it again, once.
+      if (!result.ok && isStaleSession(result.code)) {
+        const reopened = await startReadingSession(chapter.id);
+        if (reopened.ok) {
+          sessionRef.current = reopened.sessionId;
+          setSessionId(reopened.sessionId);
+          position.mergeServer(reopened.progressRatio);
+          result = await report(reopened.sessionId);
+        }
+      }
+
       if (!result.ok) {
         // The server did not take it, so pretend nothing was written: the next
         // flush must try again rather than believe a report that never landed.
@@ -420,7 +440,7 @@ export function ReaderShell({
       position.mergeServer(result.progressRatio);
       return { ok: true };
     },
-    [clock, position],
+    [chapter.id, clock, position],
   );
 
   // A REQUEST PER SCROLL EVENT IS BOTH USELESS AND ABUSIVE. Progress is only
@@ -459,12 +479,29 @@ export function ReaderShell({
     };
   }, [flush]);
 
+  // ── leaving ───────────────────────────────────────────────────────────────
+  // SEALING THE SESSION IS A ONE-WAY DOOR, so it happens exactly once: on the
+  // way out, and never because something re-rendered.
+  //
+  // This effect used to depend on the clock, which returned a fresh object every
+  // render — so it was torn down and rebuilt constantly, and its cleanup sealed
+  // the session while the learner was still reading. Every report afterwards was
+  // refused as belonging to a finished session, and "Zakończ rozdział" with it.
+  // The clock is stable now; the empty dependency list is the belt to that
+  // brace, because the cost of getting this wrong is the whole reading session.
+  const peekSecondsRef = useRef(clock.peek);
+  useEffect(() => {
+    peekSecondsRef.current = clock.peek;
+  }, [clock.peek]);
+
   useEffect(() => {
     return () => {
       const sessionId = sessionRef.current;
-      if (sessionId) void endReadingSession({ sessionId, activeSeconds: clock.peek() });
+      if (sessionId) {
+        void endReadingSession({ sessionId, activeSeconds: peekSecondsRef.current() });
+      }
     };
-  }, [clock]);
+  }, []);
 
   // ── immersive chrome ──────────────────────────────────────────────────────
   // Hidden while reading forward, back the moment the learner scrolls up. The
@@ -1140,6 +1177,17 @@ export function ReaderShell({
       />
     </div>
   );
+}
+
+/**
+ * Is this failure "your session is gone", rather than something about the data?
+ *
+ * The two codes a finished or vanished reading session comes back as. Anything
+ * else — a refused position, a database error — is not fixed by opening a new
+ * session and must not be retried into one.
+ */
+function isStaleSession(code: FluentFailure["code"]): boolean {
+  return code === "session_completed" || code === "not_found";
 }
 
 /**

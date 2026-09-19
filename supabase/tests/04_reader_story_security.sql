@@ -551,8 +551,23 @@ begin
     raise exception 'FAIL: the first completion reported itself as a repeat';
   end if;
 
+  -- A SEALED SESSION IS NOT A DEAD END. Completing ends the session, and so
+  -- does leaving the page — but a reader still on the page must be able to
+  -- carry on. Reporting against the finished session is refused…
+  begin
+    perform public.record_reading_progress(v_session, 1, 1, 100, 1, 1, 100, 5, 300);
+    raise exception 'FAIL: a finished reading session still accepted progress';
+  exception when sqlstate 'FL409' then null;
+  end;
+
+  -- …and opening a new one is all it takes. That is what the reader does when a
+  -- report comes back FL409, instead of writing nothing for the rest of the
+  -- sitting and leaving "Zakończ rozdział" unable to work.
   select session_id into v_session
   from public.start_reading_session('8c000000-0000-0000-0000-000000000004');
+  if v_session is null then
+    raise exception 'FAIL: a chapter whose session was sealed cannot be re-opened';
+  end if;
 
   -- TEST K / J. Scroll back: the bookmark follows down to the exact TOKEN, the
   -- progress bar does not move at all.

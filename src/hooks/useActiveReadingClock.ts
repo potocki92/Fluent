@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ACTIVE_TICK_MS, IDLE_TIMEOUT_MS } from "@/lib/reading/constants";
 
@@ -115,5 +115,11 @@ export function useActiveReadingClock() {
     [],
   );
 
-  return { drain, peek, isActive };
+  // ONE OBJECT, FOR THE LIFE OF THE READER. A fresh literal here is not a
+  // cosmetic problem: an effect that depends on the clock then re-runs on every
+  // render, and any cleanup it has runs with it. That is precisely how the
+  // reader came to seal its own reading session while the learner was still
+  // reading — after which every progress report was refused as belonging to a
+  // finished session, and with it the chapter's completion.
+  return useMemo(() => ({ drain, peek, isActive }), [drain, isActive, peek]);
 }
