@@ -20,6 +20,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDictionarySnapshot } from "@/lib/content/dictionary-snapshot";
 import { resolveNormalizedForms } from "@/lib/content/dictionary-match";
 import { normalizeToken, tokenize } from "@/lib/content/tokenize";
+import {
+  buildChapterWordIndex,
+  type ChapterWordIndex,
+  type ReadingAnchor,
+} from "@/lib/reading/position";
 import { estimateCoverage, type CoverageEstimate } from "@/lib/reading/coverage";
 import { itemProgressRatio } from "@/lib/reading/progress";
 import type { Database } from "@/types/database";
@@ -375,7 +380,20 @@ export interface ReaderOccurrence {
 
 export interface ReaderSentence {
   id: number;
+  /** Position within its PARAGRAPH — the render order. */
   position: number;
+  /**
+   * Position within the CHAPTER (`sentences.chapter_position`).
+   *
+   * This is what a reading anchor is addressed by: unique per chapter, stable
+   * across a reprocess, and rendered as `data-sentence-position` so the reading
+   * line can turn a DOM hit straight into a bookmark.
+   */
+  chapterPosition: number;
+  /** Lexical tokens of the chapter before this sentence (`word_start`). */
+  wordStart: number;
+  /** Lexical tokens in this sentence. */
+  wordCount: number;
   text: string;
   occurrences: ReaderOccurrence[];
 }
@@ -400,6 +418,14 @@ export interface ReaderChapter {
   previousPosition: number | null;
   nextPosition: number | null;
   paragraphs: ReaderParagraph[];
+  /**
+   * Everything needed to turn a place in the text into a percentage, in O(1).
+   *
+   * Built here rather than in the browser because the rows it is made of were
+   * being loaded anyway, and because the reader must be able to answer "how far
+   * through am I?" on an animation frame without counting anything.
+   */
+  wordIndex: ChapterWordIndex;
   /**
    * The stored rows disagree with today's dictionary, and the page was rendered
    * from the dictionary.
@@ -483,7 +509,11 @@ export async function getReaderChapter(
           // `word_count` is the sentence's LEXICAL TOKEN count, written by the
           // pipeline. It is what makes "does this sentence have all its
           // occurrences?" a comparison rather than a re-tokenization.
-          .select("id, paragraph_id, position, text, word_count")
+          //
+          // `word_start` is the running total of the ones before it, derived by
+          // the database. Together they place every sentence on the word scale
+          // reading progress is measured on — see `src/lib/reading/position.ts`.
+          .select("id, paragraph_id, position, chapter_position, text, word_count, word_start")
           .eq("chapter_id", chapter.id)
           .order("chapter_position", { ascending: true })
           .range(from, to),
@@ -519,12 +549,13 @@ export async function getReaderChapter(
       paragraphId: sentence.paragraph_id,
       id: sentence.id,
       position: sentence.position,
+      chapterPosition: sentence.chapter_position,
+      wordStart: sentence.word_start,
+      wordCount: sentence.word_count,
       text: sentence.text,
       occurrences: (occurrencesBySentence.get(sentence.id) ?? []).sort(
         (a, b) => a.charStart - b.charStart,
       ),
-      // Carried only as far as the resolution pass below.
-      tokenCount: sentence.word_count,
     }),
   );
 
@@ -565,8 +596,83 @@ export async function getReaderChapter(
         (a, b) => a.position - b.position,
       ),
     })),
+    wordIndex: buildChapterWordIndex(
+      paragraphs.flatMap((paragraph) =>
+        (sentencesByParagraph.get(paragraph.id) ?? []).map((sentence) => ({
+          paragraphPosition: paragraph.position,
+          sentencePosition: sentence.chapterPosition,
+          wordStart: sentence.wordStart,
+          wordCount: sentence.wordCount,
+        })),
+      ),
+      paragraphs.length,
+    ),
     needsDictionarySync,
   };
+}
+
+/**
+ * Where this learner stopped in this chapter, read on the SERVER.
+ *
+ * WHY IT IS NOT JUST `startReadingSession`'s ANSWER. Opening a session is a
+ * Server Action: it runs after the page has been sent, hydrated and painted, so
+ * restoring from it means the learner sees the top of the chapter and is then
+ * thrown several screens down. Read here instead, the position is in the first
+ * response — early enough that the page can be scrolled before it is ever
+ * painted (see `ReadingRestoreScript`), which is the difference between "the app
+ * knows where I read" and "the app scrolled me somewhere".
+ *
+ * `startReadingSession` still returns it, and is still the authority: it is what
+ * notices that another device has read further since. This is the fast copy.
+ *
+ * RLS DOES THE SCOPING. `reading_progress` is readable only by its owner, so
+ * this cannot return anybody else's bookmark even if asked to.
+ */
+export async function getChapterReadingPosition(
+  supabase: Client,
+  userId: string,
+  chapterId: string,
+): Promise<StoredReadingPosition | null> {
+  const { data, error } = await supabase
+    .from("reading_progress")
+    .select(READING_POSITION_COLUMNS)
+    .eq("user_id", userId)
+    .eq("chapter_id", chapterId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    resume: {
+      paragraphPosition: data.resume_paragraph_position ?? 0,
+      sentencePosition: data.resume_sentence_position,
+      tokenPosition: data.resume_token_position,
+    },
+    furthest: {
+      paragraphPosition: data.furthest_paragraph_position ?? 0,
+      sentencePosition: data.furthest_sentence_position,
+      tokenPosition: data.furthest_token_position,
+    },
+    progressRatio: Number(data.progress_ratio ?? 0),
+    completedAt: data.completed_at,
+  };
+}
+
+/**
+ * A single literal, not a concatenation: PostgREST infers the row type from the
+ * string, and anything it cannot read at compile time comes back as `unknown`.
+ */
+const READING_POSITION_COLUMNS =
+  "resume_paragraph_position, resume_sentence_position, resume_token_position, furthest_paragraph_position, furthest_sentence_position, furthest_token_position, progress_ratio, completed_at";
+
+/** A learner's stored place in one chapter — the two anchors and the bar. */
+export interface StoredReadingPosition {
+  /** Where to put them back. Moves in both directions. */
+  resume: ReadingAnchor;
+  /** How far they have read. Only ever moves forward. */
+  furthest: ReadingAnchor;
+  progressRatio: number;
+  completedAt: string | null;
 }
 
 /**
@@ -603,7 +709,7 @@ export async function getReaderChapterTitle(
 }
 
 /** A sentence being assembled: its paragraph, and the token count the pipeline recorded. */
-type PendingSentence = ReaderSentence & { paragraphId: number; tokenCount: number };
+type PendingSentence = ReaderSentence & { paragraphId: number };
 
 /**
  * Bring one chapter's occurrences up to date with the current dictionary, in
@@ -646,12 +752,12 @@ async function resolveAgainstCurrentDictionary(
 
   const behind = storedRevision === null || storedRevision !== snapshot.revision;
   const gaps = sentences.some(
-    (sentence) => sentence.occurrences.length < sentence.tokenCount,
+    (sentence) => sentence.occurrences.length < sentence.wordCount,
   );
   if (!behind && !gaps) return false;
 
   for (const sentence of sentences) {
-    if (sentence.occurrences.length >= sentence.tokenCount) continue;
+    if (sentence.occurrences.length >= sentence.wordCount) continue;
 
     const byPosition = new Map(
       sentence.occurrences.map((occurrence) => [occurrence.position, occurrence]),

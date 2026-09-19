@@ -34,6 +34,7 @@ MIGRATIONS=(
   supabase/migrations/20260915180000_personal_language_notebook.sql
   supabase/migrations/20260917120000_content_delete_indexes.sql
   supabase/migrations/20260917140000_dictionary_independent_occurrences.sql
+  supabase/migrations/20260917200000_reading_position_engine.sql
 )
 
 # The suites run against the same database, in order: 01 exercises the test

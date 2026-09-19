@@ -1093,6 +1093,16 @@ export type Database = {
           /** The raw text this chapter was built from; reprocessing reads it. */
           source_text: string;
           word_count: number;
+          /**
+           * The chapter's length in LEXICAL TOKENS — the denominator reading
+           * progress is measured against.
+           *
+           * Deliberately not `word_count`, which is counted differently (over
+           * paragraph text, for display and time estimates). Progress divides a
+           * word offset by this, and the two have to be the same scale or the
+           * last word of a chapter lands at 99.7%.
+           */
+          reading_word_count: number;
           paragraph_count: number;
           sentence_count: number;
           estimated_reading_minutes: number;
@@ -1129,6 +1139,7 @@ export type Database = {
           subtitle?: string | null;
           source_text?: string;
           word_count?: number;
+          reading_word_count?: number;
           paragraph_count?: number;
           sentence_count?: number;
           estimated_reading_minutes?: number;
@@ -1306,6 +1317,12 @@ export type Database = {
           char_start: number;
           char_end: number;
           word_count: number;
+          /**
+           * Lexical tokens of the CHAPTER before this sentence — the running
+           * total that turns a reading anchor into a word offset in O(1).
+           * Derived by the database when content is stored, never by the client.
+           */
+          word_start: number;
           translation_pl: string | null;
           simplified_de: string | null;
           grammar_notes: Json | null;
@@ -1321,6 +1338,7 @@ export type Database = {
           char_start?: number;
           char_end?: number;
           word_count?: number;
+          word_start?: number;
           translation_pl?: string | null;
           simplified_de?: string | null;
           grammar_notes?: Json | null;
@@ -1449,9 +1467,20 @@ export type Database = {
           started_at: string;
           last_read_at: string;
           completed_at: string | null;
+          /** The reading anchor, coarse to fine. Moves in BOTH directions. */
           resume_paragraph_position: number;
+          /** `sentences.chapter_position`, null for a legacy bookmark. */
           resume_sentence_position: number | null;
+          /** Lexical token inside that sentence, null for a legacy bookmark. */
+          resume_token_position: number | null;
+          /** The same anchor as a word offset, resolved by the database. */
+          resume_word_offset: number;
+          /** The furthest anchor. Only ever moves FORWARD. */
           furthest_paragraph_position: number;
+          furthest_sentence_position: number | null;
+          furthest_token_position: number | null;
+          furthest_word_offset: number;
+          /** `furthest_word_offset / chapters.reading_word_count`. */
           progress_ratio: number;
           active_seconds: number;
           lookup_count: number;
@@ -1466,7 +1495,12 @@ export type Database = {
           completed_at?: string | null;
           resume_paragraph_position?: number;
           resume_sentence_position?: number | null;
+          resume_token_position?: number | null;
+          resume_word_offset?: number;
           furthest_paragraph_position?: number;
+          furthest_sentence_position?: number | null;
+          furthest_token_position?: number | null;
+          furthest_word_offset?: number;
           progress_ratio?: number;
           active_seconds?: number;
           lookup_count?: number;
@@ -2627,7 +2661,10 @@ export type Database = {
           already_answered: boolean;
         }[];
       };
-      /** Opens (or re-opens) a chapter and says where to resume. */
+      /**
+       * Opens (or re-opens) a chapter and says where to resume — as a full
+       * reading anchor, not just a paragraph.
+       */
       start_reading_session: {
         Args: { p_chapter_id: string };
         Returns: {
@@ -2635,27 +2672,47 @@ export type Database = {
           library_item_id: string;
           resume_paragraph: number;
           resume_sentence: number | null;
+          resume_token: number | null;
+          resume_word_offset: number;
           furthest_paragraph: number;
+          furthest_sentence: number | null;
+          furthest_token: number | null;
+          furthest_word_offset: number;
+          reading_word_count: number;
           progress_ratio: number;
           completed_at: string | null;
           resumed: boolean;
         }[];
       };
       /**
-       * Records where the learner is. `furthest` only ever increases;
-       * `p_max_active_seconds` is the cap from `src/lib/reading/constants.ts`.
+       * Records where the learner IS and, separately, how far they have
+       * CONFIRMED reading.
+       *
+       * TWO ANCHORS PER REPORT. The resume anchor moves in both directions; the
+       * furthest one only forward, and the reader only advances it after a place
+       * has held at the reading line — which is what stops a fling from marking
+       * half a chapter read. The database resolves both anchors to word offsets
+       * itself: a client that sent a percentage would be deciding its own
+       * progress. `p_max_active_seconds` is the cap from
+       * `src/lib/reading/constants.ts`.
        */
       record_reading_progress: {
         Args: {
           p_session_id: string;
           p_paragraph_position: number;
           p_sentence_position: number | null;
+          p_token_position: number | null;
+          p_furthest_paragraph_position: number;
+          p_furthest_sentence_position: number | null;
+          p_furthest_token_position: number | null;
           p_active_seconds: number;
           p_max_active_seconds: number;
         };
         Returns: {
           progress_ratio: number;
           furthest_paragraph: number;
+          furthest_word_offset: number;
+          reading_word_count: number;
           active_seconds: number;
           words_read: number;
         }[];

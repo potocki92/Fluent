@@ -18,8 +18,10 @@ import { cn } from "@/lib/utils";
  *
  * THE SOURCE IS A LINK, NOT A LABEL (§57). Every entry goes back to the exact
  * sentence it was taken from, through the reader's own route — no second reading
- * surface, no modal preview of a book. `?sentence=` is read by `ReaderShell`,
- * which scrolls there instead of resuming.
+ * surface, no modal preview of a book. `?sentence=` is read by the chapter page,
+ * and a deep link BEATS the bookmark: the reader scrolls there instead of
+ * resuming, and does not overwrite the place the learner actually stopped at
+ * unless they stay and read.
  *
  * STALE ENTRIES SAY SO (§37). When a chapter has been reprocessed under a
  * different tokenizer, the German shown here is the text the note was TAKEN

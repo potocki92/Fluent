@@ -4,17 +4,25 @@
  *
  * THE ONE IDEA THIS MODULE EXISTS FOR: **resume position and furthest position
  * are different facts.** A learner who scrolls back to re-read the opening of a
- * chapter is at paragraph 3; they have still READ up to paragraph 80. Storing
- * one number for both means either the bookmark is wrong or the progress bar
- * falls from 80% to 4% because someone looked something up. So:
+ * chapter is at 31%; they have still READ up to 42%. Storing one number for both
+ * means either the bookmark is wrong or the progress bar falls from 42% to 31%
+ * because someone looked something up. So:
  *
  *   - `resume*` follows the learner and may move in either direction,
  *   - `furthest*` only ever increases, and is the only input to progress and
  *     completion.
  *
- * The database enforces the monotonicity as well (`greatest(...)` in
- * `record_reading_progress`); this module is where the rule is stated, tested
- * and explained.
+ * **AND PROGRESS IS COUNTED IN WORDS.** It used to be
+ * `(furthestParagraph + 1) / paragraphCount`, which weighs an eight-word line of
+ * dialogue exactly like a four-hundred-word description. In a novel that is not
+ * a rounding error — it is the difference between "you have read half this
+ * chapter" and "you have read the first two lines of it". The unit is therefore
+ * the lexical token, and where each position falls on that scale is
+ * `src/lib/reading/position.ts`.
+ *
+ * The database enforces the same two rules (`greatest(...)` in
+ * `record_reading_progress`, and the same division); this module is where they
+ * are stated, tested and explained.
  */
 
 import {
@@ -26,47 +34,59 @@ import {
 
 /** Where a learner is in a chapter, as stored in `reading_progress`. */
 export interface ReadingPosition {
-  /** Paragraph position the learner is looking at now. Moves both ways. */
-  resumeParagraph: number;
-  /** Highest paragraph position ever reached. Never decreases. */
-  furthestParagraph: number;
-  /** 0–1, derived from `furthestParagraph`. Never decreases. */
+  /** Words before the place the learner is looking at. Moves both ways. */
+  resumeWordOffset: number;
+  /** Words before the furthest place genuinely read. Never decreases. */
+  furthestWordOffset: number;
+  /** 0–1, derived from `furthestWordOffset`. Never decreases. */
   ratio: number;
 }
 
-/** One report from the reader: "I can see paragraph N". */
+/**
+ * One report from the reader.
+ *
+ * TWO POSITIONS, NOT ONE, and that is the shape of the fix. The reader tells the
+ * server where the learner IS and, separately, how far they have CONFIRMED
+ * reading — the second lags the first by a dwell, so a fling to the end of the
+ * chapter moves the bookmark without moving the progress bar.
+ */
 export interface ProgressReport {
-  paragraphPosition: number;
-  /** Paragraphs in the chapter. Needed to turn a position into a ratio. */
-  paragraphCount: number;
+  resumeWordOffset: number;
+  furthestWordOffset: number;
+  /** Lexical tokens in the chapter. The denominator. */
+  totalWords: number;
 }
 
 export const INITIAL_POSITION: ReadingPosition = {
-  resumeParagraph: 0,
-  furthestParagraph: 0,
+  resumeWordOffset: 0,
+  furthestWordOffset: 0,
   ratio: 0,
 };
 
 /**
  * Fold a report into a stored position.
  *
- * Note what happens on a scroll back: `resumeParagraph` follows, `ratio` does
+ * Note what happens on a scroll back: `resumeWordOffset` follows, `ratio` does
  * not. That asymmetry IS the feature — see the module comment.
  */
 export function advanceProgress(
   current: ReadingPosition,
   report: ProgressReport,
 ): ReadingPosition {
-  const paragraphCount = Math.max(1, Math.trunc(report.paragraphCount));
-  const reported = clampIndex(report.paragraphPosition, paragraphCount);
-  const furthest = Math.max(current.furthestParagraph, reported);
+  const totalWords = Math.max(0, Math.trunc(report.totalWords));
+  const resume = clampOffset(report.resumeWordOffset, totalWords);
+  const furthest = Math.max(
+    current.furthestWordOffset,
+    clampOffset(report.furthestWordOffset, totalWords),
+  );
 
   return {
-    resumeParagraph: reported,
-    furthestParagraph: furthest,
-    // The learner has read THROUGH the furthest paragraph they reached, so the
-    // last one puts the ratio at exactly 1 rather than (n-1)/n.
-    ratio: Math.max(current.ratio, round((furthest + 1) / paragraphCount)),
+    resumeWordOffset: resume,
+    furthestWordOffset: furthest,
+    ratio:
+      totalWords === 0
+        ? current.ratio
+        : Math.max(current.ratio, round(furthest / totalWords)),
   };
 }
 
@@ -75,9 +95,9 @@ export function advanceProgress(
  *
  * Deliberately not "the last element rendered": a sticky footer, a short final
  * line or a layout shift can put the end of a chapter on screen without anyone
- * having read it. Completion needs the learner to have genuinely got there —
- * and then it is still an explicit action in the UI, not a side effect of
- * scrolling.
+ * having read it. Completion needs the learner's FURTHEST position — which only
+ * advances after a dwell, so a fling to the bottom does not buy it — to have
+ * genuinely got there, and then it is still an explicit action in the UI.
  */
 export function canCompleteChapter(position: ReadingPosition): boolean {
   return position.ratio >= CHAPTER_COMPLETION_RATIO;
@@ -111,6 +131,9 @@ export function estimatedChapterMinutes(wordCount: number | null): number {
  * a learner can feel has to track the words, not the headings — so each
  * chapter contributes in proportion to its length, and a chapter with no word
  * count falls back to counting as one unit rather than distorting the rest.
+ *
+ * The same argument one level down is why `ratio` itself is word-based now: a
+ * word-weighted average of paragraph-counted ratios was still only half honest.
  */
 export function itemProgressRatio(
   chapters: readonly { wordCount: number | null; ratio: number }[],
@@ -133,9 +156,9 @@ export function wordsRead(ratio: number, wordCount: number | null): number {
   return Math.round(clampRatio(ratio) * wordCount);
 }
 
-function clampIndex(value: number, count: number): number {
+function clampOffset(value: number, totalWords: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(count - 1, Math.max(0, Math.trunc(value)));
+  return Math.min(totalWords, Math.max(0, Math.trunc(value)));
 }
 
 function clampRatio(value: number): number {

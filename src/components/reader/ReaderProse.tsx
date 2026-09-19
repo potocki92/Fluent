@@ -86,7 +86,15 @@ function Sentence({
 }) {
   return (
     <>
-      <span className="reader-sentence" data-sentence-id={sentence.id}>
+      <span
+        className="reader-sentence"
+        data-sentence-id={sentence.id}
+        // The sentence's position within the CHAPTER, which is what a reading
+        // anchor is addressed by — unique per chapter, stable across a
+        // reprocess, and the row id is neither. The reading line turns a DOM hit
+        // into a bookmark by reading exactly this attribute.
+        data-sentence-position={sentence.chapterPosition}
+      >
         {renderSentence(sentence)}
       </span>
       {separator ? " " : null}

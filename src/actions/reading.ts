@@ -18,6 +18,7 @@ import {
   CHAPTER_COMPLETION_RATIO,
   MAX_ACTIVE_SECONDS_PER_REPORT,
 } from "@/lib/reading/constants";
+import type { ReadingAnchor } from "@/lib/reading/position";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
@@ -37,13 +38,22 @@ import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
  * be branched on by the UI.
  */
 
-/** Where to put the learner when a chapter opens. */
+/**
+ * Where to put the learner when a chapter opens — and how far they have read.
+ *
+ * TWO ANCHORS, BECAUSE THEY ARE TWO FACTS. `resume` is where to scroll to;
+ * `furthest` is what the progress bar says and where "go back to where you
+ * were" leads. A learner who read to 42%, backed up to 31% and closed the app
+ * gets 31% for the first and 42% for the second, which is the entire point of
+ * the Reading Position Engine.
+ */
 export interface ReadingSessionStart {
   sessionId: string;
   libraryItemId: string;
-  resumeParagraph: number;
-  resumeSentence: number | null;
-  furthestParagraph: number;
+  resume: ReadingAnchor;
+  furthest: ReadingAnchor;
+  /** The chapter's length in lexical tokens — progress's denominator. */
+  readingWordCount: number;
   progressRatio: number;
   completedAt: string | null;
   /** True when an existing open session was adopted (a second tab, a refresh). */
@@ -90,9 +100,17 @@ export async function startReadingSession(
     ok: true,
     sessionId: row.session_id,
     libraryItemId: row.library_item_id,
-    resumeParagraph: row.resume_paragraph ?? 0,
-    resumeSentence: row.resume_sentence,
-    furthestParagraph: row.furthest_paragraph ?? 0,
+    resume: {
+      paragraphPosition: row.resume_paragraph ?? 0,
+      sentencePosition: row.resume_sentence,
+      tokenPosition: row.resume_token,
+    },
+    furthest: {
+      paragraphPosition: row.furthest_paragraph ?? 0,
+      sentencePosition: row.furthest_sentence,
+      tokenPosition: row.furthest_token,
+    },
+    readingWordCount: row.reading_word_count ?? 0,
     progressRatio: Number(row.progress_ratio ?? 0),
     completedAt: row.completed_at,
     resumed: row.resumed,
@@ -101,24 +119,36 @@ export async function startReadingSession(
 
 export interface ReadingProgressResult {
   progressRatio: number;
-  furthestParagraph: number;
+  furthestWordOffset: number;
+  readingWordCount: number;
   activeSeconds: number;
   wordsRead: number;
   canComplete: boolean;
 }
 
 /**
- * "I can see paragraph N, and I have been reading for M seconds."
+ * "I am HERE, I have confirmed reading up to THERE, and I have been reading for
+ * M seconds."
  *
- * Called at most once every `PROGRESS_FLUSH_MS` and once more when the page is
- * hidden — never per scroll event. The seconds are a CLAIM: the function caps
+ * TWO ANCHORS, NOT ONE. `resume` follows the learner in both directions;
+ * `furthest` is only as far as the reader has watched a place hold at the
+ * reading line, so a fling to the end of the chapter moves the bookmark and
+ * leaves the progress bar alone.
+ *
+ * NEITHER IS A PERCENTAGE. The reader reports places in the TEXT and the
+ * database works out what they are worth — a client that sent a ratio would be
+ * deciding its own progress, and progress is server-owned.
+ *
+ * Called at most once every `PROGRESS_FLUSH_MS`, once more when the learner has
+ * moved `PROGRESS_FLUSH_WORDS` in either direction, and once more when the page
+ * is hidden — never per scroll event. The seconds are a CLAIM: the function caps
  * what one report may add, so a slept machine or a forged request cannot buy
  * reading time.
  */
 export async function reportReadingProgress(input: {
   sessionId: string;
-  paragraphPosition: number;
-  sentencePosition?: number | null;
+  resume: ReadingAnchor;
+  furthest: ReadingAnchor;
   activeSeconds: number;
 }): Promise<ActionResult<ReadingProgressResult>> {
   const supabase = await createServerSupabaseClient();
@@ -129,8 +159,12 @@ export async function reportReadingProgress(input: {
 
   const { data, error } = await supabase.rpc("record_reading_progress", {
     p_session_id: input.sessionId,
-    p_paragraph_position: Math.max(0, Math.trunc(input.paragraphPosition)),
-    p_sentence_position: input.sentencePosition ?? null,
+    p_paragraph_position: position(input.resume.paragraphPosition) ?? 0,
+    p_sentence_position: position(input.resume.sentencePosition),
+    p_token_position: position(input.resume.tokenPosition),
+    p_furthest_paragraph_position: position(input.furthest.paragraphPosition) ?? 0,
+    p_furthest_sentence_position: position(input.furthest.sentencePosition),
+    p_furthest_token_position: position(input.furthest.tokenPosition),
     p_active_seconds: Math.max(0, Math.trunc(input.activeSeconds)),
     p_max_active_seconds: MAX_ACTIVE_SECONDS_PER_REPORT,
   });
@@ -143,11 +177,18 @@ export async function reportReadingProgress(input: {
   return {
     ok: true,
     progressRatio: ratio,
-    furthestParagraph: row.furthest_paragraph ?? 0,
+    furthestWordOffset: row.furthest_word_offset ?? 0,
+    readingWordCount: row.reading_word_count ?? 0,
     activeSeconds: row.active_seconds ?? 0,
     wordsRead: row.words_read ?? 0,
     canComplete: ratio >= CHAPTER_COMPLETION_RATIO,
   };
+}
+
+/** A position the database may store: a non-negative integer, or nothing. */
+function position(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.trunc(value));
 }
 
 /** What the learner is shown after finishing a chapter. Real numbers, no AI. */

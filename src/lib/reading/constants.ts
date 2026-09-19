@@ -112,6 +112,67 @@ export const CLICK_PAIRING_MS = 700;
 export const SELECTION_SETTLE_MS = 120;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// THE READING LINE
+// ─────────────────────────────────────────────────────────────────────────────
+// WHERE IN THE VIEWPORT "HERE" IS. A reader is not at the top of the screen and
+// not in the middle of it — the eye sits slightly above centre while the text
+// below is what is coming. So the engine samples one virtual horizontal line and
+// asks which sentence crosses it; that sentence is the learner's CURRENT
+// position, and everything else (progress, the bookmark, restoring the place
+// after a font change) is derived from it.
+//
+// It is never drawn. It exists so that "where am I in this book?" has a single,
+// testable answer that is a place in the TEXT rather than a number of pixels.
+
+/**
+ * Height of the viewport at which the reading line sits.
+ *
+ * 38% rather than 50%: the sentence a reader is on is above the middle of the
+ * screen, because the lines below it are the ones they are about to read. Put
+ * the line at the centre and every bookmark lands roughly a paragraph late.
+ */
+export const READING_LINE_RATIO = 0.38;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DWELL — "SCROLLED PAST" IS NOT "READ"
+// ─────────────────────────────────────────────────────────────────────────────
+// A fling from 10% to 87% takes 300ms and reads nothing. The CURRENT position
+// follows it instantly, because that is genuinely where the learner is looking;
+// the FURTHEST position must not, or a flick of the thumb would mark half a book
+// as read and the progress bar would stop meaning anything.
+//
+// The rule is deliberately simple: furthest follows current with a delay,
+// measured in ACTIVE reading time. Normal reading moves slowly enough that the
+// lag is invisible; a fling outruns it and only catches up once the learner has
+// actually sat at the new place.
+
+/**
+ * How long a position must hold at the reading line before it counts as read.
+ *
+ * Measured in active time only (visible document, recent interaction), so a
+ * backgrounded tab parked at the last page never confirms anything.
+ */
+export const READ_DWELL_MS = 700;
+
+/**
+ * How often the engine samples the reading line while the chapter is visible.
+ *
+ * Scrolling drives its own sample through `requestAnimationFrame`; this is the
+ * heartbeat that lets dwell complete after the scrolling has STOPPED, which is
+ * exactly the moment a fling turns into reading.
+ */
+export const READING_SAMPLE_MS = 200;
+
+/**
+ * Most active time one sample may credit.
+ *
+ * A throttled timer, a slept machine or a tab that was hidden for an hour all
+ * produce one enormous gap between samples. Capping it means the worst case is a
+ * few hundred milliseconds of dwell credited for free, not an hour.
+ */
+export const MAX_SAMPLE_GAP_MS = 1_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROGRESS REPORTING
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -127,20 +188,54 @@ export const SELECTION_SETTLE_MS = 120;
 export const PROGRESS_FLUSH_MS = 15_000;
 
 /**
- * Paragraphs advanced before an early flush is worth it.
+ * Words of movement that earn a write before the regular cadence.
  *
- * Without this, a learner who reads for ten seconds and leaves loses their
- * position; with it, the first real movement is persisted almost immediately.
+ * WORDS, NOT PARAGRAPHS, and the change matters: a chapter of dialogue is
+ * hundreds of two-word paragraphs, so a paragraph threshold fired constantly
+ * there and almost never in a chapter of long prose.
+ *
+ * IT COUNTS MOVEMENT IN EITHER DIRECTION. Scrolling BACK moves the bookmark too
+ * — that is the whole point of a resume position that is not the furthest one —
+ * and the old rule (`visible > flushed`) could only ever persist going forward,
+ * which is precisely how a learner who backed up and closed the app was returned
+ * to the wrong place.
  */
-export const PROGRESS_FLUSH_PARAGRAPHS = 5;
+export const PROGRESS_FLUSH_WORDS = 40;
+
+/** Minimum gap between two writes, so a burst of movement is still one write. */
+export const PROGRESS_FLUSH_MIN_MS = 2_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE BOOKMARK, ON SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Share of a paragraph that must be on screen before it counts as "reached".
+ * How long "Tu skończyłeś" stays after a resume.
  *
- * Guards the completion rule against layout: a last paragraph that renders one
- * pixel into the viewport is not a chapter that was read.
+ * Long enough to notice, short enough that it is gone before it becomes part of
+ * the page. It also disappears the moment the learner scrolls, because at that
+ * point they have found their place and the marker is answering a question
+ * nobody is asking any more.
  */
-export const PARAGRAPH_VISIBLE_RATIO = 0.5;
+export const RESUME_MARKER_MS = 6_000;
+
+/**
+ * How far from a saved place the learner must be before offering to go back.
+ *
+ * Roughly half a screen of prose. Below it the offer is noise — they can see the
+ * place — and a control that is always on screen is a control nobody reads.
+ */
+export const BOOKMARK_REVEAL_WORDS = 120;
+
+/**
+ * Active reading after a deep link before the bookmark starts following again.
+ *
+ * A DEEP LINK IS NOT A READING POSITION (§24). Arriving from the notebook at one
+ * sentence and leaving again must not overwrite the place the learner actually
+ * stopped at — but somebody who arrives and then READS for a while clearly is
+ * reading, and their bookmark should follow. This is where that line is drawn.
+ */
+export const DEEP_LINK_RESUME_ARM_MS = 8_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPLETION
