@@ -524,11 +524,35 @@ begin
   end if;
 
   -- TEST E. Once the place has held, the furthest position may catch up.
+  --
+  -- Reported with the reader's END-OF-SENTENCE marker rather than the exact
+  -- token count: once the reading line has glided past the last paragraph the
+  -- reader says "all of it" without knowing how long "it" is, and the database
+  -- is what clamps that to the sentence's real length. The marker has to be a
+  -- number a PostgreSQL `int` can hold — a JavaScript-sized sentinel made this
+  -- call fail with `integer out of range`, silently, and took the chapter's
+  -- completion with it.
   select progress_ratio into v_ratio
-  from public.record_reading_progress(v_session, 1, 1, 490, 1, 1, 490, 60, 300);
+  from public.record_reading_progress(v_session, 1, 1, 1000000, 1, 1, 1000000, 60, 300);
   if v_ratio <> 1 then
     raise exception 'FAIL: dwelling at the end did not complete the chapter (got %)', v_ratio;
   end if;
+  if (select furthest_word_offset from public.reading_progress
+      where user_id = '88888888-8888-8888-8888-888888888888'
+        and chapter_id = '8c000000-0000-0000-0000-000000000004') <> 500 then
+    raise exception 'FAIL: the end-of-sentence marker was not clamped to the chapter';
+  end if;
+
+  -- …AND THE CHAPTER CAN THEN ACTUALLY BE FINISHED. This is the whole act
+  -- behind "Zakończ rozdział": a forced report, then the completion that reads
+  -- what it wrote. A report that failed left the button doing nothing at all.
+  select * into v_row from public.complete_reading_chapter(v_session, 0.95);
+  if v_row.already_completed then
+    raise exception 'FAIL: the first completion reported itself as a repeat';
+  end if;
+
+  select session_id into v_session
+  from public.start_reading_session('8c000000-0000-0000-0000-000000000004');
 
   -- TEST K / J. Scroll back: the bookmark follows down to the exact TOKEN, the
   -- progress bar does not move at all.

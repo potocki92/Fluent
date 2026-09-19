@@ -18,7 +18,7 @@ import {
   CHAPTER_COMPLETION_RATIO,
   MAX_ACTIVE_SECONDS_PER_REPORT,
 } from "@/lib/reading/constants";
-import type { ReadingAnchor } from "@/lib/reading/position";
+import { toStoredPosition, type ReadingAnchor } from "@/lib/reading/position";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
@@ -159,12 +159,17 @@ export async function reportReadingProgress(input: {
 
   const { data, error } = await supabase.rpc("record_reading_progress", {
     p_session_id: input.sessionId,
-    p_paragraph_position: position(input.resume.paragraphPosition) ?? 0,
-    p_sentence_position: position(input.resume.sentencePosition),
-    p_token_position: position(input.resume.tokenPosition),
-    p_furthest_paragraph_position: position(input.furthest.paragraphPosition) ?? 0,
-    p_furthest_sentence_position: position(input.furthest.sentencePosition),
-    p_furthest_token_position: position(input.furthest.tokenPosition),
+    // Every position is clamped to what a PostgreSQL `int` can hold. A value
+    // outside that range does not round-trip as a big number — it makes the
+    // whole call fail with `integer out of range`, which is a silent way to
+    // lose a learner's progress AND to make finishing the chapter impossible.
+    p_paragraph_position: toStoredPosition(input.resume.paragraphPosition) ?? 0,
+    p_sentence_position: toStoredPosition(input.resume.sentencePosition),
+    p_token_position: toStoredPosition(input.resume.tokenPosition),
+    p_furthest_paragraph_position:
+      toStoredPosition(input.furthest.paragraphPosition) ?? 0,
+    p_furthest_sentence_position: toStoredPosition(input.furthest.sentencePosition),
+    p_furthest_token_position: toStoredPosition(input.furthest.tokenPosition),
     p_active_seconds: Math.max(0, Math.trunc(input.activeSeconds)),
     p_max_active_seconds: MAX_ACTIVE_SECONDS_PER_REPORT,
   });
@@ -185,11 +190,6 @@ export async function reportReadingProgress(input: {
   };
 }
 
-/** A position the database may store: a non-negative integer, or nothing. */
-function position(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return Math.max(0, Math.trunc(value));
-}
 
 /** What the learner is shown after finishing a chapter. Real numbers, no AI. */
 export interface ChapterSummary {

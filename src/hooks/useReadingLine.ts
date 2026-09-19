@@ -3,7 +3,11 @@
 import { useMemo, type RefObject } from "react";
 
 import { READING_LINE_RATIO } from "@/lib/reading/constants";
-import { readingLineY, type ReadingAnchor } from "@/lib/reading/position";
+import {
+  readingLineY,
+  SENTENCE_END_TOKEN,
+  type ReadingAnchor,
+} from "@/lib/reading/position";
 
 /**
  * The bridge between the DOM and a reading position — and the only file in the
@@ -226,9 +230,11 @@ function anchorNear(root: HTMLElement, y: number): ReadingAnchor | null {
     return {
       paragraphPosition,
       sentencePosition: numberFrom(last.dataset.sentencePosition),
-      // Past the end of every token in it. `anchorWordOffset` clamps to the
-      // sentence's length, so this reads as "all of it".
-      tokenPosition: Number.MAX_SAFE_INTEGER,
+      // Past the end of every token in it: both this side and SQL clamp to the
+      // sentence's real length, so it reads as "all of it". A FINITE number —
+      // see `SENTENCE_END_TOKEN` for what a JavaScript-sized sentinel did to the
+      // progress report.
+      tokenPosition: SENTENCE_END_TOKEN,
     };
   }
 

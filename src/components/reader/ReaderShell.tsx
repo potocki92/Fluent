@@ -71,6 +71,7 @@ import { useChapterNotebook } from "@/hooks/useChapterNotebook";
 import { useReadingLine } from "@/hooks/useReadingLine";
 import { useReadingPosition } from "@/hooks/useReadingPosition";
 import { useReadingRestore } from "@/hooks/useReadingRestore";
+import type { FluentFailure } from "@/lib/errors";
 import { newInteractionId } from "@/lib/interaction-id";
 import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
@@ -211,6 +212,8 @@ export function ReaderShell({
   const [summary, setSummary] = useState<ChapterSummary | null>(null);
   const [chromeHidden, setChromeHidden] = useState(false);
   const [completing, setCompleting] = useState(false);
+  /** Why finishing the chapter did not work. Polish, ready to render. */
+  const [completionError, setCompletionError] = useState<string | null>(null);
 
   // ── the notebook ──────────────────────────────────────────────────────────
   // Three pieces of state, one for each thing a learner can be in the middle of:
@@ -374,10 +377,13 @@ export function ReaderShell({
   // sees moves on every frame, locally, and waits for nothing. What the server
   // knows is written in batches — and the two never block each other, because a
   // progress bar that waits for a round trip is a progress bar that stutters.
+  // Returns whether the server now agrees. Callers that merely keep the
+  // bookmark warm ignore it; finishing the chapter CANNOT, because
+  // `complete_reading_chapter` only knows what the last report told it.
   const flush = useCallback(
-    async (force = false) => {
+    async (force = false): Promise<{ ok: true } | FluentFailure> => {
       const sessionId = sessionRef.current;
-      if (!sessionId) return;
+      if (!sessionId) return { ok: true };
 
       // Resolved NOW rather than taken from the last sample: a flush fired by
       // `pagehide` has to record where the learner actually is, and by then the
@@ -386,7 +392,7 @@ export function ReaderShell({
       const seconds = clock.peek();
 
       if (!force && !hasUnsavedPosition(state, persistedRef.current, seconds)) {
-        return;
+        return { ok: true };
       }
 
       // Drained only once we are committed to sending: seconds taken and then
@@ -404,7 +410,15 @@ export function ReaderShell({
         furthest: state.furthest,
         activeSeconds: seconds,
       });
-      if (result.ok) position.mergeServer(result.progressRatio);
+      if (!result.ok) {
+        // The server did not take it, so pretend nothing was written: the next
+        // flush must try again rather than believe a report that never landed.
+        persistedRef.current = null;
+        return result;
+      }
+
+      position.mergeServer(result.progressRatio);
+      return { ok: true };
     },
     [clock, position],
   );
@@ -873,23 +887,42 @@ export function ReaderShell({
   );
 
   // ── completion ────────────────────────────────────────────────────────────
+  // NOTHING HERE MAY FAIL IN SILENCE. `complete_reading_chapter` refuses below
+  // the threshold and knows only what the last report told it, so the forced
+  // flush is part of the act rather than a courtesy before it — and if either
+  // half is refused, the learner is told, instead of pressing a button that
+  // does nothing.
   const onComplete = useCallback(async () => {
     const sessionId = sessionRef.current;
     if (!sessionId || completing) return;
+
     setCompleting(true);
-    await flush(true);
+    setCompletionError(null);
+
+    const written = await flush(true);
+    if (!written.ok) {
+      setCompleting(false);
+      setCompletionError(written.message);
+      return;
+    }
+
     const result = await completeChapter(sessionId);
     setCompleting(false);
-    if (result.ok) {
-      setSummary(result);
-      // MEASURED, NEVER ASSERTED: `mark_chapter_reading_completed` refuses
-      // unless `reading_progress` already says the chapter is finished, so this
-      // records the transition rather than claiming it.
-      void markChapterReading(chapter.id, "completed");
-      // The plan reconciles itself from `reading_progress`; refreshing is how
-      // Today learns this chapter is done without anything asserting it.
-      router.refresh();
+    if (!result.ok) {
+      setCompletionError(result.message);
+      return;
     }
+
+    // The summary is what replaces the button with the Challenge, the test and
+    // the next chapter — so it is set FIRST, and only on a real success.
+    setSummary(result);
+    // MEASURED, NEVER ASSERTED: `mark_chapter_reading_completed` refuses unless
+    // `reading_progress` already says the chapter is finished, so this records
+    // the transition rather than claiming it.
+    void markChapterReading(chapter.id, "completed");
+    // The plan reconciles itself from `reading_progress`; refreshing is how
+    // Today learns this chapter is done without anything asserting it.
+    router.refresh();
   }, [chapter.id, completing, flush, router]);
 
   // FURTHEST, NEVER CURRENT — see `ReadingProgressPercent`. The completion gate
@@ -1006,6 +1039,7 @@ export function ReaderShell({
             <CompletionPrompt
               canComplete={canComplete}
               completing={completing}
+              error={completionError}
               onComplete={onComplete}
             />
           )}
@@ -1136,10 +1170,12 @@ function isCoarse(track: PointerTrack | null): boolean {
 function CompletionPrompt({
   canComplete,
   completing,
+  error,
   onComplete,
 }: {
   canComplete: boolean;
   completing: boolean;
+  error: string | null;
   onComplete: () => void;
 }) {
   if (!canComplete) {
@@ -1151,17 +1187,28 @@ function CompletionPrompt({
   }
 
   return (
-    <button
-      type="button"
-      onClick={onComplete}
-      disabled={completing}
-      className="w-full rounded-xl px-4 py-3 text-base font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
-      style={{
-        backgroundColor: "var(--reader-accent)",
-        color: "var(--reader-bg)",
-      }}
-    >
-      {completing ? "Zapisujemy…" : "Zakończ rozdział"}
-    </button>
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={onComplete}
+        disabled={completing}
+        className="w-full rounded-xl px-4 py-3 text-base font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
+        style={{
+          backgroundColor: "var(--reader-accent)",
+          color: "var(--reader-bg)",
+        }}
+      >
+        {completing ? "Zapisujemy…" : "Zakończ rozdział"}
+      </button>
+
+      {/* A BUTTON THAT DOES NOTHING IS THE WORST OUTCOME. `role="alert"` so the
+          reason reaches a screen reader too, and the button stays live so the
+          learner can simply try again. */}
+      {error && (
+        <p role="alert" className="text-center text-sm" style={{ color: "var(--reader-accent)" }}>
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

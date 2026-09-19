@@ -19,6 +19,8 @@ import {
   readingLineY,
   readingPositionFrom,
   returnTarget,
+  SENTENCE_END_TOKEN,
+  toStoredPosition,
   type ChapterWordIndex,
   type IndexedSentence,
   type ReadingAnchor,
@@ -116,7 +118,7 @@ describe("the word scale", () => {
       anchorWordOffset(LOPSIDED, {
         paragraphPosition: 0,
         sentencePosition: 0,
-        tokenPosition: Number.MAX_SAFE_INTEGER,
+        tokenPosition: SENTENCE_END_TOKEN,
       }),
     ).toBe(10);
   });
@@ -155,6 +157,51 @@ describe("the word scale", () => {
     const empty = buildChapterWordIndex([], 0);
     expect(offsetRatio(empty, 10)).toBe(0);
     expect(anchorWordOffset(empty, CHAPTER_START)).toBe(0);
+  });
+});
+
+describe("a position the database can hold", () => {
+  // THE REGRESSION. "The whole of this sentence" used to be
+  // `Number.MAX_SAFE_INTEGER`, which does not fit a PostgreSQL `int` — so the
+  // progress report failed with `integer out of range` instead of clamping.
+  // The failure was silent, and it took chapter completion with it: the forced
+  // flush behind "Zakończ rozdział" never landed, so the database still
+  // believed the chapter was unread and refused to finish it.
+  const INT4_MAX = 2_147_483_647;
+
+  it("has an end-of-sentence marker a PostgreSQL int can store", () => {
+    expect(Number.isSafeInteger(SENTENCE_END_TOKEN)).toBe(true);
+    expect(SENTENCE_END_TOKEN).toBeLessThanOrEqual(INT4_MAX);
+    // …and still past the end of any sentence anyone will ever write.
+    expect(SENTENCE_END_TOKEN).toBeGreaterThan(100_000);
+  });
+
+  it("clamps anything the reader could hand it into range", () => {
+    expect(toStoredPosition(Number.MAX_SAFE_INTEGER)).toBe(INT4_MAX);
+    expect(toStoredPosition(SENTENCE_END_TOKEN)).toBe(SENTENCE_END_TOKEN);
+    expect(toStoredPosition(-4)).toBe(0);
+    expect(toStoredPosition(12.7)).toBe(12);
+  });
+
+  it("turns nothing into nothing, rather than into zero", () => {
+    // A null sentence is "I only know the paragraph", which is a different
+    // claim from "sentence 0" and resolves differently.
+    expect(toStoredPosition(null)).toBeNull();
+    expect(toStoredPosition(undefined)).toBeNull();
+    expect(toStoredPosition(Number.NaN)).toBeNull();
+    expect(toStoredPosition(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  it("keeps the end-of-chapter anchor meaning 100%", () => {
+    // What the reading line produces once it has glided past the last
+    // paragraph, taken all the way through the clamp the server applies.
+    const anchor: ReadingAnchor = {
+      paragraphPosition: 1,
+      sentencePosition: 1,
+      tokenPosition: SENTENCE_END_TOKEN,
+    };
+    expect(toStoredPosition(anchor.tokenPosition)).toBeLessThanOrEqual(INT4_MAX);
+    expect(anchorRatio(LOPSIDED, anchor)).toBe(1);
   });
 });
 
