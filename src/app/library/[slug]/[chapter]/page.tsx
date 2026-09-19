@@ -4,8 +4,13 @@ import { notFound } from "next/navigation";
 
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ReaderProse } from "@/components/reader/ReaderProse";
+import { ReaderRestoreScript } from "@/components/reader/ReadingRestoreScript";
 import { ReaderShell } from "@/components/reader/ReaderShell";
-import { getReaderChapter, getReaderChapterTitle } from "@/lib/library/queries";
+import {
+  getChapterReadingPosition,
+  getReaderChapter,
+  getReaderChapterTitle,
+} from "@/lib/library/queries";
 import {
   DEFAULT_READER_PREFERENCES,
   parseReaderPreferences,
@@ -56,8 +61,10 @@ export const maxDuration = 60;
  */
 export default async function ChapterPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; chapter: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { slug, chapter } = await params;
   const position = Number(chapter);
@@ -94,6 +101,17 @@ export default async function ChapterPage({
   // simply does not show the button instead of showing one that fails.
   const story = await getChapterStoryState(loaded.id);
 
+  // WHERE THIS LEARNER STOPPED, IN THE FIRST RESPONSE. Read here rather than
+  // waited for from `startReadingSession`, because a Server Action answers after
+  // the page has painted — which is the difference between opening a book at
+  // page 94 and opening it at page 1 and being thrown to page 94.
+  const stored = await getChapterReadingPosition(supabase, user.id, loaded.id);
+
+  // A DEEP LINK BEATS RESUME (§24). Resolved on the server so that the
+  // pre-hydration restore below knows not to fire at all, rather than jumping to
+  // the bookmark and then being corrected to the linked sentence.
+  const deepLinkedSentence = sentenceParam((await searchParams).sentence);
+
   return (
     <ReaderShell
       chapter={{
@@ -114,12 +132,41 @@ export default async function ChapterPage({
         // the stored rows say. This only asks the reader to have that written
         // down, for the screens built on the stored rows.
         needsDictionarySync: loaded.needsDictionarySync,
+        // The chapter on the WORD scale, built from rows this page loaded
+        // anyway. It is what lets the reader answer "how far through am I?" on
+        // an animation frame without counting anything.
+        wordIndex: loaded.wordIndex,
       }}
       initialPreferences={preferences}
+      initialPosition={
+        stored
+          ? {
+              resume: stored.resume,
+              furthest: stored.furthest,
+              progressRatio: stored.progressRatio,
+            }
+          : null
+      }
+      deepLinkedSentence={deepLinkedSentence}
     >
       <ReaderProse paragraphs={loaded.paragraphs} />
+      {/* AFTER the prose, deliberately: it runs while the document is still
+          being parsed, so the paragraphs exist and nothing has been painted.
+          That is the only point in the page lifecycle where the chapter can be
+          opened at the right place instead of jumped to it. */}
+      {deepLinkedSentence === null && (
+        <ReaderRestoreScript anchor={stored?.resume ?? null} />
+      )}
     </ReaderShell>
   );
+}
+
+/** `?sentence=` as a row id, or nothing. Never a string reaching a selector. */
+function sentenceParam(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function NotReady({ slug, title }: { slug: string; title: string }) {

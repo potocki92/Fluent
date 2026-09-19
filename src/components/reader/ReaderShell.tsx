@@ -58,22 +58,36 @@ import {
   type ReaderSelection,
 } from "@/components/reader/sentence-selection";
 import { ReaderSettingsSheet } from "@/components/reader/ReaderSettingsSheet";
+import {
+  ReadingProgressBar,
+  ReadingProgressPercent,
+} from "@/components/reader/ReadingProgressBar";
+import { ResumeMarker } from "@/components/reader/ResumeMarker";
+import { ReturnToBookmark } from "@/components/reader/ReturnToBookmark";
 import { WordGlossSheet } from "@/components/reader/WordGlossSheet";
 import { useActiveReadingClock } from "@/hooks/useActiveReadingClock";
 import { useReaderWord } from "@/hooks/useReaderWord";
 import { useChapterNotebook } from "@/hooks/useChapterNotebook";
-import { useVisibleParagraph } from "@/hooks/useVisibleParagraph";
+import { useReadingLine } from "@/hooks/useReadingLine";
+import { useReadingPosition } from "@/hooks/useReadingPosition";
+import { useReadingRestore } from "@/hooks/useReadingRestore";
 import { newInteractionId } from "@/lib/interaction-id";
 import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
-  CHAPTER_COMPLETION_RATIO,
   CLICK_PAIRING_MS,
   DICTIONARY_SYNC_MAX_CALLS,
+  PROGRESS_FLUSH_MIN_MS,
   PROGRESS_FLUSH_MS,
-  PROGRESS_FLUSH_PARAGRAPHS,
   TAP_SLOP_PX,
   WORD_TAP_SNAP_PX,
 } from "@/lib/reading/constants";
+import {
+  hasUnsavedPosition,
+  movedEnoughToPersist,
+  type ChapterWordIndex,
+  type PersistedPosition,
+  type ReadingAnchor,
+} from "@/lib/reading/position";
 import {
   readerStyleVars,
   type ReaderPreferences,
@@ -106,6 +120,26 @@ export interface ReaderChapterMeta {
    * what the learner can see.
    */
   needsDictionarySync: boolean;
+  /**
+   * The chapter on the WORD scale — what turns a place in the text into a
+   * percentage in O(1). Built on the server from rows the page loaded anyway.
+   */
+  wordIndex: ChapterWordIndex;
+}
+
+/**
+ * Where this learner was, as the SERVER remembered it at render time.
+ *
+ * Passed in rather than waited for: `startReadingSession` is a Server Action and
+ * its answer arrives after the page has painted, which is far too late to put
+ * somebody back at 31% without showing them 0% first. The session's own answer
+ * still arrives and is still the authority — it is what notices that another
+ * device has read further — but it merges into a position that is already right.
+ */
+export interface ReaderStoredPosition {
+  resume: ReadingAnchor;
+  furthest: ReadingAnchor;
+  progressRatio: number;
 }
 
 /**
@@ -142,10 +176,22 @@ type ReaderBar =
 export function ReaderShell({
   chapter,
   initialPreferences,
+  initialPosition,
+  deepLinkedSentence,
   children,
 }: {
   chapter: ReaderChapterMeta;
   initialPreferences: ReaderPreferences;
+  initialPosition: ReaderStoredPosition | null;
+  /**
+   * `?sentence=` from the URL, resolved on the server.
+   *
+   * A DEEP LINK BEATS RESUME (§24). Arriving from the notebook means "take me to
+   * THIS sentence", which is a different request from "take me back to where I
+   * stopped" — and doing both lands the learner in the wrong place half the
+   * time. Read on the server so the pre-hydration restore knows not to fire.
+   */
+  deepLinkedSentence: number | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -163,7 +209,6 @@ export function ReaderShell({
     interactionId: string;
   } | null>(null);
   const [summary, setSummary] = useState<ChapterSummary | null>(null);
-  const [ratio, setRatio] = useState(0);
   const [chromeHidden, setChromeHidden] = useState(false);
   const [completing, setCompleting] = useState(false);
 
@@ -186,16 +231,81 @@ export function ReaderShell({
   // ends up showing a value React never told it about.
   const sessionRef = useRef<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const flushedParagraphRef = useRef(-1);
+  /** What the server already knows. Null until the first successful report. */
+  const persistedRef = useRef<PersistedPosition | null>(null);
   const lastFlushRef = useRef(0);
 
   const clock = useActiveReadingClock();
-  const visibleParagraph = useVisibleParagraph(contentRef, chapter.paragraphCount);
   const { data: marks } = useChapterNotebook(chapter.id);
 
+  // ── the Reading Position Engine ───────────────────────────────────────────
+  // Three pieces, each with one job: the reading line turns geometry into a
+  // place in the text, the position engine keeps current / resume / furthest
+  // apart, and the restore puts the learner back and keeps them there through
+  // every relayout. None of them re-renders this component while scrolling.
+  const line = useReadingLine(contentRef);
+  const position = useReadingPosition({
+    contentRef,
+    line,
+    index: chapter.wordIndex,
+    stored: {
+      resume: initialPosition?.resume ?? null,
+      furthest: initialPosition?.furthest ?? null,
+    },
+    isActive: clock.isActive,
+    deepLinked: deepLinkedSentence !== null,
+  });
+
+  // The live current anchor, for the restore hook to re-apply after a relayout.
+  // A ref rather than a prop because it changes on every frame the learner
+  // scrolls, and nothing may re-render for that.
+  const currentAnchorRef = useRef<ReadingAnchor | null>(
+    initialPosition?.resume ?? null,
+  );
+  useEffect(
+    () =>
+      position.subscribe((state) => {
+        currentAnchorRef.current = state.current;
+      }),
+    [position],
+  );
+
+  const restore = useReadingRestore({
+    line,
+    // A deep link owns the position: this stands down entirely rather than
+    // fighting the scroll below for it.
+    target: deepLinkedSentence !== null ? null : (initialPosition?.resume ?? null),
+    anchorRef: currentAnchorRef,
+    enabled: true,
+  });
+
+  // ── the deep link ─────────────────────────────────────────────────────────
+  // IT BEATS RESUME, and it is handled here rather than after the session opens
+  // because it is a fact about the URL, not about the server. `block: "center"`
+  // and instant, for the same reason the resume restore is instant: the learner
+  // asked to be taken somewhere, not shown the journey.
+  useEffect(() => {
+    if (deepLinkedSentence === null) return;
+
+    const linked = contentRef.current?.querySelector<HTMLElement>(
+      `.reader-sentence[data-sentence-id="${deepLinkedSentence}"]`,
+    );
+    if (!linked) return;
+
+    linked.scrollIntoView({ block: "center" });
+    // A moment of emphasis so the learner can see WHICH sentence they were sent
+    // to; it fades rather than persisting as another permanent mark in the prose.
+    linked.dataset.active = "true";
+    const timer = window.setTimeout(() => delete linked.dataset.active, 2400);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkedSentence]);
+
   // ── the session ───────────────────────────────────────────────────────────
-  // Opening the chapter is also the authorisation check and the resume lookup:
-  // one call, so the reader never has to decide either question for itself.
+  // Opening the chapter is the authorisation check and the session: ONE call,
+  // so the reader never has to decide either question for itself. It is no
+  // longer the resume lookup — that arrived with the page, early enough to scroll
+  // before the first paint — but it is still the AUTHORITY on how far this
+  // learner has read, which is how another device's reading reaches this one.
   useEffect(() => {
     let cancelled = false;
 
@@ -205,52 +315,21 @@ export function ReaderShell({
 
       sessionRef.current = result.sessionId;
       setSessionId(result.sessionId);
-      setRatio(result.progressRatio);
-      flushedParagraphRef.current = result.furthestParagraph;
+      // Forward only: a server ratio behind what this sitting has already read
+      // is stale, not authoritative.
+      position.mergeServer(result.progressRatio);
 
       // The LEARNING lifecycle, which is a different fact from the reading
       // progress above: `reading_progress` says where they are, this says the
       // chapter has been entered. Best-effort — a failed transition costs a
       // marker on the book page, never the reading session.
       void markChapterReading(chapter.id, "started");
-
-      // A DEEP LINK WINS OVER RESUME (§57, §58). Arriving from the notebook
-      // means "take me to THIS sentence", which is a different request from
-      // "take me back to where I stopped" — and doing both would land the
-      // learner in the wrong place half the time. Read from the URL rather than
-      // through `useSearchParams`, which would make this component require a
-      // Suspense boundary for a value it only ever needs once.
-      const deepLink = Number(
-        new URLSearchParams(window.location.search).get("sentence"),
-      );
-      const linked = Number.isFinite(deepLink)
-        ? document.querySelector<HTMLElement>(
-            `.reader-sentence[data-sentence-id="${deepLink}"]`,
-          )
-        : null;
-
-      if (linked) {
-        linked.scrollIntoView({ block: "center" });
-        // A moment of emphasis so the learner can see WHICH sentence they were
-        // sent to; it fades on the next interaction rather than persisting as a
-        // fourth permanent mark in the prose.
-        linked.dataset.active = "true";
-        window.setTimeout(() => delete linked.dataset.active, 2400);
-        return;
-      }
-
-      // RESUME. Jump to where they stopped — the single feature that makes a
-      // book, as opposed to a passage, usable at all.
-      if (result.resumeParagraph > 0) {
-        const target = document.getElementById(`p-${result.resumeParagraph}`);
-        target?.scrollIntoView({ block: "start" });
-      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [chapter.id]);
+  }, [chapter.id, position]);
 
   // ── the dictionary, written down ──────────────────────────────────────────
   // THIS IS NOT WHAT MAKES THE WORDS WORK. The page was rendered against the
@@ -290,49 +369,64 @@ export function ReaderShell({
     };
   }, [chapter.id, chapter.needsDictionarySync]);
 
-  // ── progress ──────────────────────────────────────────────────────────────
+  // ── persistence ───────────────────────────────────────────────────────────
+  // LIVE PROGRESS AND PERSISTED PROGRESS ARE DIFFERENT THINGS. What the learner
+  // sees moves on every frame, locally, and waits for nothing. What the server
+  // knows is written in batches — and the two never block each other, because a
+  // progress bar that waits for a round trip is a progress bar that stutters.
   const flush = useCallback(
     async (force = false) => {
       const sessionId = sessionRef.current;
       if (!sessionId) return;
 
-      const seconds = clock.drain();
-      const moved = visibleParagraph > flushedParagraphRef.current;
-      if (!force && !moved && seconds === 0) return;
+      // Resolved NOW rather than taken from the last sample: a flush fired by
+      // `pagehide` has to record where the learner actually is, and by then the
+      // scroll that put them there may not have produced a sample yet.
+      const state = position.sample();
+      const seconds = clock.peek();
 
-      flushedParagraphRef.current = Math.max(
-        flushedParagraphRef.current,
-        visibleParagraph,
-      );
+      if (!force && !hasUnsavedPosition(state, persistedRef.current, seconds)) {
+        return;
+      }
+
+      // Drained only once we are committed to sending: seconds taken and then
+      // dropped are seconds of reading nobody ever gets back.
+      clock.drain();
+      persistedRef.current = {
+        resumeOffset: state.resumeOffset,
+        furthestOffset: state.furthestOffset,
+      };
       lastFlushRef.current = Date.now();
 
       const result = await reportReadingProgress({
         sessionId,
-        paragraphPosition: visibleParagraph,
+        resume: state.resume,
+        furthest: state.furthest,
         activeSeconds: seconds,
       });
-      if (result.ok) setRatio(result.progressRatio);
+      if (result.ok) position.mergeServer(result.progressRatio);
     },
-    [clock, visibleParagraph],
+    [clock, position],
   );
 
   // A REQUEST PER SCROLL EVENT IS BOTH USELESS AND ABUSIVE. Progress is only
-  // worth a round trip when the answer changed, so it is batched: at most one
-  // write every PROGRESS_FLUSH_MS, plus an early one the first time the learner
-  // has genuinely moved through the chapter.
+  // worth a round trip when the answer changed, so it is batched: one write
+  // every PROGRESS_FLUSH_MS, plus an early one once the learner has moved
+  // PROGRESS_FLUSH_WORDS — IN EITHER DIRECTION.
+  //
+  // That last clause is the whole bug fix. The old rule could only fire going
+  // forward, so somebody who read to 42%, scrolled back to 31% and closed the
+  // app wrote nothing on the way out and came back to 42%.
   useEffect(() => {
-    const sinceFlush = Date.now() - lastFlushRef.current;
-    const jumped =
-      visibleParagraph - flushedParagraphRef.current >= PROGRESS_FLUSH_PARAGRAPHS;
+    const timer = window.setInterval(() => {
+      const state = position.stateRef.current;
+      const moved = movedEnoughToPersist(state, persistedRef.current);
+      const due = Date.now() - lastFlushRef.current >= PROGRESS_FLUSH_MS;
+      if (moved || due) void flush();
+    }, PROGRESS_FLUSH_MIN_MS);
 
-    if (jumped && sinceFlush > 2000) {
-      void flush();
-      return;
-    }
-
-    const timer = window.setTimeout(() => void flush(), PROGRESS_FLUSH_MS);
-    return () => window.clearTimeout(timer);
-  }, [flush, visibleParagraph]);
+    return () => window.clearInterval(timer);
+  }, [flush, position]);
 
   // Leaving the page is the one moment progress MUST be written: `pagehide` and
   // a hidden document are the modern, mobile-safe replacements for `unload`,
@@ -341,11 +435,13 @@ export function ReaderShell({
     const onHide = () => {
       if (document.visibilityState === "hidden") void flush(true);
     };
+    const onPageHide = () => void flush(true);
+
     document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", onHide);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [flush]);
 
@@ -759,12 +855,22 @@ export function ReaderShell({
   );
 
   // ── preferences ───────────────────────────────────────────────────────────
-  const changePreferences = useCallback((patch: Partial<ReaderPreferences>) => {
-    setPreferences((prev) => ({ ...prev, ...patch }));
-    // Optimistic: typography must change under the learner's finger. A failed
-    // save costs them re-picking a font size, not their place in the book.
-    void updateReaderPreferences(patch);
-  }, []);
+  // CHANGING THE TYPE SIZE MUST NOT MOVE THE LEARNER. Every pixel in the
+  // document moves when the typeface does, so the change is wrapped in
+  // `preserveAnchor`: read the anchor, relayout, put the anchor back on the
+  // reading line. The text then appears to have re-flowed AROUND the sentence
+  // being read, which is what happens when you change your glasses.
+  const changePreferences = useCallback(
+    (patch: Partial<ReaderPreferences>) => {
+      restore.preserveAnchor(() => {
+        setPreferences((prev) => ({ ...prev, ...patch }));
+      });
+      // Optimistic: typography must change under the learner's finger. A failed
+      // save costs them re-picking a font size, not their place in the book.
+      void updateReaderPreferences(patch);
+    },
+    [restore],
+  );
 
   // ── completion ────────────────────────────────────────────────────────────
   const onComplete = useCallback(async () => {
@@ -786,8 +892,11 @@ export function ReaderShell({
     }
   }, [chapter.id, completing, flush, router]);
 
-  const percent = Math.round(ratio * 100);
-  const canComplete = ratio >= CHAPTER_COMPLETION_RATIO;
+  // FURTHEST, NEVER CURRENT — see `ReadingProgressPercent`. The completion gate
+  // is the same position, which is why a fling to the end cannot open it: the
+  // furthest position only advances after a place has held at the reading line.
+  const percent = position.furthestPercent;
+  const canComplete = position.canComplete;
 
   return (
     <div
@@ -827,12 +936,7 @@ export function ReaderShell({
             </p>
           </div>
 
-          <span
-            className="shrink-0 text-xs tabular-nums"
-            style={{ color: "var(--reader-muted)" }}
-          >
-            {percent}%
-          </span>
+          <ReadingProgressPercent percent={percent} />
 
           <button
             type="button"
@@ -845,21 +949,14 @@ export function ReaderShell({
           </button>
         </div>
 
-        <div
-          className="h-0.5 w-full"
-          style={{ backgroundColor: "var(--reader-rule)" }}
-        >
-          <div
-            className="h-full transition-[width] duration-300"
-            style={{
-              width: `${percent}%`,
-              backgroundColor: "var(--reader-accent)",
-            }}
-          />
-        </div>
+        <ReadingProgressBar engine={position} index={chapter.wordIndex} />
       </header>
 
       <main className="px-5 pb-24 pt-8">
+        {/* `relative` so the resume marker can be an overlay INSIDE the prose.
+            It must cost the text zero pixels of layout: the reader has just
+            scrolled to a place measured in that layout, and a marker that
+            pushed the text down would invalidate the restore that put it there. */}
         <div
           ref={contentRef}
           onPointerDown={onContentPointerDown}
@@ -867,8 +964,15 @@ export function ReaderShell({
           onClick={onContentClick}
           onKeyDown={onContentKeyDown}
           role="presentation"
+          className="relative"
         >
           {children}
+          <ResumeMarker
+            anchor={initialPosition?.resume ?? null}
+            line={line}
+            containerRef={contentRef}
+            active={restore.restored}
+          />
         </div>
 
         <div className="mx-auto mt-12 max-w-[38rem] space-y-4">
@@ -936,6 +1040,10 @@ export function ReaderShell({
           </nav>
         </div>
       </main>
+
+      {/* Only ever on screen when the learner is meaningfully away from a place
+          worth going back to — see `returnTarget`. */}
+      <ReturnToBookmark engine={position} line={line} />
 
       <ReaderActionBar
         rect={bar === null ? null : bar.mode === "selection" ? bar.selection.rect : bar.rect}

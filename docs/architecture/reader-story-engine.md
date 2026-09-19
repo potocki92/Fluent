@@ -194,52 +194,289 @@ headword, not a sense. A future sense layer attaches to the occurrence
 no change to paragraphs, sentences, progress or the reader: the seam is already
 where it needs to be.
 
-## Reading progress: resume vs furthest
+## Reading progress: the Reading Position Engine
 
-This is the single most important design decision in the phase.
+This is the single most important design decision in the phase, and it was
+rebuilt once — see *What was wrong the first time* below.
 
-A learner who scrolls back to re-read the opening of a chapter **is at**
-paragraph 3 and **has read** up to paragraph 80. One number cannot be both.
-Stored as one, either the bookmark is wrong or the progress bar collapses from
-80% to 4% because someone checked something — and a progress bar that goes
-backwards is one nobody believes again.
+### Three positions, and they are three different facts
 
 ```
-resume_paragraph_position     follows the learner, moves in both directions
-furthest_paragraph_position   only ever increases
-progress_ratio                derived from furthest; only ever increases
+current    where the learner is looking RIGHT NOW.      moves both ways
+resume     where to put them when they come back.       moves both ways
+furthest   the furthest text genuinely READ.            forward only
 ```
 
-The monotonicity is enforced by `greatest(...)` inside
+Collapsing any two of them breaks something a reader notices within a minute:
+
+| collapsed | what breaks |
+| --- | --- |
+| `current = furthest` | a fling to the end marks the chapter read |
+| `resume = furthest` | backing up to re-read a page, then closing the app, drops you back where you had already been |
+| `furthest = resume` | the progress bar falls from 45% to 31% because somebody checked an earlier paragraph |
+
+There is a fourth thing the reader remembers and the database does not: the
+**origin**, where this sitting began. It never moves, and it is what
+„Wróć do miejsca, gdzie skończyłeś" goes back to.
+
+The monotonicity of `furthest` is enforced by `greatest(...)` inside
 `record_reading_progress`, not by an application `if`: two tabs on the same
 chapter can and do report different positions, and only the database sees both.
-The pure version of the same rule — and its regression test — lives in
-`src/lib/reading/progress.ts`.
+The pure version of every rule — and its regression tests — lives in
+`src/lib/reading/position.ts` and `src/lib/reading/progress.ts`.
 
-**Positions, not foreign keys.** Reprocessing a chapter replaces its paragraph
-rows, so a resume pointer that was a paragraph id would dangle or be nulled on
-every reprocess. The pipeline is deterministic, so position 43 is position 43
-before and after: a stable bookmark, for free.
+### A bookmark is a place in the text, never a pixel
 
-**How position is observed.** Not scroll percent — that is a fact about a
-viewport, not about a reader, and it is wrong the moment an image loads, a font
-swaps or the window is resized. `useVisibleParagraph` takes the furthest
-paragraph that was genuinely on screen (half of it, or most of the viewport for
-a paragraph taller than the screen). This is not anti-cheat; someone determined
-to fling the scrollbar can. It is about the number meaning something for the
-reader who is not trying to game it.
+`window.scrollY`, `scrollTop / scrollHeight` and "43% down the document" are all
+facts about one viewport, with one font, at one width. Rotate the phone, change
+the type size, open the book on a laptop, and every one of them points somewhere
+else. So the bookmark is a **reading anchor**:
 
-**How often it is written.** Never per scroll event. At most one write every
-`PROGRESS_FLUSH_MS`, an early one the first time the learner has genuinely moved
-`PROGRESS_FLUSH_PARAGRAPHS` through the chapter, and a forced one when the page
-is hidden (`visibilitychange` / `pagehide` — the mobile-safe replacements for
-`unload`).
+```ts
+type ReadingAnchor = {
+  paragraphPosition: number;
+  sentencePosition: number | null;   // sentences.chapter_position
+  tokenPosition: number | null;      // lexical token inside that sentence
+};
+```
 
-**Completion is an act.** A sticky footer, a short final line or a layout shift
-can put the end of a chapter on screen without anyone having read it, so
-finishing is an explicit button — and `complete_reading_chapter` refuses below
-`CHAPTER_COMPLETION_RATIO` regardless of what the button does. Completing twice
-returns the stored summary and writes nothing.
+**Positions, not foreign keys.** Reprocessing a chapter deletes and re-inserts
+every paragraph, sentence and occurrence row, so an anchor identified by a row id
+would dangle on every reprocess. The pipeline is deterministic by requirement, so
+position 43 is position 43 before and after — a stable bookmark, for free. It is
+the same argument that has always kept `resume_paragraph_position` a number
+rather than a reference.
+
+**The two finer fields are nullable on purpose.** A bookmark written before this
+engine knows only its paragraph and resolves to the start of it. Nothing needs
+resetting, and the first report after an upgrade writes a precise one.
+
+### Progress is measured in words
+
+```
+progress_ratio = furthest_word_offset / chapters.reading_word_count
+```
+
+where a *word* is a lexical token — the unit the content pipeline already counts.
+Each sentence carries `word_start`, the running total of the tokens before it, so
+turning an anchor into an offset is one index seek:
+
+```
+sentence 126   word_start = 1841, word_count = 13
+token 7        →  chapter word offset 1848
+                  1848 / 4820 = 38.3%
+```
+
+`word_start` and `chapters.reading_word_count` are **derived by the database**
+when content is stored (`replace_chapter_content`), not asserted by the payload.
+That is why the pipeline itself is untouched by this work and
+`CONTENT_PROCESSOR_VERSION` did not move: the same source still produces the same
+paragraphs, sentences, tokens and positions.
+
+`reading_word_count` is deliberately not `chapters.word_count`. The latter is
+counted differently (`countWords` over paragraph text, for display and time
+estimates) and is a few tokens off — enough to leave the last word of a chapter
+at 99.7%.
+
+### What was wrong the first time
+
+The first version of this engine stored a paragraph index and nothing else.
+
+1. **`(furthest_paragraph + 1) / paragraph_count`** gave an eight-word line of
+   dialogue and a four-hundred-word description the same weight. In a novel that
+   is not a rounding error: reading two lines of a chapter of dialogue could
+   report 8%, and reading three pages of description could report 2%. A chapter
+   of two paragraphs reported 50% after ten words.
+2. **A paragraph is far too coarse to be a bookmark.** A learner who stopped in
+   the middle of a 400-word paragraph was returned to the top of it, and
+   `resume_sentence_position` — which existed — was never written by anything.
+3. **`useVisibleParagraph` only ever increased.** It reported the furthest
+   paragraph seen, so it could not tell "I am here" from "I have been here", and
+   the flush condition `visible > flushed` could only fire going forward. Reading
+   to 42%, scrolling back to 31% and closing the app wrote nothing on the way out
+   and re-opened at 42%.
+
+### How position is observed: the Reading Line
+
+One virtual horizontal line across the viewport, at `READING_LINE_RATIO` (38%) of
+its height. It is never drawn. Whatever sentence crosses it is where the learner
+is — and that single question replaces every scroll-percentage heuristic.
+
+38% rather than 50% because the sentence a reader is on sits above the middle of
+the screen; the lines below it are the ones they are about to read. At the centre
+every bookmark lands roughly a paragraph late.
+
+Resolving it is `document.elementsFromPoint` — **one hit test, independent of the
+chapter's length** — plus a bounded scan of the words inside the sentence it
+found, to say which token the line is on. A 15 000-word chapter costs what a
+500-word one costs. `elementsFromPoint` rather than `elementFromPoint` because
+the reader has overlays and the topmost element at a point is not always prose.
+When the line falls in a margin or between paragraphs, a binary search over the
+paragraph boxes answers instead, in log(n) measurements.
+
+Nothing is cached, deliberately. Every measurement is read live, so a font
+change, a rotation or a resize needs no invalidation — there is nothing to
+invalidate.
+
+**Sampling.** Scrolling schedules at most one resolve per animation frame; a
+`READING_SAMPLE_MS` heartbeat keeps asking while the document is visible, because
+dwell has to be able to complete after scrolling has *stopped*. No React state is
+written for either: the position lives in a ref and the progress bar subscribes
+to it, so a whole chapter of scrolling costs zero renders of the reader.
+
+### Scrolled past is not read: dwell
+
+`furthest` follows `current` with a delay measured in **active reading time**. The
+engine keeps a short trail of samples and lets the furthest position advance only
+as far as the sample that is `READ_DWELL_MS` (700ms) old.
+
+Reading normally, the trail moves a line or two and the lag is invisible. A fling
+from 20% to 90% outruns it completely: `current` is 90% immediately — that
+genuinely is where the learner is looking — and `furthest` stays at 20% until the
+new place has held. "Active" is `useActiveReadingClock.isActive()`, the same
+predicate the clock runs on, so a hidden tab or an idle reader parked on the last
+page confirms nothing at all.
+
+This is not anti-cheat; someone determined to fling and wait can. It is about the
+number meaning something for the reader who is not trying to game it.
+
+### Restoring the position
+
+The bookmark is read **on the server, in the page render** — not from
+`startReadingSession`, which is a Server Action and answers after the page has
+painted. That is the difference between opening a book at page 94 and opening it
+at page 1 and being thrown to page 94.
+
+```
+full page load      <script> after the prose, during parsing → no paint at the top
+client navigation   useLayoutEffect → React has committed, the browser has not painted
+webfonts arrive     one silent correction, abandoned the moment the learner scrolls
+```
+
+The initial restore is always `behavior: "auto"`. A smooth scroll from the top to
+31% is a two-second animation through text the learner has already read, and it
+announces that the app had to go and look. Everything the *learner* asks for —
+"take me back" — is smooth, because there the animation is feedback.
+
+The inline script interpolates **nothing** into JavaScript: its body is a fixed
+string, the anchor travels as a data attribute React escapes, and every field is
+coerced with `Number` before it reaches a selector.
+
+### Typography, rotation and resize
+
+Changing the type size or rotating the phone moves every pixel in the document.
+Because the bookmark is a place in the *text*, the fix is the same in all three
+cases: remember the anchor, let the layout change, put the anchor back on the
+reading line. The text then appears to have re-flowed **around** the sentence
+being read.
+
+A height-only resize is explicitly *not* a relayout: on a phone that is Safari's
+toolbar collapsing or the keyboard opening, the text has not moved, and
+re-anchoring there would fight the browser for the scroll position on every
+gesture.
+
+### A deep link beats the bookmark
+
+`?sentence=` from the notebook means "take me to THIS sentence", which is a
+different request from "take me back to where I stopped". The deep link wins, the
+restore stands down entirely — and the bookmark does **not** follow, so somebody
+who arrives, glances and leaves keeps the place they actually stopped at.
+Somebody who arrives and then reads for `DEEP_LINK_RESUME_ARM_MS` of active time
+is reading here, and the bookmark starts following again.
+
+### How often it is written
+
+Never per scroll event. One write every `PROGRESS_FLUSH_MS`, an early one once
+the learner has moved `PROGRESS_FLUSH_WORDS` **in either direction**, and a forced
+one when the page is hidden (`visibilitychange` / `pagehide` — the mobile-safe
+replacements for `unload`).
+
+*In either direction* is the whole bug fix. Live progress and persisted progress
+are separate: the bar moves locally on every frame and waits for nothing, while
+the server is updated in batches.
+
+### What the learner sees
+
+```
+0% ━━━━━●━━━━━━━━│──────── 100%
+         ↑        ↑
+       teraz   przeczytane do
+```
+
+The fill is `furthest`; the dot is `current`. Reading forward moves both, so the
+dot sits at the end of the fill and the bar looks like an ordinary progress bar —
+which is the point. It separates only when the two facts genuinely differ. There
+are no permanent labels; the words live in `aria-valuetext`, available on demand
+and silent otherwise.
+
+The header's percentage is **furthest, never current**: "24%" while the learner
+is checking something they read twenty minutes ago contradicts the bar underneath
+it.
+
+On resuming, a thin „Tu skończyłeś" rule marks the place. It is an absolutely
+positioned overlay with `pointer-events: none` — zero layout cost, which matters
+because the reader has just scrolled to a place measured in that same layout. It
+leaves after `RESUME_MARKER_MS` or the moment the learner scrolls.
+
+One small floating control offers the two places a learner ever wants back — the
+origin of this sitting, or the front of what they have read — whichever is
+nearer, and nothing at all while they are within `BOOKMARK_REVEAL_WORDS` of both.
+
+### Book progress
+
+```
+sum(chapter.wordCount × chapter.progressRatio) / sum(chapter.wordCount)
+```
+
+Never `completedChapters / chapterCount`: a book whose first chapter is 500 words
+and whose second is 20 000 would report 50% after ten minutes. That has always
+been true of `itemProgressRatio`; what changed is that the `progressRatio` it
+weighs is now itself word-based, so the honesty goes all the way down.
+
+### Completion is an act
+
+A sticky footer, a short final line or a layout shift can put the end of a
+chapter on screen without anyone having read it, so finishing is an explicit
+button — and `complete_reading_chapter` refuses below `CHAPTER_COMPLETION_RATIO`
+regardless of what the button does. The threshold is unchanged at 0.95, but it
+now means 95% of the *words*, reached through dwell, so a fling to the bottom no
+longer opens the gate. Completing twice returns the stored summary and writes
+nothing.
+
+### Migration and backward compatibility
+
+Nothing was reset and nothing needs to be.
+
+- `resume_paragraph_position` and `furthest_paragraph_position` stay, keep being
+  written, and remain the fallback for an anchor with no sentence.
+- Existing rows were converted in place: `furthest` to the END of the furthest
+  paragraph reached ("read through it", which is what the old ratio claimed),
+  `resume` to the START of the paragraph the learner was on, and
+  `progress_ratio` recomputed on the word scale. A learner who had read through
+  paragraph 80 still has; only its expression as a percentage is corrected.
+- A **completed** chapter is pinned at 100%, so an arithmetic change cannot
+  un-finish anything.
+- A chapter with no word scale yet (stored before the migration, never
+  reprocessed) falls back to the old paragraph ratio inside
+  `record_reading_progress` rather than dividing by zero.
+- The backfill is guarded on `furthest_word_offset = 0`, so re-running the
+  migration — or re-applying `schema.sql` to a live database — is a no-op.
+
+### Where the engine lives
+
+| Concern | File |
+| --- | --- |
+| the position model, word offsets, the three rules | `src/lib/reading/position.ts` (pure) |
+| the ratio, completion, book progress | `src/lib/reading/progress.ts` (pure) |
+| every threshold, dwell, reading line, cadence | `src/lib/reading/constants.ts` |
+| DOM → anchor, anchor → scroll | `src/hooks/useReadingLine.ts` |
+| sampling, dwell, the live state | `src/hooks/useReadingPosition.ts` |
+| restoring, and surviving a relayout | `src/hooks/useReadingRestore.ts` |
+| the bar and the current marker | `src/components/reader/ReadingProgressBar.tsx` |
+| „Tu skończyłeś" | `src/components/reader/ResumeMarker.tsx` |
+| „Wróć…" | `src/components/reader/ReturnToBookmark.tsx` |
+| the pre-paint jump | `src/components/reader/ReadingRestoreScript.tsx` |
+| anchor → word offset, and the write | `reading_word_offset` + `record_reading_progress` (SQL) |
 
 ## Reading sessions and active time
 
@@ -749,7 +986,9 @@ built.
 | --- | --- |
 | sentence/word splitting rules | `src/lib/content/{sentences,tokenize}.ts` (bump `version.ts`) |
 | what a lookup is worth | `src/lib/learning/evidence.ts` + `src/lib/reading/constants.ts` |
-| completion threshold, idle timeout, flush cadence | `src/lib/reading/constants.ts` |
+| completion threshold, idle timeout, flush cadence, reading line, dwell | `src/lib/reading/constants.ts` |
+| what `current` / `resume` / `furthest` mean | `src/lib/reading/position.ts` |
+| how a position is observed in the DOM | `src/hooks/useReadingLine.ts` |
 | coverage honesty floors | `src/lib/reading/constants.ts` |
 | reading plan sizing | `src/lib/learning/planner/constants.ts` |
 | reader typography/theme options | `src/lib/reading/preferences.ts` + `.reader-surface` in `globals.css` |

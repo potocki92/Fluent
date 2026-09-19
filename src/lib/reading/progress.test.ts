@@ -14,9 +14,13 @@ import {
 describe("advanceProgress", () => {
   it("moves resume and furthest together while reading forward", () => {
     let position = INITIAL_POSITION;
-    position = advanceProgress(position, { paragraphPosition: 4, paragraphCount: 10 });
-    expect(position.resumeParagraph).toBe(4);
-    expect(position.furthestParagraph).toBe(4);
+    position = advanceProgress(position, {
+      resumeWordOffset: 500,
+      furthestWordOffset: 500,
+      totalWords: 1000,
+    });
+    expect(position.resumeWordOffset).toBe(500);
+    expect(position.furthestWordOffset).toBe(500);
     expect(position.ratio).toBeCloseTo(0.5, 4);
   });
 
@@ -24,44 +28,75 @@ describe("advanceProgress", () => {
     // This is the regression the two columns exist for: re-reading the opening
     // of a chapter must move the bookmark and leave the progress bar alone.
     let position = advanceProgress(INITIAL_POSITION, {
-      paragraphPosition: 79,
-      paragraphCount: 100,
+      resumeWordOffset: 800,
+      furthestWordOffset: 800,
+      totalWords: 1000,
     });
     expect(position.ratio).toBeCloseTo(0.8, 4);
 
-    position = advanceProgress(position, { paragraphPosition: 3, paragraphCount: 100 });
-    expect(position.resumeParagraph).toBe(3);
-    expect(position.furthestParagraph).toBe(79);
+    position = advanceProgress(position, {
+      resumeWordOffset: 30,
+      furthestWordOffset: 30,
+      totalWords: 1000,
+    });
+    expect(position.resumeWordOffset).toBe(30);
+    expect(position.furthestWordOffset).toBe(800);
     expect(position.ratio).toBeCloseTo(0.8, 4);
   });
 
-  it("reaches exactly 1 on the last paragraph", () => {
+  it("separates where the learner IS from what they have read", () => {
+    // A fling: the reader reports the end as the resume anchor (that genuinely
+    // is where they are) and the opening as the furthest confirmed one.
     const position = advanceProgress(INITIAL_POSITION, {
-      paragraphPosition: 9,
-      paragraphCount: 10,
+      resumeWordOffset: 900,
+      furthestWordOffset: 200,
+      totalWords: 1000,
+    });
+    expect(position.resumeWordOffset).toBe(900);
+    expect(position.ratio).toBeCloseTo(0.2, 4);
+  });
+
+  it("reaches exactly 1 at the last word", () => {
+    const position = advanceProgress(INITIAL_POSITION, {
+      resumeWordOffset: 1000,
+      furthestWordOffset: 1000,
+      totalWords: 1000,
     });
     expect(position.ratio).toBe(1);
     expect(canCompleteChapter(position)).toBe(true);
   });
 
-  it("clamps a position outside the chapter", () => {
-    const position = advanceProgress(INITIAL_POSITION, {
-      paragraphPosition: 999,
-      paragraphCount: 10,
+  it("clamps an offset outside the chapter", () => {
+    const beyond = advanceProgress(INITIAL_POSITION, {
+      resumeWordOffset: 99_999,
+      furthestWordOffset: 99_999,
+      totalWords: 1000,
     });
-    expect(position.furthestParagraph).toBe(9);
+    expect(beyond.furthestWordOffset).toBe(1000);
 
     const negative = advanceProgress(INITIAL_POSITION, {
-      paragraphPosition: -5,
-      paragraphCount: 10,
+      resumeWordOffset: -5,
+      furthestWordOffset: -5,
+      totalWords: 1000,
     });
-    expect(negative.furthestParagraph).toBe(0);
+    expect(negative.furthestWordOffset).toBe(0);
+  });
+
+  it("keeps the last known ratio for a chapter with no word scale", () => {
+    // A chapter stored before the word scale existed and never reprocessed. The
+    // report must not divide by zero and must not wipe the stored progress.
+    const position = advanceProgress(
+      { ...INITIAL_POSITION, ratio: 0.4 },
+      { resumeWordOffset: 0, furthestWordOffset: 0, totalWords: 0 },
+    );
+    expect(position.ratio).toBeCloseTo(0.4, 4);
   });
 
   it("refuses completion short of the threshold", () => {
     const position = advanceProgress(INITIAL_POSITION, {
-      paragraphPosition: 8,
-      paragraphCount: 100,
+      resumeWordOffset: 90,
+      furthestWordOffset: 90,
+      totalWords: 1000,
     });
     expect(position.ratio).toBeLessThan(CHAPTER_COMPLETION_RATIO);
     expect(canCompleteChapter(position)).toBe(false);
@@ -85,13 +120,22 @@ describe("accumulateActiveSeconds", () => {
 
 describe("itemProgressRatio", () => {
   it("weights chapters by length, not by count", () => {
-    // 3/10 chapters read is not 30% when chapter 1 is 500 words and chapter 2
-    // is 20 000.
+    // TEST I. 3/10 chapters read is not 30% when chapter 1 is 500 words and
+    // chapter 2 is 20 000.
     const ratio = itemProgressRatio([
       { wordCount: 500, ratio: 1 },
       { wordCount: 20_000, ratio: 0 },
     ]);
     expect(ratio).toBeCloseTo(0.0244, 3);
+  });
+
+  it("counts a part-read chapter in proportion to BOTH its length and its ratio", () => {
+    // Half of a 20 000-word chapter is worth forty times all of a 500-word one.
+    const ratio = itemProgressRatio([
+      { wordCount: 500, ratio: 1 },
+      { wordCount: 20_000, ratio: 0.5 },
+    ]);
+    expect(ratio).toBeCloseTo((500 + 10_000) / 20_500, 4);
   });
 
   it("falls back to equal weight when word counts are missing", () => {

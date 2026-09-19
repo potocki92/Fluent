@@ -842,6 +842,13 @@ $$;
 -- that this learner may read this chapter, it records that they opened it, and
 -- it returns the position to scroll to. Two tabs on the same chapter share one
 -- session — otherwise the chapter summary counts everything twice.
+--
+-- RE-RUNNABLE. A later migration (the Reading Position Engine) widens what
+-- this returns, and PostgreSQL refuses to `create or replace` a function whose
+-- OUT columns differ — so replaying this file on a database that already has
+-- the newer shape has to drop it first. The later migration recreates it.
+drop function if exists public.start_reading_session(uuid);
+
 create or replace function public.start_reading_session(p_chapter_id uuid)
 returns table (
   session_id          uuid,

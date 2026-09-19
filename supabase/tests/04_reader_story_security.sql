@@ -360,7 +360,7 @@ begin
   -- Read to the second (last) paragraph.
   select progress_ratio, furthest_paragraph, active_seconds
     into v_ratio, v_furthest, v_seconds
-  from public.record_reading_progress(v_session, 1, 1, 30, 300);
+  from public.record_reading_progress(v_session, 1, 1, 4, 1, 1, 4, 30, 300);
 
   if v_ratio <> 1 then
     raise exception 'FAIL: reaching the last paragraph did not reach 100%% (got %)', v_ratio;
@@ -373,7 +373,7 @@ begin
   -- regression the two columns exist for.
   select progress_ratio, furthest_paragraph
     into v_ratio, v_furthest
-  from public.record_reading_progress(v_session, 0, 0, 5, 300);
+  from public.record_reading_progress(v_session, 0, 0, 0, 0, 0, 0, 5, 300);
 
   if v_ratio <> 1 then
     raise exception 'FAIL: progress fell when the learner scrolled back (got %)', v_ratio;
@@ -390,10 +390,173 @@ begin
   -- ONE REPORT MAY NEVER CLAIM AN HOUR. A slept machine, a paused debugger or a
   -- forged request all look the same here, and all are capped.
   select active_seconds into v_seconds
-  from public.record_reading_progress(v_session, 1, 1, 86400, 300);
+  from public.record_reading_progress(v_session, 1, 1, 4, 1, 1, 4, 86400, 300);
   if v_seconds > 30 + 5 + 300 then
     raise exception 'FAIL: an oversized progress report was not capped (got %)', v_seconds;
   end if;
+end $$;
+
+reset role;
+
+\echo '── R5b. progress is WORD-weighted, and a fling is not reading ─────────'
+
+-- THE BUG THE READING POSITION ENGINE EXISTS FOR. Two paragraphs, one ten words
+-- long and one four hundred and ninety. Under the old model — furthest paragraph
+-- over paragraph count — reading the first line reported 50% of the chapter.
+set role service_role;
+
+-- Its OWN item, so a fourth chapter cannot disturb the totals and plan
+-- fixtures the suites above were built on.
+insert into public.library_items (id, slug, title, content_type, rights, status, published_at)
+values ('8a000000-0000-0000-0000-000000000003', 'lopsided', 'Ungleiche Absätze',
+        'story', 'first_party', 'published', now())
+on conflict (id) do nothing;
+
+insert into public.chapters (id, library_item_id, position, title, source_text, status)
+values ('8c000000-0000-0000-0000-000000000004', '8a000000-0000-0000-0000-000000000003',
+        1, 'Kapitel 1', 'kurz', 'draft')
+on conflict (id) do nothing;
+
+do $$
+declare
+  v_short text := 'wort';
+  v_long  text := 'wort';
+begin
+  -- 10 and 490 lexical tokens, built rather than typed out.
+  select string_agg('wort', ' ') into v_short from generate_series(1, 10);
+  select string_agg('wort', ' ') into v_long  from generate_series(1, 490);
+
+  perform public.replace_chapter_content(
+    '8c000000-0000-0000-0000-000000000004',
+    jsonb_build_object(
+      'processor_version', 'content_v1', 'content_hash', 'hash-4',
+      'word_count', 500, 'paragraph_count', 2, 'sentence_count', 2,
+      'estimated_reading_minutes', 6, 'dictionary_match_rate', 0,
+      'paragraphs', jsonb_build_array(
+        jsonb_build_object(
+          'position', 0, 'kind', 'paragraph', 'text', v_short, 'word_count', 10,
+          'sentences', jsonb_build_array(jsonb_build_object(
+            'position', 0, 'chapter_position', 0, 'text', v_short,
+            'char_start', 0, 'char_end', length(v_short), 'word_count', 10,
+            'occurrences', '[]'::jsonb
+          ))
+        ),
+        jsonb_build_object(
+          'position', 1, 'kind', 'paragraph', 'text', v_long, 'word_count', 490,
+          'sentences', jsonb_build_array(jsonb_build_object(
+            'position', 0, 'chapter_position', 1, 'text', v_long,
+            'char_start', 0, 'char_end', length(v_long), 'word_count', 490,
+            'occurrences', '[]'::jsonb
+          ))
+        )
+      ),
+      'vocabulary', '[]'::jsonb
+    )
+  );
+
+  -- THE WORD SCALE IS DERIVED BY THE DATABASE, not asserted by the payload.
+  if (select reading_word_count from public.chapters
+      where id = '8c000000-0000-0000-0000-000000000004') <> 500 then
+    raise exception 'FAIL: the chapter word scale was not derived from its sentences';
+  end if;
+  if (select word_start from public.sentences
+      where chapter_id = '8c000000-0000-0000-0000-000000000004'
+        and chapter_position = 1) <> 10 then
+    raise exception 'FAIL: sentence word offsets are not a running total';
+  end if;
+
+  -- A PARAGRAPH-ONLY ANCHOR still resolves: that is every bookmark saved before
+  -- this engine existed, and it must open the book somewhere sensible.
+  if public.reading_word_offset('8c000000-0000-0000-0000-000000000004', 1, null, null) <> 10 then
+    raise exception 'FAIL: a legacy paragraph bookmark did not resolve';
+  end if;
+  -- …and it is NOT reachable from a browser role. It exists for the SECURITY
+  -- DEFINER functions that own progress.
+  if has_function_privilege('authenticated', 'public.reading_word_offset(uuid,int,int,int)', 'execute') then
+    raise exception 'FAIL: a learner can call reading_word_offset directly';
+  end if;
+end $$;
+
+reset role;
+
+set role authenticated;
+do $switch$ begin perform set_config('request.jwt.claims', '{"sub":"88888888-8888-8888-8888-888888888888"}', false); end $switch$;
+
+do $$
+declare
+  v_session uuid;
+  v_ratio   numeric;
+  v_offset  int;
+  v_row     record;
+begin
+  select session_id into v_session
+  from public.start_reading_session('8c000000-0000-0000-0000-000000000004');
+
+  -- TEST A. Having read the ten-word opening paragraph is 2% of the chapter,
+  -- not 50% of it.
+  select progress_ratio, furthest_word_offset into v_ratio, v_offset
+  from public.record_reading_progress(v_session, 0, 0, 10, 0, 0, 10, 20, 300);
+
+  if v_offset <> 10 then
+    raise exception 'FAIL: the furthest word offset was not resolved (got %)', v_offset;
+  end if;
+  if v_ratio <> 0.02 then
+    raise exception 'FAIL: a ten-word paragraph of five hundred reported %% (got %)', v_ratio;
+  end if;
+
+  -- TEST D. A FLING IS NOT READING. The reader has scrolled to the end — its
+  -- resume anchor says so — but nothing has held at the reading line, so the
+  -- furthest anchor it reports is still the opening. Progress must not move.
+  select progress_ratio, furthest_word_offset into v_ratio, v_offset
+  from public.record_reading_progress(v_session, 1, 1, 490, 0, 0, 10, 1, 300);
+
+  if v_offset <> 10 then
+    raise exception 'FAIL: a fling advanced the furthest position (got %)', v_offset;
+  end if;
+  if v_ratio <> 0.02 then
+    raise exception 'FAIL: a fling advanced the progress bar (got %)', v_ratio;
+  end if;
+  -- …and the BOOKMARK did follow, because that genuinely is where they are.
+  if (select resume_word_offset from public.reading_progress
+      where user_id = '88888888-8888-8888-8888-888888888888'
+        and chapter_id = '8c000000-0000-0000-0000-000000000004') <> 500 then
+    raise exception 'FAIL: the bookmark did not follow the learner to the end';
+  end if;
+
+  -- TEST E. Once the place has held, the furthest position may catch up.
+  select progress_ratio into v_ratio
+  from public.record_reading_progress(v_session, 1, 1, 490, 1, 1, 490, 60, 300);
+  if v_ratio <> 1 then
+    raise exception 'FAIL: dwelling at the end did not complete the chapter (got %)', v_ratio;
+  end if;
+
+  -- TEST K / J. Scroll back: the bookmark follows down to the exact TOKEN, the
+  -- progress bar does not move at all.
+  select progress_ratio into v_ratio
+  from public.record_reading_progress(v_session, 1, 1, 100, 1, 1, 100, 5, 300);
+  if v_ratio <> 1 then
+    raise exception 'FAIL: progress fell when the learner scrolled back (got %)', v_ratio;
+  end if;
+
+  select resume_sentence_position, resume_token_position, resume_word_offset,
+         furthest_word_offset
+    into v_row
+  from public.reading_progress
+  where user_id = '88888888-8888-8888-8888-888888888888'
+    and chapter_id = '8c000000-0000-0000-0000-000000000004';
+
+  if v_row.resume_sentence_position <> 1 or v_row.resume_token_position <> 100 then
+    raise exception 'FAIL: the bookmark did not record the sentence and token it was on';
+  end if;
+  if v_row.resume_word_offset <> 110 then
+    raise exception 'FAIL: the bookmark resolved to the wrong word (got %)',
+      v_row.resume_word_offset;
+  end if;
+  if v_row.furthest_word_offset <> 500 then
+    raise exception 'FAIL: the furthest position moved backwards (got %)',
+      v_row.furthest_word_offset;
+  end if;
+
 end $$;
 
 reset role;
@@ -412,7 +575,7 @@ begin
   from public.start_reading_session('8c000000-0000-0000-0000-000000000001');
 
   -- Only the first of two paragraphs: 50%.
-  perform public.record_reading_progress(v_session, 0, 0, 10, 300);
+  perform public.record_reading_progress(v_session, 0, 0, 4, 0, 0, 4, 10, 300);
 
   begin
     perform public.complete_reading_chapter(v_session, 0.95);
@@ -420,7 +583,7 @@ begin
   exception when sqlstate 'FL412' then null;
   end;
 
-  perform public.record_reading_progress(v_session, 1, 1, 10, 300);
+  perform public.record_reading_progress(v_session, 1, 1, 4, 1, 1, 4, 10, 300);
 
   select * into v_row from public.complete_reading_chapter(v_session, 0.95);
   if v_row.already_completed then
@@ -668,14 +831,14 @@ begin
   end if;
 
   -- Do less reading than the plan asked for: still not done.
-  perform public.record_reading_progress(v_session, 0, 0, 100, 300);
+  perform public.record_reading_progress(v_session, 0, 0, 4, 0, 0, 4, 100, 300);
   select item_status into v_status from public.sync_daily_plan(v_plan);
   if v_status = 'completed' then
     raise exception 'FAIL: a short sitting satisfied an 8-minute reading task';
   end if;
 
   -- Now do the reading the plan asked for.
-  perform public.record_reading_progress(v_session, 0, 0, 300, 300);
+  perform public.record_reading_progress(v_session, 0, 0, 4, 0, 0, 4, 300, 300);
   select item_status into v_status from public.sync_daily_plan(v_plan);
   if v_status <> 'completed' then
     raise exception 'FAIL: the reading segment was done but the task is % ', v_status;

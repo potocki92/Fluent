@@ -352,6 +352,67 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   „TU SKOŃCZYŁEŚ"
+   ─────────────────────────────────────────────────────────────────────────────
+   A rule across the place the learner was put back, and nothing more. It is an
+   OVERLAY — absolutely positioned, zero layout cost — for a reason that is not
+   cosmetic: the reader has just scrolled to a place measured in this layout, and
+   a marker that pushed the text down would invalidate the restore that put it
+   there. It also cannot swallow a tap on the word underneath it or interrupt a
+   selection, hence `pointer-events: none`.
+
+   It fades in and leaves on its own, or the moment the learner scrolls. */
+
+.reader-resume-marker {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* Half a line up, so it sits ON the boundary between what was read and what
+     comes next rather than over the first line of it. */
+  transform: translateY(-0.7em);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--reader-accent) 90%, transparent);
+}
+
+/* The two halves of the rule. Drawn as pseudo-elements so the label can sit in
+   the middle of them without a wrapper per side. */
+.reader-resume-marker::before,
+.reader-resume-marker::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background-color: color-mix(in srgb, var(--reader-accent) 40%, transparent);
+}
+
+.reader-resume-marker-label {
+  white-space: nowrap;
+}
+
+.reader-resume-marker-label::before {
+  content: "🔖";
+  margin-inline-end: 0.35em;
+  /* The emoji is decoration; the rule already says what this is. */
+  font-size: 1.1em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reader-resume-marker {
+    animation: reader-resume-marker-in 320ms ease-out both;
+  }
+
+  @keyframes reader-resume-marker-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    AUTH
    ─────────────────────────────────────────────────────────────────────────────
    The one screen a learner sees before they are a learner. It gets its own

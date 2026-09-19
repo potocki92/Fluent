@@ -99,5 +99,21 @@ export function useActiveReadingClock() {
   /** Seconds accumulated but not yet drained — for the live summary. */
   const peek = useCallback(() => Math.floor(secondsRef.current), []);
 
-  return { drain, peek };
+  /**
+   * Is the learner reading RIGHT NOW?
+   *
+   * The same two conditions the clock itself runs on, asked as a question so the
+   * Reading Position Engine can measure its dwell in the same currency. Without
+   * it, a chapter left open at the last page would confirm itself as read after
+   * `READ_DWELL_MS` of wall time — and "furthest read" would go back to
+   * meaning "furthest scrolled", which is the bug the dwell exists to fix.
+   */
+  const isActive = useCallback(
+    () =>
+      document.visibilityState === "visible" &&
+      Date.now() - lastActivityRef.current <= IDLE_TIMEOUT_MS,
+    [],
+  );
+
+  return { drain, peek, isActive };
 }
