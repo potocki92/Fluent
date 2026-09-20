@@ -30,6 +30,14 @@ const CIRCUMFERENCE = 2 * Math.PI * R;
  * card fill its own width between `md` and `lg`, where it is the only thing in
  * the row.
  *
+ * THE RING DOES NOT FIT A PHONE, so on a phone there is no ring. Measured: a
+ * 96px ring plus its gap leaves about 126px for the label, and „Przygotowanie do
+ * rozdziału" is 172px — every long task was truncated, on the screen where the
+ * plan matters most. Below `sm` the count moves up beside the heading, the meter
+ * becomes a row of segments (one per task, which is what the ring was counting),
+ * and the list gets the card's full width. Above `sm` there is room for the ring
+ * and it comes back.
+ *
  * COMPLETED ONLY, like every other progress figure in the app. A skipped task is
  * resolved — the plan can finish without it — but it is not an achievement, and
  * letting it fill the ring would make "pomiń wszystko" look like a finished day.
@@ -46,15 +54,40 @@ export function DailyGoalCard({
 
   return (
     <section
-      className={cn("app-panel rounded-xl p-5", className)}
+      className={cn("app-panel rounded-xl p-4 sm:p-5", className)}
       aria-labelledby="daily-goal-heading"
     >
-      <h2 id="daily-goal-heading" className="text-base font-bold">
-        Twój cel na dziś
-      </h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="daily-goal-heading" className="text-base font-bold">
+          Twój cel na dziś
+        </h2>
+        {/* The count the ring carries, where the ring is not. */}
+        <span className="shrink-0 tabular-nums sm:hidden">
+          <span className="text-lg font-bold text-main">{done}</span>
+          <span className="text-sm font-medium text-muted2">/{total}</span>
+        </span>
+      </div>
 
-      <div className="mt-5 flex items-center gap-5 sm:gap-6">
-        <div className="flex shrink-0 flex-col items-center gap-1.5">
+      {/* The phone's meter: one segment per task, in plan order, so it is the
+          same count as the ring rather than a second idea of progress. */}
+      <div className="mt-3 flex gap-1 sm:hidden" aria-hidden>
+        {items.map((task) => (
+          <span
+            key={task.id}
+            className={cn(
+              "h-1 flex-1 rounded-full",
+              task.status === "completed" && "bg-gold",
+              task.status === "in_progress" && task.completedCount > 0 && "bg-gold/40",
+              task.status === "skipped" && "bg-border/50",
+              task.status === "pending" && "bg-card2",
+              task.status === "in_progress" && task.completedCount === 0 && "bg-card2",
+            )}
+          />
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-5 sm:mt-5 sm:gap-6">
+        <div className="hidden shrink-0 flex-col items-center gap-1.5 sm:flex">
           <div className="relative" style={{ width: 96, height: 96 }}>
             <svg viewBox="0 0 100 100" className="size-full -rotate-90" aria-hidden>
               <circle
@@ -128,13 +161,17 @@ export function DailyGoalCard({
                   )}
                 </span>
 
+                {/* It WRAPS, it does not truncate. Below about 340px the longest
+                    Polish label („Przygotowanie do rozdziału") is a few pixels
+                    wider than the row can give it, and a task whose name is cut
+                    off is worse than a row that is two lines tall. Everywhere
+                    above that it is one line anyway. */}
                 <span
                   className={cn(
-                    "truncate",
+                    "min-w-0 leading-snug",
                     completed ? "font-medium text-main" : "text-muted2",
                     skipped && "line-through opacity-60",
                   )}
-                  title={PLAN_ITEM_TITLE_PL[item.type]}
                 >
                   {PLAN_ITEM_TITLE_PL[item.type]}
                 </span>
