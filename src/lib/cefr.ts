@@ -87,6 +87,19 @@ function nextBandMin(ability: number): number {
 }
 
 /**
+ * The band just above the one `ability` sits in, or `null` at the top.
+ *
+ * "Do poziomu A2" is the only thing a progress bar towards the next level can
+ * honestly be labelled with, and the label has to come from the same table the
+ * bar is computed from ({@link bandProgress}) or the two will disagree the day a
+ * band moves.
+ */
+export function nextCefrLevel(ability: number): CefrLevel | null {
+  const current = abilityToCefr(ability);
+  return CEFR_ORDER[CEFR_ORDER.indexOf(current) + 1] ?? null;
+}
+
+/**
  * ReadTheory-style promotion gate. Ability moves freely *within* its current
  * CEFR band, but crossing into a higher band requires {@link PROMOTION_STREAK}
  * consecutive strong passes (≥ {@link PROMOTION_RATIO}). Until the streak is

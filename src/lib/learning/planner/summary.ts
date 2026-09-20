@@ -15,6 +15,7 @@
  */
 
 import type { TodayPlanItem } from "@/actions/today-plan";
+import { PLAN_ITEM_TITLE_PL } from "@/lib/learning/planner/reasons";
 
 /**
  * The planner's estimate for the activities the learner actually finished.
@@ -27,4 +28,23 @@ export function completedEstimatedMinutes(items: readonly TodayPlanItem[]): numb
   return items
     .filter((item) => item.status === "completed")
     .reduce((sum, item) => sum + Math.max(0, item.estimatedMinutes), 0);
+}
+
+/**
+ * What to call THIS activity — the material's own name where the plan snapshotted
+ * one, the activity's heading where it did not.
+ *
+ * The payload is read defensively because it is `Json`: an item drafted by an
+ * older planner version may not carry the key a newer card would like, and the
+ * answer to that is the generic heading, never an empty line or `undefined`.
+ * The order is most-specific-first: a chapter's own title beats the book's, and
+ * both beat "Czytaj dalej".
+ */
+export function planItemLabel(item: TodayPlanItem): string {
+  const payload = item.payload;
+  for (const key of ["chapterTitle", "title", "itemTitle", "conceptLabel"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return PLAN_ITEM_TITLE_PL[item.type] ?? "Nauka";
 }

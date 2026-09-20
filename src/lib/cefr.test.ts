@@ -7,9 +7,24 @@ import {
   gatePromotion,
   isTextTooHard,
   LEVEL_HEADROOM,
+  nextCefrLevel,
   progressPct,
   PROMOTION_STREAK,
 } from "./cefr";
+
+describe("nextCefrLevel", () => {
+  it("names the band directly above the current one", () => {
+    expect(nextCefrLevel(1000)).toBe("A1+");
+    expect(nextCefrLevel(1200)).toBe("A2");
+    expect(nextCefrLevel(1300)).toBe("B1");
+    expect(nextCefrLevel(1450)).toBe("B2");
+  });
+
+  it("is null at the top of the ladder", () => {
+    expect(nextCefrLevel(1600)).toBeNull();
+    expect(nextCefrLevel(2000)).toBeNull();
+  });
+});
 
 describe("abilityToCefr", () => {
   it("maps abilities to the matching band", () => {
