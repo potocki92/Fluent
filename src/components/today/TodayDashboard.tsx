@@ -38,16 +38,25 @@ export function TodayDashboard({
 
   return (
     <div className="space-y-5">
-      {/* The level is the narrower of the two: it holds one number, the card
+      {/* `grid-cols-1` is NOT decoration — it is the fix for a real overflow.
+          A `display: grid` with no template puts its children in one IMPLICIT
+          column sized `auto`, whose minimum is the child's min-content width, so
+          a card wider than the phone pushed the whole document sideways
+          (`scrollWidth` 447 on a 390px screen) instead of shrinking. Tailwind's
+          `grid-cols-1` is `minmax(0, 1fr)`, which lets the track shrink and hands
+          the truncation back to the card. Every `lg:` template already uses
+          `minmax(0, …)` for the same reason.
+
+          The level is the narrower of the two: it holds one number, the card
           next to it holds the day's primary action. */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         <LevelCard />
         <ContinueCard item={next} isComplete={isComplete} />
       </div>
 
       <QuickActions />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <MotivationCard className="hidden lg:flex" />
         <DailyGoalCard items={plan.items} />
       </div>

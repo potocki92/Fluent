@@ -112,7 +112,9 @@ function PlanUnavailable({ message }: { message: string }) {
 function NothingToDo() {
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+      {/* `grid-cols-1` for the same reason as in `TodayDashboard`: an implicit
+          `auto` column cannot shrink below its content and overflows a phone. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         <LevelCard />
         <Card className="app-panel justify-center gap-3 p-5">
           <p className="text-sm font-semibold">Na dziś nie mamy dla Ciebie zadań</p>
