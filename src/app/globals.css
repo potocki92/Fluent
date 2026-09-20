@@ -103,6 +103,96 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   APP CHROME
+   ─────────────────────────────────────────────────────────────────────────────
+   The dashboard surface: header, tab bar and the cards on Today.
+
+   NO TOKEN WAS TOUCHED TO GET THIS LOOK. `--background` and `--card` are the
+   same two values they have always been — changing them would have restyled the
+   reader (which reads `--color-dark` for its own paper), every chart, every
+   dialog and every shadcn primitive in one go. Instead the chrome adds its own
+   layers on top, exactly the way `.auth-surface` does: an ambient wash behind
+   the whole app, and a panel that sits a few percent above the background
+   rather than taking the full `--card` step.
+
+   The whole depth budget is one hairline of warm light on a border. "Premium but
+   calm" means the surfaces are nearly flat and the gold is nearly absent — it
+   marks what is active, and nothing else. */
+
+.app-ambient {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--color-dark);
+}
+
+/* `fixed`, not `absolute`: the wash is light in a room, so it must not scroll
+   with the content — and it must not grow the page either, hence `z-index: -1`
+   and no pointer events. */
+.app-ambient::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      62rem 42rem at 6% -20%,
+      color-mix(in srgb, var(--color-gold) 9%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      54rem 38rem at 102% -6%,
+      color-mix(in srgb, var(--color-blue) 8%, transparent),
+      transparent 58%
+    ),
+    linear-gradient(180deg, rgb(0 0 0 / 0.28), transparent 38%);
+}
+
+/* The header and the tab bar. Translucent over the ambient wash rather than a
+   solid bar, so the app reads as one surface with chrome floating on it. */
+.app-chrome {
+  background-color: color-mix(in srgb, var(--color-dark) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+/* A dashboard card. Deliberately closer to the background than `--card` is: a
+   grid of eight full-strength cards reads as eight boxes, where the design reads
+   as one page with quiet divisions in it.
+
+   These properties are declared OUTSIDE `@layer`, so they win over the
+   `bg-card` / `border-border` utilities a `<Card>` brings with it — which is the
+   point: the primitive keeps its layout, the chrome supplies the surface. Radius
+   and padding are left to Tailwind so each card can still size itself. */
+.app-panel {
+  background-color: color-mix(in srgb, var(--color-card2) 32%, var(--color-dark));
+  border: 1px solid color-mix(in srgb, var(--color-gold) 6%, var(--color-border));
+  box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.02) inset;
+}
+
+/* A card that is also a link. The lift is a border, not a shadow or a scale — at
+   this density anything larger turns a calm grid into a trampoline. */
+.app-panel-link {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+/* The one card that is singled out — today's next activity.
+   It is a CLASS rather than a `border-gold/60` utility because `.app-panel`
+   above is unlayered and would outrank any Tailwind border utility placed on the
+   same element. Marking the exception in the same place as the rule is also how
+   it stays visible to whoever changes the rule. */
+.app-panel-active {
+  border-color: color-mix(in srgb, var(--color-gold) 52%, transparent);
+}
+
+.app-panel-link:hover {
+  background-color: color-mix(in srgb, var(--color-card2) 46%, var(--color-dark));
+  border-color: color-mix(in srgb, var(--color-gold) 24%, var(--color-border));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    READER
    ─────────────────────────────────────────────────────────────────────────────
    The reader is the one screen with its own palette, and it needs one: the app

@@ -1,11 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-
-import { useAbility } from "@/hooks/useAbility";
-import { useProfile } from "@/hooks/useProfile";
+import { useLevelEstimate, type LevelSeed } from "@/hooks/useLevelEstimate";
 import { LevelRing } from "@/components/level/LevelRing";
-import { abilityToCefr } from "@/lib/cefr";
 import { confidenceLevel, type ConfidenceLevel } from "@/lib/elo";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +14,12 @@ const CONFIDENCE_PL: Record<ConfidenceLevel, string> = {
 };
 
 /**
- * The single, self-sourcing level badge: ring + (for `lg`) the Polish
- * poziom/Elo/odpowiedzi panel. It reads ability/answered from the live
- * `useAbility` store (hydrated here via {@link useProfile}) rather than from
- * page props, so every place that renders it — header, learn, stats — shows the
- * same source of truth and stays in sync as the ability changes.
+ * The full level badge: ring + the Polish poziom/Elo/odpowiedzi panel.
+ *
+ * It reads from {@link useLevelEstimate}, which is where the hydrate-seed-fall
+ * back dance now lives — the header chip and the Today card read the same hook,
+ * so every surface shows the same number and they all move together when the
+ * ability changes.
  *
  * `initial` is an optional server snapshot. The stats page renders on the
  * server, so it passes the freshly-read profile to paint the correct value
@@ -34,31 +31,10 @@ export function LevelSummary({
   className,
 }: {
   size?: "sm" | "header" | "lg";
-  initial?: { ability: number; rd: number; answered: number };
+  initial?: LevelSeed;
   className?: string;
 }) {
-  useProfile();
-  const storeAbility = useAbility((s) => s.ability);
-  const storeAnswered = useAbility((s) => s.answered);
-  const cefrEstimate = useAbility((s) => s.cefrEstimate);
-  const setAbility = useAbility((s) => s.setAbility);
-
-  // Seed the store once from the server snapshot so every consumer converges
-  // immediately on the server-rendered stats page.
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (!initial || seededRef.current) return;
-    setAbility(initial);
-    seededRef.current = true;
-  }, [initial, setAbility]);
-
-  // `cefrEstimate` is null only at the store defaults; any hydration (useProfile,
-  // the seed above, or a finished test) sets it. Until the store carries real
-  // data, fall back to the server `initial` so the server HTML and first client
-  // paint agree — no hydration mismatch and no flash of the A1/1000 defaults.
-  const hydrated = cefrEstimate !== null;
-  const ability = hydrated ? storeAbility : initial?.ability ?? storeAbility;
-  const answered = hydrated ? storeAnswered : initial?.answered ?? storeAnswered;
+  const { ability, answered, cefr } = useLevelEstimate(initial);
 
   if (size !== "lg") {
     return (
@@ -71,7 +47,6 @@ export function LevelSummary({
     );
   }
 
-  const cefr = abilityToCefr(ability);
   const confidence = CONFIDENCE_PL[confidenceLevel(answered)];
 
   return (

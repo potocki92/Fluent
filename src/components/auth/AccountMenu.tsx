@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2, LogOut, Settings } from "lucide-react";
+import { Loader2, LogOut } from "lucide-react";
 
 import { useAuthUser } from "@/components/auth/AuthProvider";
+import { ACCOUNT_NAV, ADMIN } from "@/components/layout/navigation";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,11 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useSignOut } from "@/hooks/useSignOut";
 import { accountInitial, isAccountUser } from "@/lib/auth/identity";
 
 /**
- * The account control in the header.
+ * The account control, and the drawer behind it.
  *
  * It renders from `useAuthUser()`, whose first value came from the SERVER, so
  * there is no moment where a signed-in learner is shown "Załóż konto" or a
@@ -25,9 +27,18 @@ import { accountInitial, isAccountUser } from "@/lib/auth/identity";
  *
  * `isAccountUser` rather than `user !== null`: a Supabase guest session is not a
  * Fluent account and must not be offered account controls.
+ *
+ * WHAT THIS MENU NOW HOLDS. The notebook, the settings and the admin panel used
+ * to be three separate icons in the header, on every screen, for every learner.
+ * They are all "things about me and my account" rather than "things I do today",
+ * which is exactly what an avatar menu is for. The admin panel appears only for
+ * an admin — and `useIsAdmin` is an AFFORDANCE, never a gate: `/admin` is
+ * enforced by the route table, `requireAdmin()` and RLS, so a non-admin who
+ * guesses the URL gets nowhere regardless of what this menu shows.
  */
 export function AccountMenu() {
   const user = useAuthUser();
+  const { isAdmin } = useIsAdmin();
   const { signOut, isPending } = useSignOut();
 
   if (!isAccountUser(user)) {
@@ -51,7 +62,7 @@ export function AccountMenu() {
         <button
           type="button"
           aria-label="Menu konta"
-          className="flex size-8 items-center justify-center rounded-full bg-gold text-sm font-semibold text-dark uppercase transition-opacity outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60"
+          className="flex size-9 items-center justify-center rounded-full bg-gold text-sm font-semibold uppercase text-dark transition-opacity outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60"
           disabled={isPending}
         >
           {isPending ? (
@@ -62,7 +73,7 @@ export function AccountMenu() {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-60">
+      <DropdownMenuContent align="end" className="app-panel w-64">
         <div className="px-2 py-2">
           <p className="truncate text-sm font-semibold text-main">{name}</p>
           {user.email ? (
@@ -72,15 +83,32 @@ export function AccountMenu() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem asChild>
-          <Link href="/settings">
-            <Settings aria-hidden />
-            Ustawienia
-          </Link>
-        </DropdownMenuItem>
+        {ACCOUNT_NAV.map((item) => {
+          const Icon = item.icon;
+          return (
+            <DropdownMenuItem key={item.href} asChild>
+              <Link href={item.href}>
+                <Icon aria-hidden />
+                {item.label}
+              </Link>
+            </DropdownMenuItem>
+          );
+        })}
+
+        {isAdmin ? (
+          <DropdownMenuItem asChild>
+            <Link href={ADMIN.href}>
+              <ADMIN.icon aria-hidden />
+              {ADMIN.label}
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+
+        <DropdownMenuSeparator />
 
         <DropdownMenuItem
           disabled={isPending}
+          className="text-red focus:bg-red/10 focus:text-red"
           // The menu must not close before the sign-out has been kicked off, and
           // must not be selectable a second time while it runs (§68, §141).
           onSelect={(event) => {

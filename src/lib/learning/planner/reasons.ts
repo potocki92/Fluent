@@ -135,6 +135,28 @@ export const PLAN_ITEM_TITLE_PL: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The KIND of work an activity is, as a learner would name it.
+ *
+ * Distinct from {@link PLAN_ITEM_TITLE_PL}, which is the activity's own heading
+ * ("Czytaj dalej", "Nowy rozdział"). The „Kontynuuj naukę" card shows both, in
+ * the order a learner reads them: the category as a kicker, then the title of
+ * the material itself. Several types collapse onto one category on purpose —
+ * a new chapter and an unfinished one are both "Czytanie".
+ */
+export const PLAN_ITEM_CATEGORY_PL: Readonly<Record<string, string>> = {
+  placement: "Test poziomujący",
+  review_due: "Powtórki",
+  weakness_practice: "Gramatyka",
+  continue_text: "Czytanie",
+  new_text: "Czytanie",
+  continue_chapter: "Czytanie",
+  new_chapter: "Czytanie",
+  chapter_preparation: "Przygotowanie",
+  chapter_assessment: "Wyzwanie",
+  new_vocabulary: "Słownictwo",
+};
+
+/**
  * Polish plurals are three-way (1 / 2–4 / 5+), and getting them wrong is the
  * kind of thing that makes an app feel machine-translated. Both helpers below
  * implement the standard rule rather than guessing.

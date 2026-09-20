@@ -1,77 +1,31 @@
 "use client";
 
-import Link from "next/link";
-import { Library, NotebookPen, Settings } from "lucide-react";
+import { DesktopHeader } from "@/components/layout/DesktopHeader";
+import { MobileHeader } from "@/components/layout/MobileHeader";
 
-import { AccountMenu } from "@/components/auth/AccountMenu";
-import { useAuthUser } from "@/components/auth/AuthProvider";
-import { FluentLogo } from "@/components/brand/FluentLogo";
-import { AdminNavLink } from "@/components/layout/AdminNavLink";
-import { LevelSummary } from "@/components/level/LevelSummary";
-import { isAccountUser } from "@/lib/auth/identity";
-
+/**
+ * One sticky bar, two layouts.
+ *
+ * The phone and the desktop do not share a header in this design — they share a
+ * strip of chrome. A phone gets the brand and the account; a desktop gets the
+ * whole navigation, because it has both the width for it and no tab bar at the
+ * bottom of the screen. Trying to express that as one component with six
+ * `md:hidden` branches is how a header ends up with controls that are visible at
+ * exactly one viewport width and broken at every other.
+ *
+ * The breakpoint is `md` and it is the SAME `md` the tab bar and the content
+ * column use: above it, the top bar navigates and the tab bar is gone; below it,
+ * the tab bar navigates and the top bar is a brand line. There is no width where
+ * both are doing the job.
+ */
 export function Header() {
-  const user = useAuthUser();
-
-  // The identity behind this is server-resolved (see the root layout), so this
-  // branch is already correct in the first HTML — the private shortcuts are not
-  // rendered and then withdrawn.
-  const hasAccount = isAccountUser(user);
-
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-2xl items-center justify-between px-4">
-        {/* The symbol and the name are one target, and one link to Today. The
-            lockup is a single line, so it is wider than the bare wordmark this
-            header used to show below 360px — see FluentLogo for the measured
-            proportions, and the responsive check for how much room the controls
-            on the right are left with. */}
-        <Link
-          href="/today"
-          className="flex shrink-0 items-center rounded-sm outline-ring/50 focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          <FluentLogo priority />
-        </Link>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          {hasAccount ? (
-            <>
-              <AdminNavLink />
-              <LevelSummary size="header" />
-            </>
-          ) : null}
-          {/* Dictionary moved off the bottom bar when Today took its place —
-              still one tap away, just no longer one of the daily four. It is
-              public content, so it stays visible to a visitor. */}
-          <Link
-            href="/browse"
-            aria-label="Słownik"
-            className="flex items-center text-muted2 transition-colors hover:text-main"
-          >
-            <Library className="size-5" />
-          </Link>
-          {/* The personal notebook and the settings are account screens: showing
-              them to a signed-out visitor is offering a door that only leads to
-              the sign-in form. */}
-          {hasAccount ? (
-            <>
-              <Link
-                href="/notebook"
-                aria-label="Mój zeszyt"
-                className="flex items-center text-muted2 transition-colors hover:text-main"
-              >
-                <NotebookPen className="size-5" />
-              </Link>
-              <Link
-                href="/settings"
-                aria-label="Ustawienia"
-                className="flex items-center text-muted2 transition-colors hover:text-main"
-              >
-                <Settings className="size-5" />
-              </Link>
-            </>
-          ) : null}
-          <AccountMenu />
-        </div>
+    <header className="app-chrome sticky top-0 z-40 border-b border-border/60">
+      <div className="md:hidden">
+        <MobileHeader />
+      </div>
+      <div className="hidden md:block">
+        <DesktopHeader />
       </div>
     </header>
   );

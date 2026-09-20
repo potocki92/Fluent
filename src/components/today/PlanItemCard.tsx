@@ -1,19 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import {
-  BookMarked,
-  BookOpen,
-  Check,
-  Circle,
-  ClipboardCheck,
-  Layers,
-  Loader2,
-  SkipForward,
-  Sparkles,
-  Target,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, Circle, Loader2, SkipForward } from "lucide-react";
 
 import type { TodayPlanItem } from "@/actions/today-plan";
 import {
@@ -23,22 +11,9 @@ import {
 } from "@/lib/learning/planner/reasons";
 import { planItemHref } from "@/lib/learning/planner/routes";
 import { PlanReason } from "@/components/today/PlanReason";
+import { PLAN_ITEM_ICONS } from "@/components/today/planIcons";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-
-/** One icon per activity kind, so the plan is scannable without reading it. */
-const ICONS: Record<TodayPlanItem["type"], LucideIcon> = {
-  placement: Target,
-  review_due: Layers,
-  weakness_practice: Target,
-  continue_text: BookOpen,
-  new_text: BookOpen,
-  continue_chapter: BookMarked,
-  new_chapter: BookMarked,
-  chapter_preparation: Sparkles,
-  chapter_assessment: ClipboardCheck,
-  new_vocabulary: Sparkles,
-};
 
 /**
  * One activity of today's plan.
@@ -70,7 +45,7 @@ export function PlanItemCard({
   /** Polish copy from the error taxonomy when skipping THIS task failed. */
   skipError: string | null;
 }) {
-  const Icon = ICONS[item.type];
+  const Icon = PLAN_ITEM_ICONS[item.type];
   const done = item.status === "completed";
   const skipped = item.status === "skipped";
   const partial = item.status === "in_progress" && item.completedCount > 0;
@@ -89,8 +64,8 @@ export function PlanItemCard({
   return (
     <Card
       className={cn(
-        "gap-2 p-4 transition-colors",
-        isNext && "border-gold/60",
+        "app-panel gap-2 p-4 transition-colors",
+        isNext && "app-panel-active",
         (done || skipped) && "opacity-60",
       )}
     >

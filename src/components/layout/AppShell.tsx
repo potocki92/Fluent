@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Header } from "@/components/layout/Header";
 import { isAuthPath } from "@/lib/auth/redirects";
+import { cn } from "@/lib/utils";
 
 /**
  * The app chrome — header, content column, bottom navigation — and the two
@@ -32,17 +33,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (isReaderRoute(pathname) || isAuthPath(pathname)) return <>{children}</>;
 
   return (
-    <>
+    <div className="app-ambient flex flex-1 flex-col">
       <Header />
       {/* The bottom padding clears the fixed tab bar, so it has to clear the
           safe-area inset the bar now carries too — otherwise the last row of a
-          list sits under the home indicator. */}
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4">
+          list sits under the home indicator. Above `md` the bar is gone, and so
+          is the padding that was reserving room for it. */}
+      <main
+        className={cn(
+          "mx-auto w-full flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4",
+          "md:px-6 md:pb-12 md:pt-6",
+          isDashboardRoute(pathname) ? "max-w-5xl" : "max-w-2xl",
+        )}
+      >
         {children}
       </main>
       <BottomNav />
-    </>
+    </div>
   );
+}
+
+/**
+ * The screens that are laid out as a DASHBOARD rather than as a column.
+ *
+ * Every other screen in Fluent is a single list — a review queue, a chapter
+ * list, a settings form — and `max-w-2xl` is the measure they were designed for;
+ * stretching them to fill a 27" display would leave a settings toggle with a
+ * metre of whitespace after it. Today is the exception: it is a grid of cards,
+ * and a grid needs the width to be a grid at all. One route, named here, rather
+ * than a `wide` prop threaded through every page.
+ */
+function isDashboardRoute(pathname: string): boolean {
+  return pathname === "/today" || pathname === "/today/";
 }
 
 /** `/library/<slug>/<chapter>` — the reader itself, not the library or a book. */

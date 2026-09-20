@@ -33,6 +33,11 @@ const PUBLIC_EXACT = new Set<string>([
   "/library", // the shelf
   "/learn", // the graded-passage catalogue
   "/words", // the same dictionary, paginated
+  // The phone's fourth tab. It is a MENU, not a screen with data on it: it
+  // renders the destinations the caller can actually reach, which for a visitor
+  // is the dictionary and the sign-in button. Gating it would mean the fourth
+  // tab of a public shelf bounced a visitor to the login form.
+  "/more",
 ]);
 
 /** The admin panel, gated on a role the proxy deliberately does not read. */
