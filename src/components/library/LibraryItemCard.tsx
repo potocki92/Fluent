@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BookMarked, BookOpen, CheckCircle2, Loader2, Lock } from "lucide-react";
 
+import { MaterialCover } from "@/components/library/MaterialCover";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { ShelfEntry } from "@/lib/library/queries";
@@ -19,6 +20,15 @@ const TYPE_LABEL_PL: Readonly<Record<ShelfEntry["contentType"], string>> = {
  * chapters-done-over-chapters: a book whose first chapter is 500 words and whose
  * second is 20 000 would otherwise report 50% after ten minutes, and a progress
  * number that flatters is a progress number nobody trusts twice.
+ *
+ * THE TILE IS THE MATERIAL'S PICTURE where it has one, and the state icon where
+ * it does not. Both occupy the SAME 4:3 box, so a shelf of ten items keeps one
+ * rhythm instead of jumping a few pixels per row depending on which of them an
+ * admin has got round to illustrating. Nothing is lost by replacing the icon:
+ * „przeczytane w całości", the progress bar and „przygotowuję rozdziały…" all
+ * say in words what the icon said in a glyph — except while a private import is
+ * still processing, which keeps its spinner because that one IS the only signal
+ * that something is happening (and an import has no cover anyway).
  */
 export function LibraryItemCard({ entry }: { entry: ShelfEntry }) {
   const percent = Math.round(entry.progressRatio * 100);
@@ -33,17 +43,24 @@ export function LibraryItemCard({ entry }: { entry: ShelfEntry }) {
       className="block rounded-xl border border-border bg-card p-4 transition-colors hover:border-gold/50"
     >
       <div className="flex items-start gap-3">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#374151] text-gold">
-          {preparing ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : finished ? (
-            <CheckCircle2 className="size-5" />
-          ) : started ? (
-            <BookMarked className="size-5" />
-          ) : (
-            <BookOpen className="size-5" />
-          )}
-        </div>
+        <MaterialCover
+          coverUrl={preparing ? null : entry.coverUrl}
+          sizes="64px"
+          className="h-12 w-16 rounded-lg border border-border/60"
+          fallback={
+            <span className="flex size-full items-center justify-center bg-[#374151] text-gold">
+              {preparing ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : finished ? (
+                <CheckCircle2 className="size-5" />
+              ) : started ? (
+                <BookMarked className="size-5" />
+              ) : (
+                <BookOpen className="size-5" />
+              )}
+            </span>
+          }
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

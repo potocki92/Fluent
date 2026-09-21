@@ -1,8 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, CalendarClock, PartyPopper } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  PartyPopper,
+  type LucideIcon,
+} from "lucide-react";
 
 import type { TodayPlanItem } from "@/actions/today-plan";
+import { MaterialCover } from "@/components/library/MaterialCover";
 import { planItemArtwork, type MaterialArtwork } from "@/lib/library/artwork";
 import { PLAN_ITEM_CATEGORY_PL, renderReason } from "@/lib/learning/planner/reasons";
 import { planItemHref } from "@/lib/learning/planner/routes";
@@ -89,13 +95,10 @@ export function ContinueCard({
 
       <div className="relative z-10 mt-4 flex items-center gap-4">
         {cover ? (
-          <CardArtwork url={cover.url} />
+          <CardArtwork url={cover.url} icon={Icon} />
         ) : (
-          <span
-            aria-hidden
-            className="flex size-14 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-gold/20 to-blue/10 text-gold sm:size-16"
-          >
-            <Icon className="size-6" />
+          <span className="block size-14 shrink-0 overflow-hidden rounded-lg sm:size-16">
+            <PlanIconTile icon={Icon} />
           </span>
         )}
 
@@ -156,19 +159,31 @@ export function ContinueCard({
  * view — but not `preload`: the LCP element on Today is the card's own text, and
  * Next 16 deprecated `priority` precisely because "important" and "preload in
  * the head" are different claims.
+ *
+ * `MaterialCover` is shared with the shelf so that a URL which no longer
+ * resolves lands on the SAME fallback here as it does there — the activity's own
+ * icon, rather than an empty bordered box.
  */
-function CardArtwork({ url }: { url: string }) {
+function CardArtwork({ url, icon: Icon }: { url: string; icon: LucideIcon }) {
   return (
-    <span className="relative block size-[76px] shrink-0 overflow-hidden rounded-xl border border-border/80 sm:h-[78px] sm:w-[104px]">
-      <Image
-        src={url}
-        alt=""
-        fill
-        sizes={ARTWORK_SIZES}
-        loading="eager"
-        fetchPriority="high"
-        className="object-cover"
-      />
+    <MaterialCover
+      coverUrl={url}
+      sizes={ARTWORK_SIZES}
+      className="size-[76px] rounded-xl border border-border/80 sm:h-[78px] sm:w-[104px]"
+      eager
+      fallback={<PlanIconTile icon={Icon} />}
+    />
+  );
+}
+
+/** The warm ground the activity's icon has always sat on. */
+function PlanIconTile({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span
+      aria-hidden
+      className="flex size-full items-center justify-center bg-gradient-to-br from-gold/20 to-blue/10 text-gold"
+    >
+      <Icon className="size-6" />
     </span>
   );
 }
