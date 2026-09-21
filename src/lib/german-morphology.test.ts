@@ -79,6 +79,42 @@ describe("baseFormCandidates", () => {
     expect(candidates.indexOf("denken")).toBeLessThan(candidates.indexOf("dach"));
   });
 
+  /**
+   * PREFIXED STRONG VERBS. A prefix does not inherit the table: *hielt* maps to
+   * *halten*, but nothing in the stripping rules turns *erhielt* into
+   * *erhalten*, so the prefixed verb needs its own row. Both of these are B1
+   * core — "sie erhielt einen Preis", "sie gewann" — and stayed unresolvable
+   * until they were added.
+   */
+  it("recovers a prefixed strong verb from its preterite", () => {
+    expect(baseFormCandidates("erhielt")).toContain("erhalten");
+    expect(baseFormCandidates("erhielten")).toContain("erhalten");
+    expect(baseFormCandidates("gewann")).toContain("gewinnen");
+    expect(baseFormCandidates("gewannen")).toContain("gewinnen");
+  });
+
+  it("recovers gewinnen from its participle, whose vowel differs again", () => {
+    // gewinnen / gewann / gewonnen — i, a, o. The participle carries no
+    // separable `ge-` to strip, so the full form is what the table stores.
+    expect(baseFormCandidates("gewonnen")).toContain("gewinnen");
+  });
+
+  it("does not strip ge- off a form the table already knows", () => {
+    // The `ge-` rule fires on anything long enough, so *gewann* would also
+    // yield the root *wann* — a question word every dictionary has, ranked
+    // ABOVE the table's answer, which is "sie gewann" glossed as "kiedy". In
+    // *gewinnen* the `ge` belongs to the stem, so the guess is not made at all.
+    const candidates = baseFormCandidates("gewann");
+
+    expect(candidates).toContain("gewinnen");
+    expect(candidates).not.toContain("wann");
+
+    // The genuine participles still lose their prefix: there the `ge-` is real.
+    expect(baseFormCandidates("gegessen")).toContain("essen");
+    expect(baseFormCandidates("gezogen")).toContain("ziehen");
+    expect(baseFormCandidates("gespielt")).toContain("spielen");
+  });
+
   it("leaves a modal alone rather than claiming it for a look-alike", () => {
     // *kannte* is *kennen*; *kann* is *können* and belongs to nobody else. A
     // table that mapped the stem would answer "to know" for the modal in every
