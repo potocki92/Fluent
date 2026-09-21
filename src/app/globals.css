@@ -198,6 +198,46 @@
   border-color: color-mix(in srgb, var(--color-gold) 24%, var(--color-border));
 }
 
+/* The scrim that turns a library card's artwork into a readable surface.
+   The picture runs the whole width of the card underneath; this is what lets
+   text sit on the right of it without a panel, a blur or a flat 50% wash.
+
+   IT ENDS IN `--color-card`, THE CARD'S OWN COLOUR, and that is the point: at
+   100% the right-hand end is indistinguishable from the card next to it on the
+   shelf, so an illustrated row and a plain one read as the same component
+   rather than as two designs. A gradient written in `--color-dark` would be the
+   page background laid over the card, a shade too dark, and the seam would show
+   exactly where the text starts.
+
+   THE STOPS ARE MEASURED, NOT EYEBALLED, and the number that fixes them is the
+   worst case: a blown-out, almost white cover. Composited over white, the card
+   colour has to reach about 0.74 alpha before `--color-main` text clears 4.5:1
+   against it (`--color-muted2` never does — it needs 0.95, which is why the
+   illustrated card lifts its secondary text a step). The content column starts
+   at 42% of the card, so the ramp has to be at roughly 0.78 by 42% — everything
+   else follows from that.
+
+   Nothing at all until 26%: the left of the picture is untouched, which is the
+   whole reason for a gradient rather than an overlay. Then an uneven ramp —
+   slow through the high notes, steepest across 34–43% where the text begins,
+   then easing again so there is no hard edge — and effectively opaque from 64%.
+   A CLASS rather than a Tailwind arbitrary value, because eight comma-separated
+   colour stops in a class attribute is a string nobody can read or change. */
+.cover-scrim {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 26%,
+    color-mix(in srgb, var(--color-card) 10%, transparent) 31%,
+    color-mix(in srgb, var(--color-card) 32%, transparent) 35%,
+    color-mix(in srgb, var(--color-card) 62%, transparent) 39%,
+    color-mix(in srgb, var(--color-card) 84%, transparent) 43%,
+    color-mix(in srgb, var(--color-card) 93%, transparent) 51%,
+    color-mix(in srgb, var(--color-card) 99%, transparent) 64%,
+    var(--color-card) 78%
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    READER
    ─────────────────────────────────────────────────────────────────────────────

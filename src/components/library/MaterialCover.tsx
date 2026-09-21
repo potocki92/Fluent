@@ -28,18 +28,36 @@ export function MaterialCover({
   coverUrl,
   sizes,
   className,
+  imageClassName,
   eager = false,
   fallback,
+  onError,
 }: {
   coverUrl: string | null;
   /** How wide the image is actually rendered, so the optimizer serves that. */
   sizes: string;
-  /** The box: its size, radius and border. The image fills it, cropped centre. */
+  /**
+   * The box: its size, radius and border. `relative` is the default so the
+   * filled image has something to fill; a caller that needs the picture to BE
+   * the surface passes `absolute inset-0` and `cn` resolves the conflict.
+   */
   className?: string;
+  /**
+   * The image itself — crop anchor, hover transform. `object-cover` is always
+   * applied; anything here is layered on top of it.
+   */
+  imageClassName?: string;
   /** Above the fold — load it now rather than when it scrolls into view. */
   eager?: boolean;
   /** What this surface shows when there is no picture, or it fails to load. */
   fallback: ReactNode;
+  /**
+   * Told when the picture turns out not to load, for a caller whose LAYOUT
+   * depends on having one. The shelf's illustrated card reserves 42% of its
+   * width for the artwork; falling back to an icon inside that reservation
+   * would leave a hole, so it re-renders as the plain card instead.
+   */
+  onError?: () => void;
 }) {
   const [failed, setFailed] = useState(false);
   const src = coverUrl?.trim();
@@ -54,8 +72,11 @@ export function MaterialCover({
           sizes={sizes}
           loading={eager ? "eager" : "lazy"}
           fetchPriority={eager ? "high" : undefined}
-          className="object-cover"
-          onError={() => setFailed(true)}
+          className={cn("object-cover", imageClassName)}
+          onError={() => {
+            setFailed(true);
+            onError?.();
+          }}
         />
       ) : (
         fallback
