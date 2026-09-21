@@ -66,3 +66,11 @@ the rest of the migration applied cleanly and only the Storage half needs to be
 run by hand, as a role that owns `storage.objects`. **The failure mode is safe:**
 without the bucket, uploads fail loudly, and without the policies RLS denies
 everything. Book import simply will not work until the block is applied.
+
+`20260921120000_material_covers.sql` creates the second bucket, `content-covers`,
+under the same guard and the same warning (`content cover storage objects were
+not created (...)`). It is the **public** one: material artwork is the picture of
+published teaching content, so every visitor may read it, while insert, update
+and delete are restricted to `public.is_admin()`. The two buckets are opposites
+on purpose and neither inherits the other's rule — a learner's own file is
+private, a published material's cover is not.

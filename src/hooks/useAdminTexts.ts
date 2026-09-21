@@ -34,20 +34,44 @@ export function useAdminTexts() {
   });
 }
 
+/**
+ * A passage as the edit form needs it: the row, plus the artwork of the library
+ * item it maps to.
+ *
+ * The cover lives on `library_items`, reached through `legacy_text_id`
+ * (`src/lib/library/covers.ts`), and the form needs both in one go — a second
+ * round trip for one nullable URL would make the image flash in after the rest
+ * of the form had already rendered. PostgREST embeds it through the foreign key,
+ * so this is still one request.
+ */
+export type AdminTextDetail = Text & {
+  libraryItemId: string | null;
+  coverUrl: string | null;
+};
+
 /** Fetch a single passage by id for the edit form (drafts included). */
 export function useAdminText(textId: number) {
   return useQuery({
     queryKey: ["adminText", textId],
-    queryFn: async (): Promise<Text | null> => {
+    queryFn: async (): Promise<AdminTextDetail | null> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from("texts")
-        .select("*")
+        .select("*, library_items(id, cover_url)")
         .eq("id", textId)
         .maybeSingle();
 
       if (error) throw error;
-      return data;
+      if (!data) return null;
+
+      // `legacy_text_id` is unique, so the embed is a one-element array at most —
+      // and empty for a passage the library has not caught up with yet.
+      const { library_items: items, ...text } = data as unknown as Text & {
+        library_items: { id: string; cover_url: string | null }[] | null;
+      };
+      const item = items?.[0] ?? null;
+
+      return { ...text, libraryItemId: item?.id ?? null, coverUrl: item?.cover_url ?? null };
     },
     enabled: Number.isFinite(textId),
   });

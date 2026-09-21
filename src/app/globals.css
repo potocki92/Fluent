@@ -165,7 +165,13 @@
    point: the primitive keeps its layout, the chrome supplies the surface. Radius
    and padding are left to Tailwind so each card can still size itself. */
 .app-panel {
-  background-color: color-mix(in srgb, var(--color-card2) 32%, var(--color-dark));
+  /* Named, not just applied, because a card that lays something UNDER itself has
+     to be able to fade back to its own surface. „Kontynuuj naukę" masks the
+     material's artwork with a gradient in this exact colour; a gradient written
+     in `--color-dark` instead would be a second, slightly darker grey painted
+     over the first, and that card would sit visibly lower than its neighbour. */
+  --panel-bg: color-mix(in srgb, var(--color-card2) 32%, var(--color-dark));
+  background-color: var(--panel-bg);
   border: 1px solid color-mix(in srgb, var(--color-gold) 6%, var(--color-border));
   box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.02) inset;
 }

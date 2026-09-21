@@ -35,6 +35,7 @@ MIGRATIONS=(
   supabase/migrations/20260917120000_content_delete_indexes.sql
   supabase/migrations/20260917140000_dictionary_independent_occurrences.sql
   supabase/migrations/20260917200000_reading_position_engine.sql
+  supabase/migrations/20260921120000_material_covers.sql
 )
 
 # The suites run against the same database, in order: 01 exercises the test
@@ -51,6 +52,7 @@ SUITES=(
   supabase/tests/07_notebook_security.sql
   supabase/tests/08_content_index_coverage.sql
   supabase/tests/09_dictionary_sync_security.sql
+  supabase/tests/10_material_cover_security.sql
 )
 
 if ! "$PSQL" -d "$ADMIN_DB" -tAc 'select 1' >/dev/null 2>&1; then

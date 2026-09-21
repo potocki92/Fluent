@@ -1,4 +1,5 @@
 import type { TodayPlan } from "@/actions/today-plan";
+import type { MaterialArtwork } from "@/lib/library/artwork";
 import { nextPlanItem } from "@/lib/learning/planner/routes";
 import { ContinueCard } from "@/components/today/ContinueCard";
 import { DailyGoalCard } from "@/components/today/DailyGoalCard";
@@ -29,9 +30,20 @@ import { LevelCard } from "@/components/level/LevelCard";
 export function TodayDashboard({
   plan,
   improved,
+  nextArtwork,
 }: {
   plan: TodayPlan;
   improved: string | null;
+  /**
+   * Artwork for the activity „Kontynuuj naukę" is about, resolved by the page.
+   *
+   * It arrives as data rather than being fetched here for the same reason
+   * everything else on this screen does: the dashboard composes, the server
+   * decides. `nextPlanItem` is pure and cheap, so the page calling it to know
+   * WHICH material to look up and this component calling it to know WHAT to
+   * render cannot disagree.
+   */
+  nextArtwork?: MaterialArtwork | null;
 }) {
   const isComplete = plan.status === "completed";
   const next = isComplete ? null : nextPlanItem(plan.items);
@@ -51,7 +63,7 @@ export function TodayDashboard({
           next to it holds the day's primary action. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         <LevelCard />
-        <ContinueCard item={next} isComplete={isComplete} />
+        <ContinueCard item={next} isComplete={isComplete} artwork={nextArtwork} />
       </div>
 
       <QuickActions />
