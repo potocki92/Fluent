@@ -65,11 +65,21 @@ export interface AdminLibraryItemRow {
   chapterCount: number;
   legacyTextId: number | null;
   archivedAt: string | null;
+  /**
+   * The material's artwork, straight off the row.
+   *
+   * SELECTED WITH THE ITEM, never resolved per card. `cover_url` is a column on
+   * `library_items` — the one place a picture is recorded — so asking for it
+   * costs nothing beyond one more name in the select list. A panel that fetched
+   * each cover separately would issue one request per material to learn a
+   * nullable string it was already holding the row for.
+   */
+  coverUrl: string | null;
   chapters: AdminChapterRow[];
 }
 
 const ITEM_COLUMNS =
-  "id, slug, title, author, content_type, rights, status, cefr_estimate, word_count, chapter_count, legacy_text_id, archived_at";
+  "id, slug, title, author, content_type, rights, status, cefr_estimate, word_count, chapter_count, legacy_text_id, archived_at, cover_url";
 
 const CHAPTER_COLUMNS =
   "id, library_item_id, position, title, status, word_count, paragraph_count, sentence_count, estimated_reading_minutes, processor_version, processed_at, processing_error, dictionary_match_rate, unmatched_sample, source_text";
@@ -141,6 +151,7 @@ export async function listLibraryContent(): Promise<AdminLibraryItemRow[]> {
     chapterCount: item.chapter_count,
     legacyTextId: item.legacy_text_id,
     archivedAt: item.archived_at,
+    coverUrl: item.cover_url,
     chapters: byItem.get(item.id) ?? [],
   }));
 }

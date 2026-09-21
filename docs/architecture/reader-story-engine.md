@@ -913,12 +913,35 @@ generator, two item types, one completion rule.
 ## Material artwork
 
 A material may have a picture. It is recorded in **one** place —
-`library_items.cover_url`, the column this phase already created — and a passage
-reaches it through `legacy_text_id`, the same mapping questions, attempts and
-plans already travel. There is no `texts.image_url`: two columns would be two
-answers to "what does this material look like?", and they would disagree the
-first time a passage was renamed, reprocessed or imported.
+`library_items.cover_url`, the column this phase already created. There is no
+`texts.image_url`: two columns would be two answers to "what does this material
+look like?", and they would disagree the first time a passage was renamed,
+reprocessed or imported.
 
+- **The library item is the SUBJECT, not just the storage.** Every artwork
+  action takes a `library_item_id`: `prepareMaterialCoverUpload`,
+  `commitMaterialCoverUpload`, `removeMaterialCover`. That is what owns the
+  column, so that is what the API is keyed on. Keying it on `text_id` — which is
+  what shipped first — quietly made artwork a feature only of materials that
+  began life as a legacy passage, and left everything authored straight into the
+  library (a story with chapters and no `texts` row, like „Der Schlüssel") with
+  no screen that could give it a picture at all. The library-native case is the
+  ordinary one; the passage is the one that needs translating.
+- **A passage is an ADAPTER, not a second implementation.**
+  `prepareTextCoverUpload` / `commitTextCoverUpload` / `removeTextCover` resolve
+  `texts.id → library_items.legacy_text_id → library_items.id` — the same mapping
+  questions, attempts and plans already travel — and then call the material
+  actions. `/admin/texts/[id]` keeps working unchanged, and there is exactly one
+  piece of code that validates, signs, sniffs bytes and deletes. The browser half
+  is shared the same way: `useMaterialCover` owns the prepare → PUT → commit
+  choreography for both admin screens, and `MaterialCoverField` is the one
+  control.
+- **An id from a browser is a claim.** Before anything is minted, the item is
+  loaded and checked with `isAdminManagedMaterial`: `owner_user_id is null` and
+  `rights <> 'private_import'`. A private import is refused *before* a signed
+  upload URL into a public bucket exists, not after an update quietly matches no
+  rows — and the database re-decides it anyway, through
+  `library_item_writable` on the admin's own cookie-bound client.
 - **The cover belongs to the ITEM, not the chapter.** A thirty-chapter novel
   stores one URL; a chapter inherits its book's artwork at read time. Editing
   chapter 12 never touches the book's picture, and `chapters` has no cover
@@ -930,10 +953,10 @@ first time a passage was renamed, reprocessed or imported.
   a learner's own file is not. Insert, update and delete are gated on
   `public.is_admin()` in Storage policy, not by which button the admin panel
   renders.
-- **The file never passes through Next.** `prepareTextCoverUpload` mints a
+- **The file never passes through Next.** `prepareMaterialCoverUpload` mints a
   short-lived signed URL for a path *it* chose
   (`library/<library_item_id>/<uuid>.<ext>`), the browser PUTs the bytes
-  directly, and `commitTextCoverUpload` records the URL after checking what
+  directly, and `commitMaterialCoverUpload` records the URL after checking what
   Storage says the object actually is. Same shape as `book-import.ts`, same
   reason: a Server Action body is capped around a megabyte.
 - **A new UUID every time** is the whole cache story. Replacing a cover produces
@@ -1058,4 +1081,7 @@ built.
 | dictionary cache lifetime and sync batch sizes | `src/lib/content/constants.ts` |
 | what the gloss asks, and how long it trusts the answer | `src/hooks/useReaderWord.ts` + `GLOSS_DICTIONARY_STALE_MS` |
 | accepted cover formats, size cap, storage layout | `src/lib/library/covers.ts` (+ the bucket's own limits in the migration) |
+| which materials an admin may redecorate | `isAdminManagedMaterial` in `src/lib/library/covers.ts` |
+| upload/commit/remove of artwork | `src/actions/admin-covers.ts` (keyed on `library_item_id`) |
+| the browser's upload choreography | `src/hooks/useMaterialCover.ts` + `src/components/admin/MaterialCoverField.tsx` |
 | which plan activities show artwork | `src/lib/library/artwork.ts` |

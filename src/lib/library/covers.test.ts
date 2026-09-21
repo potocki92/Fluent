@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   COVER_ERROR_MESSAGES,
   coverFailure,
+  isAdminManagedMaterial,
+  isLibraryItemId,
   coverObjectPath,
   coverPathExtension,
   coverPathPrefix,
@@ -226,6 +228,46 @@ describe("public URLs", () => {
         ORIGIN,
       ),
     ).toBeNull();
+  });
+});
+
+describe("which materials the admin panel may redecorate", () => {
+  it("accepts a library item id and refuses anything that is not one", () => {
+    expect(isLibraryItemId(ITEM)).toBe(true);
+    expect(isLibraryItemId(ITEM.toUpperCase())).toBe(true);
+
+    for (const value of [
+      "",
+      "   ",
+      "not-a-uuid",
+      `${ITEM}/../${OTHER_ITEM}`,
+      `${ITEM}x`,
+      42,
+      null,
+      undefined,
+      {},
+    ]) {
+      expect(isLibraryItemId(value)).toBe(false);
+    }
+  });
+
+  it("manages public material of every kind, however it was authored", () => {
+    // A library-native story („Der Schlüssel": chapters, no `texts` row) is not
+    // a special case — it is the ordinary one.
+    expect(isAdminManagedMaterial({ ownerUserId: null, rights: "first_party" })).toBe(true);
+    expect(isAdminManagedMaterial({ ownerUserId: null, rights: "public_domain" })).toBe(true);
+    expect(isAdminManagedMaterial({ ownerUserId: null, rights: "licensed" })).toBe(true);
+    expect(isAdminManagedMaterial({ ownerUserId: null, rights: null })).toBe(true);
+  });
+
+  it("refuses a learner's private import, to an admin as much as to anyone", () => {
+    expect(
+      isAdminManagedMaterial({ ownerUserId: "u-1", rights: "private_import" }),
+    ).toBe(false);
+    // Either half alone is enough: a row where the two disagree is one this
+    // panel keeps its hands off rather than guessing about.
+    expect(isAdminManagedMaterial({ ownerUserId: "u-1", rights: "first_party" })).toBe(false);
+    expect(isAdminManagedMaterial({ ownerUserId: null, rights: "private_import" })).toBe(false);
   });
 });
 

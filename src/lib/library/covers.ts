@@ -3,12 +3,18 @@
  * stored URL maps back to the object behind it.
  *
  * ONE SOURCE OF TRUTH FOR THE IMAGE ITSELF. A material's artwork is
- * `library_items.cover_url` and nothing else. The column already existed for
- * books; a passage reaches it through `library_items.legacy_text_id`, which is
- * the same mapping questions, attempts and today's plan already travel. A
- * second `texts.image_url` would be a second answer to "what does this material
- * look like?", and the two would disagree the first time a passage was imported,
- * renamed or reprocessed.
+ * `library_items.cover_url` and nothing else. A second `texts.image_url` would
+ * be a second answer to "what does this material look like?", and the two would
+ * disagree the first time a passage was imported, renamed or reprocessed.
+ *
+ * AND THEREFORE ONE SUBJECT: THE LIBRARY ITEM. Artwork is addressed by
+ * `library_item_id`, because that is what owns it. A story created straight in
+ * the library — chapters, no `texts` row, no `legacy_text_id` — is the ordinary
+ * case, not an exception to be worked around; a legacy passage is the one that
+ * needs an adapter, and it has one: `library_items.legacy_text_id`, the same
+ * mapping questions, attempts and today's plan already travel. Keying the API on
+ * `text_id` instead made half the library unreachable, which is the bug this
+ * module's shape now prevents.
  *
  * ONE PLACE FOR THE NUMBERS, like `src/lib/import/constants.ts` and
  * `src/lib/reading/constants.ts`: the size cap, the accepted types and the
@@ -138,6 +144,8 @@ export type CoverErrorCode =
   | "forbidden"
   | "text_not_found"
   | "item_missing"
+  | "item_not_found"
+  | "item_not_editable"
   | "signed_url_failed"
   | "upload_failed"
   | "commit_failed"
@@ -151,6 +159,9 @@ export const COVER_ERROR_MESSAGES: Readonly<Record<CoverErrorCode, string>> = {
   forbidden: "Nie masz uprawnień do zmiany obrazu materiału.",
   text_not_found: "Nie znaleźliśmy tego tekstu.",
   item_missing: "Nie udało się powiązać tekstu z biblioteką. Zapisz tekst i spróbuj ponownie.",
+  item_not_found: "Nie znaleźliśmy tego materiału w bibliotece.",
+  item_not_editable:
+    "Tym materiałem nie zarządza panel administratora — to prywatny import ucznia.",
   signed_url_failed: "Nie udało się przygotować przesyłania. Spróbuj ponownie.",
   upload_failed: "Nie udało się przesłać obrazu. Spróbuj ponownie.",
   commit_failed: "Obraz został przesłany, ale nie udało się go zapisać. Spróbuj ponownie.",
@@ -171,6 +182,8 @@ const COVER_FLUENT_CODES: Readonly<Record<CoverErrorCode, FluentErrorCode>> = {
   forbidden: "forbidden",
   text_not_found: "not_found",
   item_missing: "stale_state",
+  item_not_found: "not_found",
+  item_not_editable: "forbidden",
   signed_url_failed: "config_error",
   upload_failed: "database_error",
   commit_failed: "database_error",
@@ -276,6 +289,52 @@ export function sniffCoverType(head: Uint8Array): CoverMimeType | null {
 function fileExtension(fileName: string): string | null {
   const match = /\.([A-Za-z0-9]+)$/.exec(fileName.trim());
   return match ? match[1].toLowerCase() : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Which materials an admin may redecorate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A library item id, as the artwork API will accept it.
+ *
+ * THE FIRST THING DONE WITH ANY ID THAT CAME FROM A BROWSER. Every later step —
+ * the storage prefix, {@link isCoverPathForItem}, the `eq("id", …)` — assumes a
+ * uuid, and a caller that passed `"*"`, `"../"` or an empty string would be
+ * asking those checks to mean something they were never written to mean. The id
+ * is still looked up in the database afterwards; this only refuses the shapes
+ * that could not possibly be one.
+ */
+const LIBRARY_ITEM_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isLibraryItemId(value: unknown): value is string {
+  return typeof value === "string" && LIBRARY_ITEM_ID_PATTERN.test(value.trim());
+}
+
+/** The two facts that decide whether a material belongs to the admin panel. */
+export interface MaterialOwnership {
+  ownerUserId: string | null;
+  rights: string | null;
+}
+
+/**
+ * Is this material's artwork an admin's to change?
+ *
+ * PUBLIC CONTENT ONLY, and the rule is the database's own
+ * (`library_item_writable`): an item with an owner is somebody's private import
+ * and is closed to everyone but them — admins included. Stated here as a pure
+ * function so the Server Action can refuse it BEFORE minting a signed upload
+ * URL, rather than discovering it when an `update` quietly matches no rows and
+ * leaves an orphaned object in a public bucket.
+ *
+ * Both halves are checked rather than just `owner_user_id`, because they are two
+ * different claims: the owner column is who it belongs to, `rights` is what kind
+ * of material it is, and a row where those disagree is one this panel should
+ * keep its hands off either way.
+ */
+export function isAdminManagedMaterial(item: MaterialOwnership): boolean {
+  return item.ownerUserId === null && item.rights !== "private_import";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
