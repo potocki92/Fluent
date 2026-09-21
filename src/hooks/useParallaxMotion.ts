@@ -73,7 +73,7 @@ export function useParallaxMotion<T extends HTMLElement = HTMLDivElement>() {
       // ever animate `transform`, so layout is never dirty when this runs and
       // the read comes out of the cache.
       const box = node.getBoundingClientRect();
-      const nextDrift = scrollProgress(box.top, box.height);
+      const nextDrift = scrollProgress(window.scrollY, box.height);
 
       const done =
         settled(currentX, targetX) && settled(currentY, targetY) && drift === nextDrift;

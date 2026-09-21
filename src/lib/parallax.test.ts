@@ -83,21 +83,42 @@ describe("settled", () => {
 });
 
 describe("scrollProgress", () => {
-  it("is 0 for a hero that has not scrolled yet", () => {
-    expect(scrollProgress(120, 200)).toBe(0);
+  it("is 0 on an unscrolled page", () => {
     expect(scrollProgress(0, 200)).toBe(0);
   });
 
-  it("reaches 1 exactly when the hero has left the viewport", () => {
-    expect(scrollProgress(-100, 200)).toBe(0.5);
-    expect(scrollProgress(-200, 200)).toBe(1);
+  /**
+   * The bug this function was rewritten for. A phone hero rests 72px down the
+   * page (56px of sticky header, 16px of padding) and is 148px tall, so it is
+   * covered entirely by 164px of scroll. Driving the drift off the hero's
+   * distance from the top of the viewport spent NOTHING over the first 72px
+   * and better than a third of the travel after 164px, where it cannot be
+   * seen. Measured from rest, every one of those first pixels moves the scene
+   * and the travel is all but finished while the hero is still on screen.
+   */
+  it("starts moving on the first scrolled pixel", () => {
+    expect(scrollProgress(1, 148)).toBeCloseTo(1 / 148, 10);
+    expect(scrollProgress(36, 148)).toBeCloseTo(0.243, 3);
+    expect(scrollProgress(72, 148)).toBeCloseTo(0.486, 3);
+  });
+
+  it("has spent the whole drift while a phone hero is still visible", () => {
+    const HERO = 148;
+    const COVERED_AT = 164; // sticky header (56) + padding (16) + hero height
+    expect(scrollProgress(HERO, HERO)).toBe(1);
+    expect(HERO).toBeLessThan(COVERED_AT);
   });
 
   it("never exceeds 1, however far the page is scrolled", () => {
-    expect(scrollProgress(-99999, 200)).toBe(1);
+    expect(scrollProgress(99999, 200)).toBe(1);
+  });
+
+  /** iOS rubber-banding reports a negative offset at the top of the page. */
+  it("clamps an overscrolled page to 0 rather than driving the scene backwards", () => {
+    expect(scrollProgress(-80, 200)).toBe(0);
   });
 
   it("answers 0 for a hero with no height", () => {
-    expect(scrollProgress(-50, 0)).toBe(0);
+    expect(scrollProgress(50, 0)).toBe(0);
   });
 });

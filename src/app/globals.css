@@ -251,16 +251,32 @@
   initial-value: 0;
 }
 
+/* How hard the scroll drift is worked, per breakpoint. Declared on the scene
+   and inherited, so one value moves all five layers together and their
+   proportions cannot drift apart. */
+@property --drift-scale {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
 /* The box all five layers share.
 
    IT IS BIGGER THAN THE HERO ON PURPOSE, AND IN PIXELS RATHER THAN PERCENT.
    The overscan has to cover the nearest plane's TRAVEL, which is an absolute
-   distance: 12px sideways, and 12 × 0.62 + 10 ≈ 17px down once the pointer and
-   the scroll drift are both at their limit. A percentage looks tidier and is
-   wrong — 3% of a 375px phone is 11px, less than the forest moves, so the
-   layer pulls its own edge inside the card and opens a seam on exactly the
-   screens where the hero is smallest. 16px and 20px clear the worst case at
-   every width with a few pixels to spare.
+   distance: 12px sideways, and `12 × 0.62 + 10 × --drift-scale` down once the
+   pointer and the scroll drift are both at their limit. A percentage looks
+   tidier and is wrong — 3% of a 375px phone is 11px, less than the forest
+   moves, so the layer pulls its own edge inside the card and opens a seam on
+   exactly the screens where the hero is smallest.
+
+   SO THE TWO BREAKPOINTS DIFFER, because their drift budgets do. The worst
+   case is the pointer at the TOP of the hero — which pushes the layers down —
+   with the scroll drift also at full: `12 × 0.62 + 10 × --drift-scale`, so 17px
+   above `sm` and 23px on a phone. 22px and 28px leave every viewport about
+   3.5px of slack, enough that a fractional device pixel ratio cannot round a
+   layer's edge into view. Raising `--drift-scale` without raising the matching
+   inset is how a phone gets a bright seam along the bottom of the card.
 
    Overscanning the SCENE rather than each layer is also what keeps them
    aligned — one box, one crop, five pictures.
@@ -272,20 +288,30 @@
    THE TWO VALUES DIFFER BECAUSE THE CROP AXIS DOES. From `sm` up the hero is
    WIDER than the 3:1 painting, so `cover` crops vertically and only the second
    number does anything — 42% keeps the peaks and the sun in frame. A phone is
-   NARROWER than the painting, so the crop turns horizontal, and centring it
-   puts the sun disc just past the right edge: what is left is its glow, the
-   ridges and the treeline, which is the most picture a 375px card can hold
-   behind two lines of type without the greeting starting to lose to it. */
+   NARROWER than the painting, so the crop turns horizontal and the number
+   chooses which two thirds of the landscape survive. 64% is where the peaks,
+   the mist and the treeline all sit, with the sun clipped by the right edge;
+   centring it instead lands on the empty dark middle of the painting, which is
+   how a hero ends up looking like a plain card with a faint smudge on it. */
 .today-hero-scene {
   position: absolute;
-  inset: -20px -16px;
+  inset: -28px -18px;
   z-index: 0;
-  --hero-focus: 50% 48%;
+  --hero-focus: 64% 48%;
+  /* A PHONE HAS NO POINTER, SO THE SCROLL IS THE WHOLE EFFECT. Above `sm` the
+     drift is a garnish on top of the pointer parallax and 2…10px of it is
+     plenty; on a touch screen that same 2…10px is all there is, on a hero a
+     third shorter, and it reads as nothing at all. 1.6× spends 3px of sky
+     against 16px of forest over one hero-height of scroll — the same
+     proportions, at a size a thumb can actually see. */
+  --drift-scale: 1.6;
 }
 
 @media (width >= 40rem) {
   .today-hero-scene {
+    inset: -22px -18px;
     --hero-focus: center 42%;
+    --drift-scale: 1;
   }
 }
 
@@ -303,7 +329,7 @@
     calc(var(--parallax-x) * var(--layer-shift) * -1px),
     calc(
       var(--parallax-y) * var(--layer-shift) * -1px + var(--parallax-drift) * var(--layer-drift) *
-        1px
+        var(--drift-scale) * 1px
     ),
     0
   );
@@ -344,20 +370,23 @@
    `--color-dark` would be the page background laid over the card, a shade too
    dark, and the seam would show exactly where the text starts.
 
-   THE PHONE KEEPS ITS SHADOW LONGER. A 360px hero has no room for a protected
-   column and a landscape side by side, so the wash stays heavy most of the way
-   across and the picture survives as the glow and the treeline on the right.
-   Opening it up there would trade a legible subtitle for scenery, which is the
-   wrong trade on the screen most learners actually use. */
+   THE PHONE OPENS UP FASTER, NOT SLOWER, and the reason is the parallax. A
+   phone has no pointer, so the scroll drift is the whole effect — and an effect
+   you cannot see is not an effect. The wash there was tuned when the greeting
+   was measured across its whole line box, whitespace included, which put the
+   worst "contrast" under a run of empty pixels the type never reaches. Measured
+   where the glyphs actually land, these stops leave the heading at 5.1:1 and
+   the subtitle at 5.9:1 on the tightest phone — comfortably past AA — while
+   letting roughly five times as much landscape through as the old ones did. */
 .today-hero-scrim {
   background-image:
     linear-gradient(
       to right,
-      color-mix(in srgb, var(--panel-bg) 97%, transparent) 0%,
-      color-mix(in srgb, var(--panel-bg) 95%, transparent) 46%,
-      color-mix(in srgb, var(--panel-bg) 88%, transparent) 74%,
-      color-mix(in srgb, var(--panel-bg) 70%, transparent) 92%,
-      color-mix(in srgb, var(--panel-bg) 58%, transparent) 100%
+      color-mix(in srgb, var(--panel-bg) 95%, transparent) 0%,
+      color-mix(in srgb, var(--panel-bg) 89%, transparent) 42%,
+      color-mix(in srgb, var(--panel-bg) 68%, transparent) 70%,
+      color-mix(in srgb, var(--panel-bg) 40%, transparent) 88%,
+      color-mix(in srgb, var(--panel-bg) 26%, transparent) 100%
     ),
     linear-gradient(
       to bottom,
