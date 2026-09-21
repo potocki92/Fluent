@@ -15,17 +15,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createText, updateText } from "@/actions/admin-texts";
-import {
-  commitTextCoverUpload,
-  prepareTextCoverUpload,
-  removeTextCover,
-} from "@/actions/admin-covers";
 import { compileText } from "@/actions/admin-compile";
 import { useAdminText } from "@/hooks/useAdminTexts";
+import { useMaterialCover, type CoverTarget } from "@/hooks/useMaterialCover";
 import { BodyContent } from "@/components/texts/BodyContent";
-import { TextCoverField } from "@/components/admin/TextCoverField";
-import { settleAction } from "@/lib/errors";
-import { COVER_ERROR_MESSAGES } from "@/lib/library/covers";
+import { MaterialCoverField } from "@/components/admin/MaterialCoverField";
 import type { StoredCefrLevel, TextInput, TextStatus } from "@/types";
 
 const CEFR_OPTIONS: StoredCefrLevel[] = ["A1", "A2", "B1", "B2"];
@@ -52,19 +46,19 @@ export function TextForm(props: Props) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Artwork. `coverUrl` is what is saved on the library item; `coverFile` is a
-  // local choice that has not cost anything yet. Both can be set at once — that
-  // is "zmień obraz" — and the saved one is only replaced once the new upload
-  // has actually succeeded.
-  const [coverUrl, setCoverUrl] = useState<string | null>(null);
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState<string | null>(null);
-  const [coverPercent, setCoverPercent] = useState(0);
-  const [coverUploading, setCoverUploading] = useState(false);
-  const [coverRemoving, setCoverRemoving] = useState(false);
-  const [coverError, setCoverError] = useState<string | null>(null);
-  /** One line under the buttons saying what the image is doing right now. */
-  const [coverHint, setCoverHint] = useState<string | null>(null);
+  /**
+   * Artwork, through the shared choreography.
+   *
+   * `cover.coverUrl` is what is saved on the library item; `cover.file` is a
+   * local choice that has not cost anything yet. Both can be set at once — that
+   * is „Zmień obraz" — and the saved one is only replaced once the new upload
+   * has actually succeeded. A passage addresses the material by its `texts` id;
+   * `useMaterialCover` translates that to the library item the picture belongs
+   * to, which is the same one `/admin/library` edits directly.
+   */
+  const cover = useMaterialCover();
+  const coverTarget: CoverTarget | null =
+    props.mode === "edit" ? { kind: "legacy", textId: props.textId } : null;
   const [notice, setNotice] = useState<string | null>(null);
 
   // Seed the form once from the loaded row (edit mode). The ref guard prevents a
@@ -77,47 +71,24 @@ export function TextForm(props: Props) {
     setCefr(existing.cefr);
     setBody(existing.body);
     setStatus(existing.status);
-    setCoverUrl(existing.coverUrl);
+    cover.setCoverUrl(existing.coverUrl);
     seededRef.current = true;
+    // `cover` is a stable hook handle; only the loaded row should retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing]);
 
-  /**
-   * Choose (or unchoose) the image, and own its preview.
-   *
-   * `URL.createObjectURL` shows the file the instant it is picked, and the
-   * previous one is released in the same breath — an admin trying five photos
-   * must not leave five blobs pinned for the life of the page. The URL is made
-   * here, in the handler, rather than in an effect: an effect that calls
-   * `setState` to mirror a prop is a cascading render, and the lifecycle is
-   * perfectly expressible where the change actually happens.
-   */
+  /** Choose (or unchoose) the image, and say what that means in this mode. */
   function chooseCover(file: File | null) {
-    setCoverError(null);
     setNotice(null);
-    setCoverHint(
+    cover.choose(file);
+    cover.setStatus(
       // In create mode the image genuinely does wait for the text, so the field
       // says so rather than leaving an admin to guess.
       file && props.mode === "create"
         ? "Obraz zostanie przesłany po zapisaniu tekstu."
         : null,
     );
-
-    if (coverPreviewRef.current) URL.revokeObjectURL(coverPreviewRef.current);
-    const preview = file ? URL.createObjectURL(file) : null;
-    coverPreviewRef.current = preview;
-
-    setCoverPreview(preview);
-    setCoverFile(file);
   }
-
-  // The live blob URL, mirrored into a ref so the unmount cleanup releases the
-  // CURRENT one rather than whatever existed when the form mounted.
-  const coverPreviewRef = useRef<string | null>(null);
-  useEffect(() => {
-    return () => {
-      if (coverPreviewRef.current) URL.revokeObjectURL(coverPreviewRef.current);
-    };
-  }, []);
 
   /**
    * What happens the moment an image is picked — and it depends on the mode.
@@ -135,19 +106,19 @@ export function TextForm(props: Props) {
    */
   async function onPickCover(file: File | null) {
     chooseCover(file);
-    if (!file || props.mode !== "edit") return;
+    if (!file || !coverTarget || props.mode !== "edit") return;
 
-    const saved = await uploadCover(props.textId, file);
+    const saved = await cover.upload(coverTarget, file);
     // A failure keeps the file AND its preview, so the next „Zapisz" retries it
     // and nothing the admin chose is silently dropped.
     if (!saved) {
-      setCoverHint("Wybierz obraz ponownie albo zapisz tekst, żeby spróbować jeszcze raz.");
+      cover.setStatus("Wybierz obraz ponownie albo zapisz tekst, żeby spróbować jeszcze raz.");
       return;
     }
 
-    setCoverUrl(saved);
-    chooseCover(null);
-    setCoverHint("Obraz zapisany.");
+    cover.setCoverUrl(saved);
+    cover.choose(null);
+    cover.setStatus("Obraz zapisany.");
     await invalidateCover(props.textId);
   }
 
@@ -170,62 +141,6 @@ export function TextForm(props: Props) {
   }
 
   /**
-   * Get one chosen image onto the material.
-   *
-   * THREE STEPS, IN THIS ORDER, and the order is the whole safety story: ask the
-   * server for a path it chose, PUT the bytes straight to Storage, and only then
-   * record the result. The previous image is deleted by the commit, after the
-   * new URL is saved — so a failed upload leaves the material with the picture it
-   * already had rather than with none.
-   *
-   * Returns the saved URL, or `null` when something went wrong; the caller
-   * decides what that means, because it means different things in create mode
-   * (the text is saved, the image is not) and in edit mode (nothing changed).
-   */
-  async function uploadCover(id: number, file: File): Promise<string | null> {
-    setCoverUploading(true);
-    setCoverPercent(0);
-    setCoverError(null);
-    try {
-      const prepared = await settleAction(
-        () =>
-          prepareTextCoverUpload({
-            textId: id,
-            fileName: file.name,
-            mimeType: file.type || null,
-            fileSize: file.size,
-          }),
-        "prepareTextCoverUpload",
-      );
-      if (!prepared.ok) {
-        setCoverError(prepared.message);
-        return null;
-      }
-
-      try {
-        await putWithProgress(prepared.signedUrl, file, setCoverPercent);
-      } catch {
-        setCoverError(COVER_ERROR_MESSAGES.upload_failed);
-        return null;
-      }
-
-      const committed = await settleAction(
-        () =>
-          commitTextCoverUpload({ textId: id, storagePath: prepared.storagePath }),
-        "commitTextCoverUpload",
-      );
-      if (!committed.ok) {
-        setCoverError(committed.message);
-        return null;
-      }
-
-      return committed.coverUrl;
-    } finally {
-      setCoverUploading(false);
-    }
-  }
-
-  /**
    * „Usuń".
    *
    * In create mode there is nothing to delete yet, so it only forgets the local
@@ -234,34 +149,25 @@ export function TextForm(props: Props) {
    * before calling this.
    */
   async function onRemoveCover() {
-    if (coverFile) {
+    if (cover.file) {
       // A saved cover stays saved: clearing a pending choice is "nie ten obraz",
       // not "usuń ten, który jest".
       chooseCover(null);
       return;
     }
 
-    setCoverError(null);
     setNotice(null);
-    setCoverHint(null);
+    cover.setStatus(null);
 
-    if (props.mode !== "edit" || !coverUrl) {
-      setCoverUrl(null);
+    if (!coverTarget || props.mode !== "edit" || !cover.coverUrl) {
+      cover.setCoverUrl(null);
       return;
     }
 
-    setCoverRemoving(true);
-    const result = await settleAction(
-      () => removeTextCover(props.textId),
-      "removeTextCover",
-    );
-    setCoverRemoving(false);
+    if (!(await cover.remove(coverTarget))) return;
 
-    if (!result.ok) {
-      setCoverError(result.message);
-      return;
-    }
-    setCoverUrl(null);
+    cover.setCoverUrl(null);
+    cover.setStatus("Obraz usunięty.");
     await invalidateCover(props.textId);
   }
 
@@ -278,7 +184,7 @@ export function TextForm(props: Props) {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (pending || coverUploading || coverRemoving) return;
+    if (pending || cover.busy) return;
     setPending(true);
     setError(null);
     setNotice(null);
@@ -290,12 +196,12 @@ export function TextForm(props: Props) {
 
         // Normally the image is already up — picking one uploads it immediately
         // in this mode. This is the RETRY path, for a pick whose upload failed.
-        if (coverFile) {
-          const saved = await uploadCover(props.textId, coverFile);
+        if (cover.file && coverTarget) {
+          const saved = await cover.upload(coverTarget, cover.file);
           if (saved) {
-            setCoverUrl(saved);
-            chooseCover(null);
-            setCoverHint("Obraz zapisany.");
+            cover.setCoverUrl(saved);
+            cover.choose(null);
+            cover.setStatus("Obraz zapisany.");
           }
           // A failed image upload does not undo a saved text, and the form stays
           // where it is so the admin can simply try the image again.
@@ -315,8 +221,11 @@ export function TextForm(props: Props) {
         // deleting somebody's just-written passage because a JPEG did not go up
         // would be indefensible. The admin is sent to this text's edit screen,
         // where retrying the image cannot create a second copy of the text.
-        if (coverFile) {
-          const saved = await uploadCover(created.id, coverFile);
+        if (cover.file) {
+          const saved = await cover.upload(
+            { kind: "legacy", textId: created.id },
+            cover.file,
+          );
           if (!saved) {
             setNotice(
               "Tekst został zapisany, ale nie udało się przesłać obrazu. Możesz spróbować ponownie.",
@@ -389,16 +298,17 @@ export function TextForm(props: Props) {
 
       {/* After the identity of the material, before its content: the picture is
           part of what this text IS, not part of writing it. */}
-      <TextCoverField
-        coverUrl={coverUrl}
-        localUrl={coverPreview}
+      <MaterialCoverField
+        label="Obraz tekstu"
+        coverUrl={cover.coverUrl}
+        localUrl={cover.preview}
         onSelect={onPickCover}
         onRemove={onRemoveCover}
-        uploading={coverUploading}
-        percent={coverPercent}
-        removing={coverRemoving}
-        hint={coverHint}
-        error={coverError}
+        uploading={cover.uploading}
+        percent={cover.percent}
+        removing={cover.removing}
+        hint={cover.status}
+        error={cover.error}
         disabled={pending}
       />
 
@@ -464,7 +374,7 @@ export function TextForm(props: Props) {
       <div className="flex gap-3">
         <Button
           type="submit"
-          disabled={pending || coverUploading || coverRemoving}
+          disabled={pending || cover.busy}
           className="bg-gold text-[#1a202c] hover:bg-gold-dark"
         >
           {pending ? "Zapisywanie…" : "Zapisz"}
@@ -479,41 +389,4 @@ export function TextForm(props: Props) {
       </div>
     </form>
   );
-}
-
-/**
- * PUT the bytes with a real progress bar.
- *
- * `XMLHttpRequest` rather than `fetch` for the same reason the book importer
- * uses it: it reports how many bytes have actually gone, and "Przesyłanie… 63%"
- * is the difference between a screen that is working and a screen that has
- * frozen. The body mirrors what the Supabase client sends for a Blob, so the
- * signed-upload endpoint sees a request it already understands.
- */
-function putWithProgress(
-  signedUrl: string,
-  file: File,
-  onProgress: (percent: number) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const body = new FormData();
-    body.append("cacheControl", "3600");
-    body.append("", file);
-
-    const request = new XMLHttpRequest();
-    request.open("PUT", signedUrl);
-
-    request.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
-      onProgress(Math.round((event.loaded / event.total) * 100));
-    };
-    request.onload = () =>
-      request.status >= 200 && request.status < 300
-        ? resolve()
-        : reject(new Error(`upload failed: ${request.status}`));
-    request.onerror = () => reject(new Error("upload failed"));
-    request.onabort = () => reject(new Error("upload aborted"));
-
-    request.send(body);
-  });
 }

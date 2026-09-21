@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  ImageIcon,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 
 import {
   createChapter,
@@ -14,9 +21,12 @@ import {
   type AdminChapterRow,
   type AdminLibraryItemRow,
 } from "@/actions/admin-library";
+import { MaterialCoverField } from "@/components/admin/MaterialCoverField";
+import { MaterialCover } from "@/components/library/MaterialCover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useMaterialCover, type CoverTarget } from "@/hooks/useMaterialCover";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,6 +37,14 @@ import { cn } from "@/lib/utils";
  * chapter Fluent can gloss 92% of is usable, one at 40% would leave a reader
  * stranded, and the sample names the words the dictionary is missing so the gap
  * is a task rather than a mood.
+ *
+ * AND THE PICTURE IS PART OF THE MATERIAL. Every public item is edited here,
+ * whether it began as a legacy passage or was authored straight into the library
+ * with chapters and no `texts` row — the second kind previously had no screen
+ * that could give it artwork at all. The control is the same
+ * `MaterialCoverField` the text form uses, driven by the same
+ * `useMaterialCover`, and it is COLLAPSED by default: a shelf of ten books must
+ * stay a list you can scan, not ten upload forms stacked on a phone.
  */
 export function AdminLibrary({ items }: { items: AdminLibraryItemRow[] }) {
   const router = useRouter();
@@ -106,13 +124,85 @@ function ItemCard({
   run: (action: () => Promise<string>) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [artworkOpen, setArtworkOpen] = useState(false);
+
+  /**
+   * The material's artwork, owned HERE rather than inside the panel.
+   *
+   * The thumbnail in the header and the field in the panel are two views of one
+   * fact, and the header must not keep showing yesterday's picture for the rest
+   * of the transition while the server data catches up. One hook, one truth, and
+   * the panel can be collapsed without the card forgetting what happened.
+   */
+  const cover = useMaterialCover(item.coverUrl);
+  const target: CoverTarget = { kind: "material", libraryItemId: item.id };
+
+  async function pickCover(file: File | null) {
+    cover.setStatus(null);
+    cover.choose(file);
+    if (!file) return;
+
+    // Picking IS the action: the material already exists, so there is nothing
+    // for the image to wait for and no „Zapisz" on this screen to wait for it.
+    const saved = await cover.upload(target, file);
+    if (!saved) {
+      // The choice and its preview survive a failure, so „Zmień obraz" retries
+      // rather than starting from an empty field.
+      cover.setStatus("Nie udało się zapisać. Wybierz obraz jeszcze raz.");
+      return;
+    }
+
+    cover.setCoverUrl(saved);
+    cover.choose(null);
+    cover.setStatus("Obraz zapisany.");
+    run(async () => `„${item.title}" — obraz zapisany.`);
+  }
+
+  async function removeCover() {
+    if (cover.file) {
+      // A saved cover stays saved: clearing a pending choice is "nie ten obraz",
+      // not "usuń ten, który jest".
+      cover.choose(null);
+      return;
+    }
+    if (!cover.coverUrl) return;
+    if (!(await cover.remove(target))) return;
+
+    cover.setCoverUrl(null);
+    cover.setStatus("Obraz usunięty.");
+    run(async () => `„${item.title}" — obraz usunięty.`);
+  }
 
   return (
     <section className="rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex items-start gap-3">
+        {/* The current picture, and the way into changing it. A thumbnail that
+            does nothing would be the one place on this screen that looks
+            clickable and is not. */}
+        <button
+          type="button"
+          onClick={() => setArtworkOpen((prev) => !prev)}
+          aria-expanded={artworkOpen}
+          aria-label={
+            cover.coverUrl ? `Zmień obraz — ${item.title}` : `Dodaj obraz — ${item.title}`
+          }
+          className="shrink-0 rounded-lg focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <MaterialCover
+            coverUrl={cover.coverUrl}
+            sizes="80px"
+            className="aspect-[4/3] w-16 rounded-lg border border-border sm:w-20"
+            fallback={
+              <span className="flex size-full items-center justify-center bg-[#374151]">
+                <ImageIcon className="size-5 text-muted2" />
+              </span>
+            }
+          />
+        </button>
+
+        <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-main">{item.title}</h2>
-          <p className="mt-0.5 text-xs text-muted2">
+          <p className="mt-0.5 text-xs break-words text-muted2">
             {[
               item.slug,
               item.contentType,
@@ -124,30 +214,68 @@ function ItemCard({
               .filter(Boolean)
               .join(" · ")}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusPill status={item.status} />
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={pending}
-            onClick={() =>
-              run(async () => {
-                const next = item.status === "published" ? "draft" : "published";
-                const result = await setLibraryItemStatus({
-                  itemId: item.id,
-                  status: next,
-                });
-                return result.ok
-                  ? `„${item.title}" — ${next === "published" ? "opublikowano" : "wycofano"}.`
-                  : result.message;
-              })
-            }
-          >
-            {item.status === "published" ? "Wycofaj" : "Opublikuj"}
-          </Button>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusPill status={item.status} />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={cover.busy}
+              aria-expanded={artworkOpen}
+              onClick={() => setArtworkOpen((prev) => !prev)}
+            >
+              {cover.uploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ImageIcon className="size-4" />
+              )}
+              {artworkOpen ? "Zamknij obraz" : cover.coverUrl ? "Zmień obraz" : "Dodaj obraz"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                run(async () => {
+                  const next = item.status === "published" ? "draft" : "published";
+                  const result = await setLibraryItemStatus({
+                    itemId: item.id,
+                    status: next,
+                  });
+                  return result.ok
+                    ? `„${item.title}" — ${next === "published" ? "opublikowano" : "wycofano"}.`
+                    : result.message;
+                })
+              }
+            >
+              {item.status === "published" ? "Wycofaj" : "Opublikuj"}
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Only the artwork controls are disabled while an image is in flight —
+          processing a chapter or publishing the item is unrelated work and
+          blocking the whole card would be theatre. */}
+      {artworkOpen && (
+        <div className="mt-3">
+          <MaterialCoverField
+            compact
+            label={null}
+            coverUrl={cover.coverUrl}
+            localUrl={cover.preview}
+            onSelect={pickCover}
+            onRemove={removeCover}
+            uploading={cover.uploading}
+            percent={cover.percent}
+            removing={cover.removing}
+            hint={cover.status}
+            error={cover.error}
+          />
+        </div>
+      )}
 
       <ul className="mt-3 space-y-2">
         {item.chapters.map((chapter) => (
