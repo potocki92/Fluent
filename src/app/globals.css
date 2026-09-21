@@ -198,6 +198,35 @@
   border-color: color-mix(in srgb, var(--color-gold) 24%, var(--color-border));
 }
 
+/* The bottom edge of Today's hero picture, dissolving into the card it sits on.
+
+   THE PICTURE IS NOT A BACKDROP AND THIS IS NOT `.cover-scrim`. A library card
+   lays its artwork UNDER the text and needs a wash heavy enough to carry type;
+   the Today header sets nothing over its picture, so this only has two jobs:
+   kill the hard seam where the photograph meets the panel, and take the top
+   edge down a touch so the artwork sits behind the chrome rather than in front
+   of it.
+
+   IT ENDS IN `--panel-bg`, THE CARD'S OWN COLOUR, inherited from `.app-panel`
+   above — the same reason `.cover-scrim` ends in the card colour. A gradient
+   written in `--color-dark` would be the page background laid over the card, a
+   shade too dark, and the seam it is here to hide would reappear one pixel
+   lower.
+
+   THE STOPS ARE UNEVEN ON PURPOSE. The top two thirds stay almost clear so the
+   sun keeps its light; everything happens in the last third, which is the band
+   the greeting's ascenders come closest to. */
+.today-hero-veil {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--panel-bg) 22%, transparent) 0%,
+    color-mix(in srgb, var(--panel-bg) 10%, transparent) 46%,
+    color-mix(in srgb, var(--panel-bg) 58%, transparent) 76%,
+    color-mix(in srgb, var(--panel-bg) 88%, transparent) 92%,
+    var(--panel-bg) 100%
+  );
+}
+
 /* The scrim that turns a library card's artwork into a readable surface.
    The picture runs the whole width of the card underneath; this is what lets
    text sit on the right of it without a panel, a blur or a flat 50% wash.
