@@ -63,6 +63,8 @@ export function TextForm(props: Props) {
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
+  /** One line under the buttons saying what the image is doing right now. */
+  const [coverHint, setCoverHint] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Seed the form once from the loaded row (edit mode). The ref guard prevents a
@@ -92,6 +94,13 @@ export function TextForm(props: Props) {
   function chooseCover(file: File | null) {
     setCoverError(null);
     setNotice(null);
+    setCoverHint(
+      // In create mode the image genuinely does wait for the text, so the field
+      // says so rather than leaving an admin to guess.
+      file && props.mode === "create"
+        ? "Obraz zostanie przesłany po zapisaniu tekstu."
+        : null,
+    );
 
     if (coverPreviewRef.current) URL.revokeObjectURL(coverPreviewRef.current);
     const preview = file ? URL.createObjectURL(file) : null;
@@ -109,6 +118,38 @@ export function TextForm(props: Props) {
       if (coverPreviewRef.current) URL.revokeObjectURL(coverPreviewRef.current);
     };
   }, []);
+
+  /**
+   * What happens the moment an image is picked — and it depends on the mode.
+   *
+   * IN EDIT MODE IT UPLOADS NOW. The text already exists, so the image has
+   * nothing to wait for, and making it wait for a „Zapisz" button below a
+   * full-height `Treść` field and its preview is how an upload control ends up
+   * looking broken: you choose a file, you see it, and nothing in the section
+   * says it has not been sent. Picking IS the action; the section then shows the
+   * progress and, when it finishes, the saved image.
+   *
+   * IN CREATE MODE IT CANNOT, because there is no id to attach the image to yet.
+   * So it stays a pending choice and the field SAYS so, and `onSubmit` uploads it
+   * the moment the text has an id.
+   */
+  async function onPickCover(file: File | null) {
+    chooseCover(file);
+    if (!file || props.mode !== "edit") return;
+
+    const saved = await uploadCover(props.textId, file);
+    // A failure keeps the file AND its preview, so the next „Zapisz" retries it
+    // and nothing the admin chose is silently dropped.
+    if (!saved) {
+      setCoverHint("Wybierz obraz ponownie albo zapisz tekst, żeby spróbować jeszcze raz.");
+      return;
+    }
+
+    setCoverUrl(saved);
+    chooseCover(null);
+    setCoverHint("Obraz zapisany.");
+    await invalidateCover(props.textId);
+  }
 
   async function onParse() {
     if (compiling || !source.trim()) return;
@@ -202,6 +243,7 @@ export function TextForm(props: Props) {
 
     setCoverError(null);
     setNotice(null);
+    setCoverHint(null);
 
     if (props.mode !== "edit" || !coverUrl) {
       setCoverUrl(null);
@@ -246,11 +288,14 @@ export function TextForm(props: Props) {
       if (props.mode === "edit") {
         await updateText(props.textId, input);
 
+        // Normally the image is already up — picking one uploads it immediately
+        // in this mode. This is the RETRY path, for a pick whose upload failed.
         if (coverFile) {
           const saved = await uploadCover(props.textId, coverFile);
           if (saved) {
             setCoverUrl(saved);
             chooseCover(null);
+            setCoverHint("Obraz zapisany.");
           }
           // A failed image upload does not undo a saved text, and the form stays
           // where it is so the admin can simply try the image again.
@@ -347,11 +392,12 @@ export function TextForm(props: Props) {
       <TextCoverField
         coverUrl={coverUrl}
         localUrl={coverPreview}
-        onSelect={chooseCover}
+        onSelect={onPickCover}
         onRemove={onRemoveCover}
         uploading={coverUploading}
         percent={coverPercent}
         removing={coverRemoving}
+        hint={coverHint}
         error={coverError}
         disabled={pending}
       />

@@ -46,6 +46,7 @@ export function TextCoverField({
   uploading,
   percent,
   removing,
+  hint,
   error,
   disabled,
 }: {
@@ -59,6 +60,12 @@ export function TextCoverField({
   uploading: boolean;
   percent: number;
   removing: boolean;
+  /**
+   * What the image is doing right now, in one line: saved, or waiting for the
+   * text to be saved first. The parent owns it because only the parent knows
+   * whether there is anything to attach the image to yet.
+   */
+  hint: string | null;
   /** A failure from the parent's upload or delete. Validation errors are local. */
   error: string | null;
   disabled?: boolean;
@@ -243,6 +250,14 @@ export function TextCoverField({
               Przesyłanie… {percent}%
             </p>
           </div>
+        )}
+
+        {/* The one line that says where the image stands. Without it, an image
+            that is waiting for the text to be created is indistinguishable from
+            an image that has been saved — which reads as a control that does
+            nothing. */}
+        {!uploading && hint && (
+          <p className="mt-3 text-center text-xs text-gold">{hint}</p>
         )}
       </div>
 
