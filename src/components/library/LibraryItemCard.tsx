@@ -128,9 +128,18 @@ function CoverCard({
 
       <div
         className={cn(
-          "relative flex min-h-[124px] flex-col gap-2 p-4 pl-[42%] sm:min-h-[132px] sm:pl-[38%]",
-          // Without a bottom row there is nothing to push apart, and spreading
-          // two lines across 124px would leave the card looking half-empty.
+          // THE CONTENT SETS THE HEIGHT, as it does on the plain card: title,
+          // type, bar and percent come to about 104px at `p-4`, which is what
+          // keeps an illustrated row a row rather than a banner. The floor is
+          // only for the case with no progress to show, where two lines of text
+          // would otherwise leave the artwork almost no card to live in.
+          // 40% on a phone, 42% from `sm`. The picture wants the larger share
+          // and the reference design uses 42% throughout — but at 390px that
+          // leaves the title 153px against the 159px Inter needs for a two-word
+          // German name, so it wraps and the row grows by a line. Seven pixels
+          // of picture buys the one-line title back; above `sm` there is room
+          // for both.
+          "relative flex min-h-[96px] flex-col gap-2 p-4 pl-[40%] sm:pl-[42%]",
           hasStatus ? "justify-between" : "justify-center",
         )}
       >
