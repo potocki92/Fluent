@@ -147,6 +147,9 @@ const IRREGULAR_VERB_FORMS = new Map<string, string>([
   ["verlor", "verlieren"],
   ["fand", "finden"], ["funden", "finden"],
   ["lud", "laden"],
+  // `hielt` above reaches only the bare verb; the prefixed one needs its own
+  // row, and its participle is spelled like the infinitive so step 1 has it.
+  ["erhielt", "erhalten"],
   // doing, making, striking
   ["tat", "tun"],
   ["schuf", "schaffen"],
@@ -165,6 +168,7 @@ const IRREGULAR_VERB_FORMS = new Map<string, string>([
   ["fing", "fangen"],
   ["wusch", "waschen"],
   ["wuchs", "wachsen"],
+  ["gewann", "gewinnen"], ["gewonnen", "gewinnen"],
   // eating, drinking, living, dying
   ["aß", "essen"], ["ass", "essen"], ["gessen", "essen"],
   ["trank", "trinken"], ["trunken", "trinken"],
@@ -229,7 +233,14 @@ export function baseFormCandidates(token: string): string[] {
     roots.add(seed);
     // Weak-verb past participle prefix: gespielt → spielt, gemacht → macht,
     // and for a strong verb gezogen → zogen, which the table below knows.
-    if (seed.startsWith("ge") && seed.length > 4) {
+    //
+    // NOT WHEN THE TABLE ALREADY KNOWS THE WHOLE WORD. In *gewinnen* the `ge`
+    // is part of the stem, so stripping it yields *wann* — a question word a
+    // dictionary certainly has, ranked here ABOVE the table's answer, which
+    // would make "sie gewann" read as "kiedy". A table hit is knowledge and a
+    // stripped prefix is a guess, so the guess is not made at all when the form
+    // is one we know (*gewann*, *gewonnen*, *genoss*).
+    if (seed.startsWith("ge") && seed.length > 4 && !IRREGULAR_VERB_FORMS.has(seed)) {
       const root = seed.slice(2);
       candidates.add(root);
       roots.add(root);

@@ -13,9 +13,13 @@
 -- INSERT kosztuje jedno podbicie, a czytnik odświeży swój indeks sam.
 --
 -- Pominięto świadomie:
---   * wyrazy funkcyjne, które i tak nigdy nie zostaną zglosowane w czytniku —
---     `GERMAN_FUNCTION_WORDS` w src/lib/german-morphology.ts wyklucza m.in.
---     aber, auch, noch, sehr, jetzt, immer, sondern, kein, war, hatte;
+--   * wyrazy funkcyjne z `GERMAN_FUNCTION_WORDS` (src/lib/german-morphology.ts):
+--     aber, auch, noch, sehr, jetzt, immer, sondern, kein, war, hatte. UWAGA na
+--     powód: `matchToken` rozwiązuje je normalnie, jak każdy inny token — ta
+--     lista NIE blokuje dopasowania. Steruje tylko prezentacją (atrybut
+--     `data-function-word` w ReaderProse wycisza podkreślenie) oraz tym, czy
+--     niedopasowany token trafia do `unmatched_sample` jako luka do uzupełnienia.
+--     Pomijam je, bo słownik DTZ i tak je ma, a nie dlatego, że byłyby martwe;
 --   * rdzeń A1, który słownik już ma (sagen, fragen, trinken, sehen, stehen,
 --     gehen, alt, groß) — a gdyby jednak go nie miał, guard i tak by zadziałał;
 --   * nazwy własne (Lena, Albert Wilhelm Möller, Bahnhofstraße);

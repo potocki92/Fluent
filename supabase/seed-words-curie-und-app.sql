@@ -22,10 +22,14 @@
 --     trinken, bleiben, freuen, möchten, erfolgreich.
 --  2. supabase/seed-words-der-schluessel.sql — stąd nie ma Morgen, Kaffee,
 --     Frühstück, Fenster, Werkstatt.
---  3. `GERMAN_FUNCTION_WORDS` w src/lib/german-morphology.ts — wyrazy stamtąd
---     nigdy nie zostaną zglosowane w czytniku, więc wpis byłby martwy:
---     als, auch, nach, mit, für, aber, sehr, immer, kann, soll, wollen, da.
---     (`dürfen` NIE jest na tej liście, dlatego zostaje.)
+--  3. `GERMAN_FUNCTION_WORDS` w src/lib/german-morphology.ts: als, auch, nach,
+--     mit, für, aber, sehr, immer, kann, soll, wollen, da. UWAGA na powód:
+--     `matchToken` rozwiązuje je normalnie, jak każdy inny token — ta lista NIE
+--     blokuje dopasowania. Steruje tylko prezentacją (atrybut
+--     `data-function-word` w ReaderProse wycisza podkreślenie) oraz tym, czy
+--     niedopasowany token trafia do `unmatched_sample` jako luka do
+--     uzupełnienia. Pomijam je, bo słownik DTZ i tak je ma.
+--     (`dürfen` NIE jest na tej liście, dlatego zostaje jako pełne hasło.)
 --
 -- Świadomie pominięte poza tym:
 --  * nazwy własne i symbole: Warschau, Paris, Berlin, Pierre Curie, Polonium,
