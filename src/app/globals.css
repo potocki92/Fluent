@@ -209,32 +209,36 @@
    page background laid over the card, a shade too dark, and the seam would show
    exactly where the text starts.
 
-   THE STOPS ARE MEASURED, NOT EYEBALLED, and the number that fixes them is the
-   worst case: a blown-out, almost white cover. Composited over white, the card
-   colour has to reach about 0.74 alpha before `--color-main` text clears 4.5:1
-   against it (`--color-muted2` never does — it needs 0.95, which is why the
-   illustrated card lifts its secondary text a step). The content column starts
-   at 42% of the card, so the ramp has to be at roughly 0.78 by 42% — everything
-   else follows from that.
+   IT ENDS NEAR BLACK, NOT AT THE CARD COLOUR, and that is a deliberate
+   departure from its neighbours: an illustrated row's dark end is darker than a
+   plain one, the way a poster is darker than the wall. `--cover-scrim-end` is
+   the card's own colour taken down to about a third, so it still tracks the
+   theme rather than being a loose hex.
 
-   Nothing at all until 26%: the left of the picture is untouched, which is the
-   whole reason for a gradient rather than an overlay. Then an uneven ramp —
-   slow through the high notes, steepest across 34–43% where the text begins,
-   then easing again so there is no hard edge — and effectively opaque from 64%.
-   A CLASS rather than a Tailwind arbitrary value, because eight comma-separated
+   THE STOPS ARE MEASURED, in two senses. Their SHAPE is taken from the
+   reference design — untouched until a bit past a quarter, the whole transition
+   spent between there and two thirds, flat from 68% — and their FLOOR from the
+   worst case a real library will produce: a blown-out, almost white cover.
+   Against a near-black scrim, `--color-main` clears 4.5:1 once the scrim passes
+   about 0.60, and the content column starts at 42%, so 42% is pinned at 0.62.
+   (`--color-muted2` would need 0.85 there, which is why the illustrated card
+   lifts its secondary text a step.)
+
+   A CLASS rather than a Tailwind arbitrary value, because nine comma-separated
    colour stops in a class attribute is a string nobody can read or change. */
 .cover-scrim {
+  --cover-scrim-end: color-mix(in srgb, #000 62%, var(--color-card));
+
   background-image: linear-gradient(
     90deg,
     transparent 0%,
-    transparent 26%,
-    color-mix(in srgb, var(--color-card) 10%, transparent) 31%,
-    color-mix(in srgb, var(--color-card) 32%, transparent) 35%,
-    color-mix(in srgb, var(--color-card) 62%, transparent) 39%,
-    color-mix(in srgb, var(--color-card) 84%, transparent) 43%,
-    color-mix(in srgb, var(--color-card) 93%, transparent) 51%,
-    color-mix(in srgb, var(--color-card) 99%, transparent) 64%,
-    var(--color-card) 78%
+    transparent 27%,
+    color-mix(in srgb, var(--cover-scrim-end) 12%, transparent) 32%,
+    color-mix(in srgb, var(--cover-scrim-end) 34%, transparent) 37%,
+    color-mix(in srgb, var(--cover-scrim-end) 62%, transparent) 42%,
+    color-mix(in srgb, var(--cover-scrim-end) 84%, transparent) 50%,
+    color-mix(in srgb, var(--cover-scrim-end) 95%, transparent) 58%,
+    var(--cover-scrim-end) 68%
   );
 }
 
