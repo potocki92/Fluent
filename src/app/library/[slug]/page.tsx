@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BookOpen } from "lucide-react";
 
 import { getChapterStoryState } from "@/actions/chapter-analysis";
 import { ChapterList } from "@/components/library/ChapterList";
+import { MaterialCover } from "@/components/library/MaterialCover";
 import { DeletePrivateBook } from "@/components/library/import/DeletePrivateBook";
 import { ChapterPrepCard } from "@/components/story/ChapterPrepCard";
 import { Badge } from "@/components/ui/badge";
@@ -94,19 +95,42 @@ export default async function LibraryItemPage({
           <ArrowLeft className="size-4" /> Biblioteka
         </Link>
 
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold leading-tight">{item.title}</h1>
-            {item.subtitle && (
-              <p className="mt-0.5 text-sm text-muted2">{item.subtitle}</p>
-            )}
-            {item.author && (
-              <p className="mt-1 text-sm text-muted2">{item.author}</p>
+        {/* THE COVER SITS BESIDE THE TITLE, NOT ABOVE IT. A full-width banner at
+            this measure would be half a phone screen of picture before the one
+            thing this page exists for — the resume button — and it would crop
+            the image to a letterbox, which is not the 4:3 frame the admin
+            approved. Beside the title it identifies the book and costs four
+            lines of height. A material with no picture gets no placeholder here:
+            the title is already the strongest thing on the screen. */}
+        <div className="flex items-start gap-4">
+          {item.coverUrl && (
+            <MaterialCover
+              coverUrl={item.coverUrl}
+              sizes="(min-width: 640px) 160px, 112px"
+              className="aspect-[4/3] w-28 rounded-xl border border-border sm:w-40"
+              eager
+              fallback={
+                <span className="flex size-full items-center justify-center bg-[#374151] text-gold">
+                  <BookOpen className="size-6" />
+                </span>
+              }
+            />
+          )}
+
+          <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold leading-tight">{item.title}</h1>
+              {item.subtitle && (
+                <p className="mt-0.5 text-sm text-muted2">{item.subtitle}</p>
+              )}
+              {item.author && (
+                <p className="mt-1 text-sm text-muted2">{item.author}</p>
+              )}
+            </div>
+            {item.cefr && (
+              <Badge className="shrink-0 bg-gold text-[#1a202c]">{item.cefr}</Badge>
             )}
           </div>
-          {item.cefr && (
-            <Badge className="shrink-0 bg-gold text-[#1a202c]">{item.cefr}</Badge>
-          )}
         </div>
 
         {item.description && (
