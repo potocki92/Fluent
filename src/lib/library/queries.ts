@@ -18,6 +18,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getDictionarySnapshot } from "@/lib/content/dictionary-snapshot";
+import type { ArtworkLookup, MaterialArtwork } from "@/lib/library/artwork";
 import { resolveNormalizedForms } from "@/lib/content/dictionary-match";
 import { normalizeToken, tokenize } from "@/lib/content/tokenize";
 import {
@@ -902,4 +903,49 @@ export async function getReaderRouteForText(
   if (!chapter) return null;
 
   return { slug: item.slug, position: chapter.position };
+}
+
+/**
+ * A material's artwork — one query, for one card.
+ *
+ * WHY IT IS A LOOKUP RATHER THAN A JOIN ON THE PLAN. The daily plan is a
+ * snapshot and must stay one (`src/lib/library/artwork.ts`), so the cover is
+ * read separately at render time. That is one indexed row read for the single
+ * card that shows a picture — `library_items_legacy_text_idx` for a passage, the
+ * primary key for a book, and the chapter's own key with the parent embedded for
+ * the one older shape that carries neither.
+ *
+ * RLS STILL DECIDES. This runs on the caller's client, so an unpublished draft
+ * or somebody else's private import simply returns nothing, exactly as the rest
+ * of this file does.
+ */
+export async function getMaterialArtwork(
+  supabase: Client,
+  lookup: ArtworkLookup | null,
+): Promise<MaterialArtwork | null> {
+  if (!lookup) return null;
+
+  if (lookup.by === "chapter") {
+    // The cover belongs to the BOOK, never to the chapter — a novel stores one
+    // URL, not one per chapter — so this reaches the parent through the chapter.
+    const { data } = await supabase
+      .from("chapters")
+      .select("library_items!inner(cover_url)")
+      .eq("id", lookup.chapterId)
+      .maybeSingle<{ library_items: { cover_url: string | null } }>();
+    return toArtwork(data?.library_items.cover_url);
+  }
+
+  const query = supabase.from("library_items").select("cover_url").is("archived_at", null);
+  const { data } = await (lookup.by === "legacy_text"
+    ? query.eq("legacy_text_id", lookup.textId)
+    : query.eq("id", lookup.itemId)
+  ).maybeSingle();
+
+  return toArtwork(data?.cover_url);
+}
+
+function toArtwork(coverUrl: string | null | undefined): MaterialArtwork | null {
+  const url = coverUrl?.trim();
+  return url ? { url } : null;
 }

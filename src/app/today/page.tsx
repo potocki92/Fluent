@@ -4,6 +4,9 @@ import Link from "next/link";
 import { getOrCreateTodayPlan } from "@/actions/today-plan";
 import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { planItemArtworkLookup } from "@/lib/library/artwork";
+import { getMaterialArtwork } from "@/lib/library/queries";
+import { nextPlanItem } from "@/lib/learning/planner/routes";
 import { localHour, normalizeTimeZone } from "@/lib/learning/planner/learning-day";
 import { LevelCard } from "@/components/level/LevelCard";
 import { QuickActions } from "@/components/today/QuickActions";
@@ -50,6 +53,17 @@ export default async function TodayPage() {
       .map((item) => item.payload.conceptLabel)
       .find((label): label is string => typeof label === "string") ?? null;
 
+  // ONE LOOKUP, FOR ONE CARD. Only the activity „Kontynuuj naukę" offers shows a
+  // picture, so only that activity's material is read — and only when it is a
+  // reading task at all (`planItemArtworkLookup` returns null otherwise). The
+  // cover is deliberately NOT snapshotted into the plan: a plan is today's
+  // decision, a cover is the material's presentation, and changing one must not
+  // rewrite the other.
+  const next = result.status === "completed" ? null : nextPlanItem(result.items);
+  const nextArtwork = next
+    ? await getMaterialArtwork(supabase, planItemArtworkLookup(next))
+    : null;
+
   return (
     <div className="space-y-5">
       <TodayHeader
@@ -64,7 +78,7 @@ export default async function TodayPage() {
       {result.items.length === 0 ? (
         <NothingToDo />
       ) : (
-        <TodayDashboard plan={result} improved={improved} />
+        <TodayDashboard plan={result} improved={improved} nextArtwork={nextArtwork} />
       )}
     </div>
   );

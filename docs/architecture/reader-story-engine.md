@@ -910,6 +910,47 @@ generator, two item types, one completion rule.
   `src/lib/reading/constants.ts`, and written onto the item. The database only
   compares. That keeps the rule in one place and keeps it unit-tested.
 
+## Material artwork
+
+A material may have a picture. It is recorded in **one** place —
+`library_items.cover_url`, the column this phase already created — and a passage
+reaches it through `legacy_text_id`, the same mapping questions, attempts and
+plans already travel. There is no `texts.image_url`: two columns would be two
+answers to "what does this material look like?", and they would disagree the
+first time a passage was renamed, reprocessed or imported.
+
+- **The cover belongs to the ITEM, not the chapter.** A thirty-chapter novel
+  stores one URL; a chapter inherits its book's artwork at read time. Editing
+  chapter 12 never touches the book's picture, and `chapters` has no cover
+  column — `supabase/tests/10_material_cover_security.sql` asserts that it has
+  not acquired one.
+- **The bucket is public to read, admin-only to write.** `content-covers`
+  (`20260921120000_material_covers.sql`) is the opposite of the importer's
+  bucket, and deliberately so: published teaching material is meant to be seen,
+  a learner's own file is not. Insert, update and delete are gated on
+  `public.is_admin()` in Storage policy, not by which button the admin panel
+  renders.
+- **The file never passes through Next.** `prepareTextCoverUpload` mints a
+  short-lived signed URL for a path *it* chose
+  (`library/<library_item_id>/<uuid>.<ext>`), the browser PUTs the bytes
+  directly, and `commitTextCoverUpload` records the URL after checking what
+  Storage says the object actually is. Same shape as `book-import.ts`, same
+  reason: a Server Action body is capped around a megabyte.
+- **A new UUID every time** is the whole cache story. Replacing a cover produces
+  a different public URL, so no CDN or browser can serve the old picture; the
+  previous object is deleted only once the new one is recorded, so a failed
+  upload leaves the material with the artwork it already had.
+- **A cover is presentation metadata, not plan data.** It is never snapshotted
+  into `daily_plan_items.payload`. „Kontynuuj naukę" resolves it at render time
+  through `planItemArtworkLookup` + `getMaterialArtwork` — one indexed row read,
+  for the one card that shows a picture — so an admin replacing a photo at noon
+  cannot invalidate a plan, move an item's status or trigger a regeneration.
+  `supabase/tests/10_material_cover_security.sql` §C7 pins that.
+- **Only reading activities get one.** `continue_text`, `new_text`,
+  `continue_chapter` and `new_chapter` have a material behind them. „Powtórki"
+  does not, and `PLAN_ITEM_ICONS` stays the answer for it — as it does for a
+  material with no artwork, or a URL that fails to load.
+
 ## Migration and compatibility
 
 Every `texts` row becomes a library item with exactly one chapter, linked by
@@ -1016,3 +1057,5 @@ built.
 | how a chapter catches up with a newer dictionary | `src/lib/content/dictionary-sync.ts` (plan) + `reconciler.ts` (I/O) + `sync_chapter_dictionary` (SQL) |
 | dictionary cache lifetime and sync batch sizes | `src/lib/content/constants.ts` |
 | what the gloss asks, and how long it trusts the answer | `src/hooks/useReaderWord.ts` + `GLOSS_DICTIONARY_STALE_MS` |
+| accepted cover formats, size cap, storage layout | `src/lib/library/covers.ts` (+ the bucket's own limits in the migration) |
+| which plan activities show artwork | `src/lib/library/artwork.ts` |

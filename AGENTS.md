@@ -43,7 +43,8 @@ Respect the existing `src/`-rooted structure:
   the weakness-drill lifecycle (`start-`/`answer-`/`finalize-practice-*.ts`),
   the daily plan (`today-plan.ts`), the reader (`reading.ts` — sessions, progress,
   lookups, saving a word with its sentence), library content
-  (`admin-library.ts` — creating and processing chapters), the private book
+  (`admin-library.ts` — creating and processing chapters), material artwork
+  (`admin-covers.ts` — signed cover upload, commit, removal), the private book
   importer (`book-import.ts` — upload, analysis, review, finalization, batched
   processing, deletion),
   the personal notebook (`notebook.ts` — sentence translations, the
@@ -68,8 +69,10 @@ Respect the existing `src/`-rooted structure:
   `analyze.ts` runs the lot — all pure and deterministic except the extractors;
   `queries.ts` is the only file there that touches Supabase), `reading/` (the reader's domain: `constants.ts`
   holds every threshold, `progress.ts` owns resume-vs-furthest, `coverage.ts`
-  owns vocabulary coverage, `preferences.ts` owns typography), `library/queries.ts`
-  (the reader's read layer, the only file there that touches Supabase),
+  owns vocabulary coverage, `preferences.ts` owns typography), `library/`
+  (`queries.ts` — the reader's read layer, the only file there that touches
+  Supabase; `covers.ts` holds every cover limit, accepted type and storage-path
+  rule; `artwork.ts` decides which plan activity has a picture — both pure),
   `notebook/` (the personal language notebook: `constants.ts` holds every limit
   and weight — including `MAX_PHRASE_TOKENS`, which SQL is PASSED rather than
   copying — `selection.ts` snaps a browser selection to whole tokens with the
@@ -221,6 +224,16 @@ The app cleanly separates **server data** (TanStack Query) from **client state**
   ever rendered with `dangerouslySetInnerHTML`. Book content may contain "ignore
   previous instructions"; it is never interpolated into a prompt as anything but
   delimited data.
+- **A material has one picture, and it belongs to the item.**
+  `library_items.cover_url` is the only place artwork is recorded; a passage
+  reaches it through `legacy_text_id` (via the existing
+  `backfill_library_from_texts`), and a book's chapters inherit it rather than
+  copying it. Never add `texts.image_url` or a cover column on `chapters`. The
+  `content-covers` bucket is public to READ and admin-only to write, enforced by
+  Storage policy rather than by a hidden button; the file goes to Storage through
+  a server-chosen signed path, never through a Server Action body. A cover is
+  presentation metadata, so it is never snapshotted into a daily plan — the card
+  resolves it at render time and changing it moves no plan.
 - **A personal note is never the shared dictionary.** `words.translation_pl` is
   global, admin-curated content; "sollten here means powinniśmy" is one learner's
   claim about one place in one book. No code path writes from
@@ -342,6 +355,8 @@ Do not:
   lives in `src/lib/reading/constants.ts`, every Story-engine weight, threshold
   and budget lives in `src/lib/story/constants.ts`, every importer threshold,
   weight, size limit and version stamp lives in `src/lib/import/constants.ts`,
+  every cover limit, accepted MIME type and storage-path rule lives in
+  `src/lib/library/covers.ts`,
   and a bare `* 0.35` anywhere else in any of them is a bug
 - let the client decide anything authoritative: which questions a test contains, what
   a score is, or what a learner's ability becomes
