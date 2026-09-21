@@ -11,7 +11,7 @@ import { localHour, normalizeTimeZone } from "@/lib/learning/planner/learning-da
 import { LevelCard } from "@/components/level/LevelCard";
 import { QuickActions } from "@/components/today/QuickActions";
 import { TodayDashboard } from "@/components/today/TodayDashboard";
-import { TodayHeader } from "@/components/today/TodayHeader";
+import { GreetingHero } from "@/components/today/hero/GreetingHero";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -66,7 +66,7 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-5">
-      <TodayHeader
+      <GreetingHero
         displayName={profile?.display_name ?? null}
         hour={localHour(timezone)}
         remainingMinutes={result.remainingMinutes}
