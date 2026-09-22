@@ -969,9 +969,13 @@ reprocessed or imported.
   for the one card that shows a picture — so an admin replacing a photo at noon
   cannot invalidate a plan, move an item's status or trigger a regeneration.
   `supabase/tests/10_material_cover_security.sql` §C7 pins that.
-- **Only reading activities get one.** `continue_text`, `new_text`,
-  `continue_chapter` and `new_chapter` have a material behind them. „Powtórki"
-  does not, and `PLAN_ITEM_ICONS` stays the answer for it — as it does for a
+- **Only activities that NAME a material get one.** `continue_text`, `new_text`,
+  `continue_chapter`, `new_chapter`, `chapter_preparation` and
+  `chapter_assessment` all have a material behind them, and the card's kicker
+  („CZYTANIE", „PRZYGOTOWANIE", „WYZWANIE") is what distinguishes the kind of
+  work — withholding the picture from the two drills only made the card harder
+  to recognise against the shelf that shows the same book. „Powtórki" has no
+  material, and `PLAN_ITEM_ICONS` stays the answer for it — as it does for a
   material with no artwork, or a URL that fails to load.
 
 ## Migration and compatibility

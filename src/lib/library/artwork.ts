@@ -11,10 +11,10 @@
  *
  * NOT EVERY ACTIVITY WANTS ONE. „Powtórki" is a deck, not a material — there is
  * no honest picture of it, and inventing one would make the image decorative
- * noise rather than a way to recognise what you were reading. The four reading
- * activities have a material behind them; everything else keeps
- * `PLAN_ITEM_ICONS`, and {@link planItemArtwork} enforces that even if a caller
- * hands over a URL for something else.
+ * noise rather than a way to recognise what you were reading. The six activities
+ * that name a material have one; everything else keeps `PLAN_ITEM_ICONS`, and
+ * {@link planItemArtwork} enforces that even if a caller hands over a URL for
+ * something else.
  *
  * PURE. The lookup this produces is executed by `getMaterialArtwork` in
  * `src/lib/library/queries.ts`, which is the only file in this folder allowed to
@@ -39,17 +39,26 @@ export interface MaterialArtwork {
 /**
  * The activities whose material has artwork.
  *
- * The two Story-engine activities (`chapter_preparation`, `chapter_assessment`)
- * are deliberately NOT here. They are exercises about a chapter rather than the
- * chapter itself, and the card that offers "przygotuj się do rozdziału" reads as
- * a task; giving it the book's photo would make the plan's two kinds of work
- * look like the same thing. They keep their own icons.
+ * THE TEST IS "DOES THIS NAME A MATERIAL", NOT "IS THIS READING". The two
+ * Story-engine activities were once excluded on the grounds that preparation is
+ * work ABOUT a chapter rather than the chapter itself — but the card already
+ * says which kind of work it is, in the kicker above the title („PRZYGOTOWANIE",
+ * „WYZWANIE"), and it names the material underneath. Withholding the picture
+ * there did not keep the two kinds of task apart; it only made the card that
+ * offers *Die neuen Nachbarn* unrecognisable next to the shelf that shows it,
+ * which is precisely the recognition the artwork exists for.
+ *
+ * `review_due`, `weakness_practice`, `new_vocabulary` and `placement` stay out,
+ * and for the original reason: there is no material behind them, so any picture
+ * would be decoration pretending to be information.
  */
 export const ARTWORK_PLAN_ITEM_TYPES: readonly PlanItemType[] = [
   "continue_text",
   "new_text",
   "continue_chapter",
   "new_chapter",
+  "chapter_preparation",
+  "chapter_assessment",
 ];
 
 export function planItemWantsArtwork(type: PlanItemType): boolean {
@@ -62,7 +71,8 @@ export function planItemWantsArtwork(type: PlanItemType): boolean {
  *  - a passage (`continue_text` / `new_text`) is reached through
  *    `library_items.legacy_text_id`, the mapping every other legacy id already
  *    travels;
- *  - a chapter activity normally carries `library_item_id` directly;
+ *  - a chapter activity — including the preparation and challenge drills built
+ *    on one — normally carries `library_item_id` directly;
  *  - an older plan item may carry only `chapter_id`, so the chapter's parent is
  *    the third route. It is a route, not a duplicate: the cover belongs to the
  *    BOOK, and a 30-chapter novel stores one URL rather than thirty.

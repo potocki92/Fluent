@@ -54,8 +54,8 @@ export default async function TodayPage() {
       .find((label): label is string => typeof label === "string") ?? null;
 
   // ONE LOOKUP, FOR ONE CARD. Only the activity „Kontynuuj naukę" offers shows a
-  // picture, so only that activity's material is read — and only when it is a
-  // reading task at all (`planItemArtworkLookup` returns null otherwise). The
+  // picture, so only that activity's material is read — and only when it names a
+  // material at all (`planItemArtworkLookup` returns null otherwise). The
   // cover is deliberately NOT snapshotted into the plan: a plan is today's
   // decision, a cover is the material's presentation, and changing one must not
   // rewrite the other.
