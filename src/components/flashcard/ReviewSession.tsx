@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Check, Frown, Lightbulb, Rocket, Volume2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -73,6 +79,32 @@ const cardVariants: Variants = {
   center: { opacity: 1, scale: 1, x: 0 },
   exit: (dir: number) => ({ x: dir * 400, opacity: 0 }),
 };
+
+/**
+ * How long the card takes to turn, in seconds — and, at half of it, when the
+ * two faces swap.
+ *
+ * THE CURVE HAS TO BE SYMMETRIC, WHICH IS WHY IT IS NAMED. The face that is
+ * turning away is switched off at the halfway point in TIME (`--flip-half`,
+ * read by `.review-card-face` in `globals.css`), and that is only the halfway
+ * point in ANGLE — the edge-on moment where the swap is invisible — if the
+ * easing is symmetric about its midpoint. `easeInOut` is; Framer's default
+ * tween curve is not, and with it the card spends about 40ms showing the wrong
+ * face MIRRORED before the swap catches up. Anything replacing `FLIP_EASE`
+ * must satisfy `f(0.5) === 0.5`.
+ */
+const FLIP_SECONDS = 0.38;
+const FLIP_EASE = "easeInOut" as const;
+
+/**
+ * The frame the CSS switch is late by, because the two clocks do not start
+ * together: the attribute change is committed by React and the transition's
+ * delay starts counting from THAT paint, while Framer does not take its first
+ * step until the animation frame after it. Without this the card spends one
+ * frame past edge-on still showing the outgoing face — measured, not guessed,
+ * and small enough that a 120Hz screen overshooting it by half is invisible.
+ */
+const FLIP_CLOCK_SKEW = 1 / 60;
 
 /**
  * How wide the flashcard is actually painted. The review screen sits in the
@@ -284,12 +316,17 @@ export function ReviewSession({
               aria-label="Odwróć fiszkę"
             >
               <motion.div
-                className="relative size-full [transform-style:preserve-3d]"
+                className="review-card-stage relative size-full"
+                style={
+                  {
+                    "--flip-half": `${FLIP_SECONDS / 2 + FLIP_CLOCK_SKEW}s`,
+                  } as CSSProperties
+                }
                 animate={{ rotateY: flipped ? 180 : 0 }}
-                transition={{ duration: 0.38 }}
+                transition={{ duration: FLIP_SECONDS, ease: FLIP_EASE }}
               >
                 {/* Front — German prompt */}
-                <CardFace>
+                <CardFace facingAway={flipped}>
                   <span
                     className={cn(
                       "rounded-lg px-2 py-0.5 text-xs font-semibold",
@@ -316,7 +353,7 @@ export function ReviewSession({
                 </CardFace>
 
                 {/* Back — Polish translation + examples */}
-                <CardFace back>
+                <CardFace back facingAway={!flipped}>
                   <p className="text-lg font-semibold leading-snug">
                     {word.translation_pl ?? "—"}
                   </p>
@@ -443,19 +480,30 @@ export function ReviewSession({
  * BOTH FACES ARE `absolute inset-0`, which is what makes them the same size
  * whatever they contain (§41) — a three-line example sentence can never make
  * the back taller than the front and shove the ratings off the screen.
+ *
+ * AND BOTH ARE TOLD WHICH WAY THEY FACE, rather than being left to backface
+ * culling to work it out. On iOS Safari that culling does not survive a face
+ * that clips its own overflow and carries composited children, and when it
+ * fails the two coplanar faces z-fight: the German word paints MIRRORED over
+ * its own translation and the landscape vanishes. `.review-card-face` switches
+ * the away-facing one off at the halfway point of the turn — where the card is
+ * edge-on and there is nothing to see either way.
  */
 function CardFace({
   back = false,
+  facingAway,
   children,
 }: {
   back?: boolean;
+  /** True while this side is the one turned away from the viewer. */
+  facingAway: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Card
+      data-facing={facingAway ? "away" : "toward"}
       className={cn(
-        "absolute inset-0 gap-0 overflow-hidden rounded-2xl border-border/70 p-0 py-0 shadow-none",
-        "[backface-visibility:hidden]",
+        "review-card-face absolute inset-0 gap-0 overflow-hidden rounded-2xl border-border/70 p-0 py-0 shadow-none",
         back && "[transform:rotateY(180deg)]",
       )}
     >

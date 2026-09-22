@@ -557,6 +557,48 @@
   }
 }
 
+/* THE FLIP, AND WHY IT DOES NOT TRUST `backface-visibility` (§41).
+
+   The two faces of a flashcard are COPLANAR: same box, same z, one of them
+   rotated 180°. Which one you see is supposed to be decided by backface
+   culling — and on iOS Safari, on a face that also clips its own overflow and
+   carries composited children (five landscape layers and a scrim), that
+   culling silently stops happening. The result is not a subtle artifact: both
+   faces paint into the same plane, so the German word appears MIRRORED on top
+   of its own translation and the landscape disappears into the z-fighting.
+
+   So the culling is now a second line of defence rather than the mechanism.
+   The face that is turning away is switched off outright — and switched at the
+   HALFWAY POINT of the rotation, where it is edge-on and nothing can be seen
+   of either face anyway. `0s` with a delay is a discrete switch, not a fade:
+   at no moment are both faces painted, and at no moment is either of them
+   semi-transparent.
+
+   THERE IS NO REDUCED-MOTION BRANCH HERE, deliberately. The delay is not an
+   animation — it is where in the TURN the swap belongs, and the turn still
+   happens. Zeroing it for a reduced-motion learner would show them the
+   incoming face mirrored for half a rotation, which is the bug, not the fix.
+
+   `--flip-half` IS WRITTEN BY THE COMPONENT, from the one constant that also
+   drives the rotation. Two places knowing "the flip takes 0.38s" is how a
+   redesign of the animation leaves a card that blinks — and the component's
+   `FLIP_EASE` is what makes half the TIME also half the ANGLE, which is the
+   whole reason the swap is invisible. */
+.review-card-stage {
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+}
+
+.review-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: opacity 0s linear var(--flip-half, 0.19s);
+}
+
+.review-card-face[data-facing="away"] {
+  opacity: 0;
+}
+
 /* THE FLASHCARD'S SKY (§14–§17).
 
    The same five layers as Today's greeting, from the same files, through the
