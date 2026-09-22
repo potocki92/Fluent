@@ -6,13 +6,11 @@ import { scoreTest } from "@/lib/elo";
 import { abilityToCefr, gatePromotion } from "@/lib/cefr";
 import { scoreSessionItems, type StoredSessionItem } from "@/lib/test-session";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  loadTagsForEvidence,
+  prepareEvidence,
+} from "@/lib/learning/commit-evidence";
 import { testAnswerEvidence, type LearningEvidence } from "@/lib/learning/evidence";
 import { DEFAULT_TEST_TAGS, loadQuestionTags } from "@/lib/learning/item-tags";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 
 export interface FinalizedTestSession {
@@ -149,16 +147,18 @@ export async function finalizeTestSession(
     //    what the item is tagged as exercising — and to nothing else. Folded
     //    against the state just read, so the whole test moves each state row
     //    once instead of five times.
-    const evidence = await buildTestEvidence(supabase, sessionId, session.text_id, answers);
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        // Reported, never swallowed: a knowledge write that silently stopped
-        // happening would look exactly like a learner who stopped learning.
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    const built = await buildTestEvidence(supabase, sessionId, session.text_id, answers);
+    // Refuse rather than seal the test with a payload that moves nothing: the
+    // session stays `in_progress` and the whole finalization can be re-run.
+    if (!built.ok) return built;
+
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      built.evidence,
+      `finalizeTestSession ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     // 5. Commit. Everything below this line either all happens or none of it does.
     const { data, error } = await service.rpc("finalize_test_session", {
@@ -170,7 +170,7 @@ export async function finalizeTestSession(
       p_cefr_estimate: abilityToCefr(gated.ability),
       p_promotion_streak: gated.streak,
       p_passed: test.passed,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
     });
 
     const result = data?.[0];
@@ -218,21 +218,25 @@ async function buildTestEvidence(
   sessionId: string,
   textId: number,
   answers: readonly AnsweredItem[],
-): Promise<LearningEvidence[]> {
+): Promise<ActionResult<{ evidence: LearningEvidence[] }>> {
   const answered = answers.filter(
     (row) => row.answered_at !== null && row.is_correct !== null,
   );
-  if (answered.length === 0) return [];
+  if (answered.length === 0) return { ok: true, evidence: [] };
 
-  const tags = await loadQuestionTags(
-    supabase,
-    answered.map((row) => row.question_id),
-  ).catch((error) => {
-    console.error("[fluent:knowledge] question tags unavailable", error);
-    return new Map<number, never>();
-  });
+  // A failed tag read is not "no tags" — see `@/lib/learning/commit-evidence`.
+  const loaded = await loadTagsForEvidence(
+    () =>
+      loadQuestionTags(
+        supabase,
+        answered.map((row) => row.question_id),
+      ),
+    `finalizeTestSession ${sessionId}`,
+  );
+  if (!loaded.ok) return loaded;
+  const tags = loaded.tags;
 
-  return answered.map((row) => {
+  const evidence = answered.map((row) => {
     const itemTags = tags.get(row.question_id) ?? DEFAULT_TEST_TAGS;
     return testAnswerEvidence({
       sessionId,
@@ -246,4 +250,6 @@ async function buildTestEvidence(
       occurredAt: row.answered_at as string,
     });
   });
+
+  return { ok: true, evidence };
 }

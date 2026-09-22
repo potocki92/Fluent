@@ -3,16 +3,11 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { reconcileChapterFully } from "@/lib/content/reconciler";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import {
   chapterPreparationEvidence,
   type LearningEvidence,
 } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { shuffleWithOrder } from "@/lib/shuffle";
 import { PRETEACH_DISTRACTORS, STORY_ENGINE_VERSION } from "@/lib/story/constants";
 import { getChapterFacts, getSentenceIdsByPosition } from "@/lib/story/queries";
@@ -306,20 +301,21 @@ export async function finalizeChapterPreparation(
       }),
     );
 
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        // Reported, never swallowed: knowledge that quietly stopped being
-        // written looks exactly like a learner who stopped practising.
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    // A preparation with nothing to pre-teach legitimately carries no evidence
+    // and still seals; a preparation whose knowledge state cannot be READ does
+    // not seal at all, so the same finalization can be retried in full.
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      evidence,
+      `finalizeChapterPreparation ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const { data, error } = await service.rpc("finalize_chapter_preparation", {
       p_session_id: sessionId,
       p_user_id: user.id,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
     });
 
     const result = data?.[0];

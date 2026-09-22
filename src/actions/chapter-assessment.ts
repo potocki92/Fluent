@@ -3,10 +3,9 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  loadTagsForEvidence,
+  prepareEvidence,
+} from "@/lib/learning/commit-evidence";
 import {
   assessmentRetrieval,
   chapterAssessmentEvidence,
@@ -18,7 +17,6 @@ import {
   type ConceptCode,
 } from "@/lib/learning/concepts";
 import { isSkillCode, type SkillCode } from "@/lib/learning/skills";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import {
   buildBlueprint,
   fitBlueprint,
@@ -346,10 +344,16 @@ export async function finalizeChapterChallenge(
       return fail("session_incomplete", `finalizeChapterChallenge: empty ${sessionId}`);
     }
 
-    const tags = await loadQuestionTags(
-      service,
-      answered.map((row) => row.question_id),
+    const loadedTags = await loadTagsForEvidence(
+      () =>
+        loadQuestionTags(
+          service,
+          answered.map((row) => row.question_id),
+        ),
+      `finalizeChapterChallenge ${sessionId}`,
     );
+    if (!loadedTags.ok) return loadedTags;
+    const tags = loadedTags.tags;
 
     const evidence: LearningEvidence[] = answered.map((row) => {
       const tag = tags.get(row.question_id);
@@ -371,20 +375,20 @@ export async function finalizeChapterChallenge(
       });
     });
 
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      evidence,
+      `finalizeChapterChallenge ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const scores = scoreByKind(answered);
 
     const { data, error } = await service.rpc("finalize_chapter_assessment", {
       p_session_id: sessionId,
       p_user_id: user.id,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
       p_scores: scores as unknown as Json,
     });
 
@@ -554,7 +558,7 @@ async function loadQuestionTags(
 ): Promise<Map<number, QuestionTag>> {
   if (questionIds.length === 0) return new Map();
 
-  const [{ data: questions }, { data: concepts }] = await Promise.all([
+  const [questionRows, conceptRows] = await Promise.all([
     service
       .from("chapter_questions")
       .select("id, skill_code, word_id, source_sentence_ids")
@@ -564,6 +568,13 @@ async function loadQuestionTags(
       .select("question_id, concept_code")
       .in("question_id", [...questionIds]),
   ]);
+
+  // A failed read here is not "this item is untagged" — untagged evidence moves
+  // no state, so swallowing it would seal the challenge and record nothing.
+  if (questionRows.error) throw questionRows.error;
+  if (conceptRows.error) throw conceptRows.error;
+  const questions = questionRows.data;
+  const concepts = conceptRows.data;
 
   const byQuestion = new Map<number, ConceptCode[]>();
   for (const row of concepts ?? []) {

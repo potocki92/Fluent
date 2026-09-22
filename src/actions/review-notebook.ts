@@ -1,16 +1,12 @@
 "use server";
 
-import {
-  EMPTY_EVIDENCE_PAYLOAD,
-  evidenceJson,
-  foldEvidence,
-} from "@/lib/learning/aggregate";
+import { EMPTY_EVIDENCE_PAYLOAD, evidenceJson } from "@/lib/learning/aggregate";
 import {
   notebookReviewEvidence,
   type ReviewDirection,
   type ReviewMode,
 } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { sanitizeResponseMs } from "@/lib/response-time";
 import { DEFAULT_EASE_FACTOR, GRADE_QUALITY, review } from "@/lib/sm2";
@@ -160,18 +156,21 @@ export async function gradeNotebookCard(input: {
       }),
     ];
 
-    // Only a word-linked card moves knowledge, so only a word-linked card needs
-    // a snapshot to move it from. A failed read is logged, never swallowed:
-    // knowledge that quietly stopped being written would look exactly like a
-    // learner who stopped practising.
-    const snapshot =
+    // Only a word-linked card moves knowledge, so only a word-linked card is
+    // folded at all — a sentence card commits an empty payload by design, and
+    // always has. What is NEW is that an unreadable knowledge state no longer
+    // looks like the same thing: it refuses, and the retry (same interaction
+    // id, so the same review) applies the update rather than losing it.
+    const prepared =
       wordId === null
         ? null
-        : await loadKnowledgeSnapshot(supabase, user.id, evidence).catch((error) => {
-            console.error("[fluent:knowledge] notebook snapshot failed", error);
-            return null;
-          });
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+        : await prepareEvidence(
+            supabase,
+            user.id,
+            evidence,
+            `reviewNotebookCard ${itemType} ${annotationId ?? sentenceNoteId}`,
+          );
+    if (prepared && !prepared.ok) return prepared;
 
     const { data, error } = await service.rpc("apply_notebook_review", {
       p_user_id: user.id,
@@ -197,7 +196,7 @@ export async function gradeNotebookCard(input: {
           is_mastered: next.isMastered,
         },
       },
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared?.json ?? evidenceJson(EMPTY_EVIDENCE_PAYLOAD),
     });
 
     const row = data?.[0];

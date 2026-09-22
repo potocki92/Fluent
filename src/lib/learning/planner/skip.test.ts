@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FLUENT_ERROR_MESSAGES, type ActionResult } from "@/lib/errors";
 import { runSkipPlanItem, type SkipPlanItemError } from "@/lib/learning/planner/skip";
+import { deferred } from "@/lib/testing/deferred";
 
 /** The UI, reduced to what it actually does: pending, error, refresh. */
 function ui(skip: (itemId: string) => Promise<ActionResult<{ status: string }>>) {
@@ -103,13 +104,10 @@ describe("runSkipPlanItem", () => {
 
   it("lets only one skip run at a time", async () => {
     let calls = 0;
-    let release: (() => void) | null = null;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    const blocked = deferred();
     const view = ui(async () => {
       calls += 1;
-      await blocked;
+      await blocked.promise;
       return { ok: true, status: "skipped" };
     });
 
@@ -120,7 +118,7 @@ describe("runSkipPlanItem", () => {
     await runSkipPlanItem("item-2", view.gate, view.effects);
     expect(calls).toBe(1);
 
-    release?.();
+    blocked.resolve();
     await first;
 
     expect(calls).toBe(1);

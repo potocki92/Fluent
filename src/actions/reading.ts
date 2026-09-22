@@ -7,13 +7,12 @@ import {
   EMPTY_SNAPSHOT,
   evidenceJson,
   foldEvidence,
-  type KnowledgeSnapshot,
 } from "@/lib/learning/aggregate";
 import {
   chapterReadingEvidence,
   readingLookupEvidence,
 } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import {
   CHAPTER_COMPLETION_RATIO,
   MAX_ACTIVE_SECONDS_PER_REPORT,
@@ -325,14 +324,15 @@ export async function recordWordLookup(input: {
     occurredAt: new Date().toISOString(),
   });
 
-  let snapshot: KnowledgeSnapshot = EMPTY_SNAPSHOT;
-  try {
-    snapshot = await loadKnowledgeSnapshot(supabase, user.id, [evidence]);
-  } catch (error) {
-    return fail("database_error", "recordWordLookup: snapshot", error);
-  }
-
-  const fold = foldEvidence(snapshot, [evidence]);
+  // This path already refused rather than committing an empty payload; it now
+  // says so through the one helper every other commit uses.
+  const prepared = await prepareEvidence(
+    supabase,
+    user.id,
+    [evidence],
+    `recordWordLookup ${input.interactionId}`,
+  );
+  if (!prepared.ok) return prepared;
 
   let service;
   try {
@@ -349,7 +349,7 @@ export async function recordWordLookup(input: {
     p_sentence_id: input.sentenceId,
     p_occurrence_id: input.occurrenceId,
     p_session_id: input.readingSessionId,
-    p_evidence: evidenceJson(fold.payload),
+    p_evidence: prepared.json,
   });
   if (error) return failFrom(error, `recordWordLookup: ${input.interactionId}`);
 
