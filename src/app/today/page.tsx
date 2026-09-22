@@ -65,7 +65,7 @@ export default async function TodayPage() {
     : null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <GreetingHero
         displayName={profile?.display_name ?? null}
         hour={localHour(timezone)}

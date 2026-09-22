@@ -129,17 +129,18 @@ function CoverCard({
       <div
         className={cn(
           // THE CONTENT SETS THE HEIGHT, as it does on the plain card: title,
-          // type, bar and percent come to about 104px at `p-4`, which is what
-          // keeps an illustrated row a row rather than a banner. The floor is
-          // only for the case with no progress to show, where two lines of text
-          // would otherwise leave the artwork almost no card to live in.
+          // type, bar and percent come to about 110px at `p-3.5`, which is what
+          // keeps an illustrated row a row rather than a banner and puts three
+          // materials on a 393px phone (§30). The floor is only for the case
+          // with no progress to show, where two lines of text would otherwise
+          // leave the artwork almost no card to live in.
           // 40% on a phone, 42% from `sm`. The picture wants the larger share
           // and the reference design uses 42% throughout — but at 390px that
           // leaves the title 153px against the 159px Inter needs for a two-word
           // German name, so it wraps and the row grows by a line. Seven pixels
           // of picture buys the one-line title back; above `sm` there is room
           // for both.
-          "relative flex min-h-[96px] flex-col gap-2 p-4 pl-[40%] sm:pl-[42%]",
+          "relative flex min-h-[6.5rem] flex-col gap-1.5 p-3.5 pl-[40%] sm:pl-[42%]",
           hasStatus ? "justify-between" : "justify-center",
         )}
       >
@@ -181,7 +182,7 @@ function PlainCard({ entry, state }: { entry: ShelfEntry; state: CardState }) {
   return (
     <Link
       href={`/library/${entry.slug}`}
-      className="block rounded-xl border border-border bg-card p-4 transition-colors hover:border-gold/50"
+      className="block rounded-xl border border-border bg-card p-3.5 transition-colors hover:border-gold/50"
     >
       <div className="flex items-start gap-3">
         <span className="flex h-12 w-16 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-[#374151] text-gold">
@@ -198,7 +199,7 @@ function PlainCard({ entry, state }: { entry: ShelfEntry; state: CardState }) {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="min-w-0 flex-1 font-semibold leading-snug text-main">
+            <h3 className="line-clamp-2 min-w-0 flex-1 font-semibold leading-snug text-main">
               {entry.title}
             </h3>
             {entry.cefr && (

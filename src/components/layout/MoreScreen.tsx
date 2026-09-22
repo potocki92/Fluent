@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { isAccountUser } from "@/lib/auth/identity";
+import { cn } from "@/lib/utils";
 
 /**
  * „Więcej" — the fourth tab.
@@ -28,6 +29,14 @@ import { isAccountUser } from "@/lib/auth/identity";
  * data), so it filters itself against the ONE route table rather than carrying a
  * second opinion about what is private: a signed-out visitor gets the dictionary
  * and an invitation, not four rows that bounce them to the sign-in form.
+ *
+ * ONE SURFACE, FIVE ROWS (§36). Each destination used to be its own card with
+ * its own border and its own 8px of air, which is how a menu of five links
+ * became a 400px scroll: five boxes, four gaps, and a shadow under each one
+ * saying "these are unrelated things". They are not unrelated — they are one
+ * list — so they are drawn as one panel with hairlines between the rows, the
+ * way every settings list on the phone already is. The rows are 60px, inside
+ * iOS's own 56–64 and well past the 44px touch floor (§37).
  */
 export function MoreScreen() {
   const user = useAuthUser();
@@ -41,33 +50,37 @@ export function MoreScreen() {
 
   return (
     <div className="space-y-5">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">Więcej</h1>
+      <header className="space-y-0.5">
+        <h1 className="text-[1.75rem] font-bold leading-tight">Więcej</h1>
         <p className="text-sm text-muted2">
           Wszystko, czego potrzebujesz, w jednym miejscu.
         </p>
       </header>
 
-      <ul className="space-y-2">
-        {items.map((item) => {
+      <ul className="app-panel overflow-hidden rounded-2xl">
+        {items.map((item, i) => {
           const Icon = item.icon;
           return (
             <li key={item.href}>
               <Link
                 href={item.href}
-                className="app-panel app-panel-link flex items-center gap-3 rounded-xl px-4 py-3.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className={cn(
+                  "app-panel-link flex min-h-[3.75rem] items-center gap-3 px-3.5 py-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  // A hairline separates rows; it never closes the list.
+                  i > 0 && "border-t border-border/60",
+                )}
               >
                 <span
-                  className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-gold"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-gold"
                   aria-hidden
                 >
-                  <Icon className="size-5" />
+                  <Icon className="size-[1.125rem]" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold text-main">
+                  <span className="block truncate text-[0.9375rem] font-semibold leading-tight text-main">
                     {item.label}
                   </span>
-                  <span className="block truncate text-xs text-muted2">
+                  <span className="block truncate text-xs leading-tight text-muted2">
                     {item.description}
                   </span>
                 </span>

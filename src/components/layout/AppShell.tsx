@@ -35,14 +35,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-ambient flex flex-1 flex-col">
       <Header />
-      {/* The bottom padding clears the fixed tab bar, so it has to clear the
-          safe-area inset the bar now carries too — otherwise the last row of a
-          list sits under the home indicator. Above `md` the bar is gone, and so
-          is the padding that was reserving room for it. */}
+      {/* THE PADDING IS THE SAME ARITHMETIC `.app-screen` DOES, AND THAT IS THE
+          POINT. The bottom padding clears the fixed tab bar and the safe-area
+          inset the bar carries, and it clears them by exactly `--app-tabbar-h`
+          — the bar's real height — rather than by a 6rem guess that left 32px
+          of dead space under every screen. A screen that then asks for the
+          visible height back gets a number that adds up (§6, §10).
+
+          Above `md` the bar is gone, `--app-tabbar-h` is 0, and the tokens
+          widen the gutter instead. */}
       <main
         className={cn(
-          "mx-auto w-full flex-1 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4",
-          "md:px-6 md:pb-12 md:pt-6",
+          "mx-auto w-full flex-1 px-4 pt-[var(--app-main-pt)] md:px-6",
+          "pb-[calc(var(--app-main-pb)+var(--app-tabbar-h)+env(safe-area-inset-bottom))]",
           isDashboardRoute(pathname) ? "max-w-5xl" : "max-w-2xl",
         )}
       >

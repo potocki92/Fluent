@@ -81,7 +81,10 @@ export function LearningTimeControl() {
             disabled={saving}
             onClick={() => choose(minutes)}
             className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium outline-none transition-colors",
+              // 40px, wrapped — not two tall rows of buttons. A preset is a
+              // one-tap control and the set has to read as one line of choices
+              // rather than as a form (§35).
+              "flex h-10 items-center rounded-xl px-3.5 text-sm font-medium outline-none transition-colors",
               "focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50",
               minutes === current
                 ? "bg-gold font-semibold text-dark"

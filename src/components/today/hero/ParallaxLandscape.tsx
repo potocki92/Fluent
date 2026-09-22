@@ -1,12 +1,11 @@
 "use client";
 
-import Image from "next/image";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { useParallaxMotion } from "@/hooks/useParallaxMotion";
 import { cn } from "@/lib/utils";
 
-import { HERO_LAYERS, HERO_SIZES } from "./layers";
+import { LandscapeBackdrop } from "./LandscapeBackdrop";
 
 /**
  * The parallax scene, and nothing else.
@@ -18,17 +17,15 @@ import { HERO_LAYERS, HERO_SIZES } from "./layers";
  * still: `useParallaxMotion` never sets state, so `children` is reconciled once
  * and then never again, however far the cursor travels (§23).
  *
- * THE STACK IS THE ARRAY (§24). `z-index` comes from each layer's position in
- * `HERO_LAYERS` — 0, 10, 20, 30, 40 — with the readability scrim at 50 and the
- * content at 60, and the whole thing is `isolate`d so none of it can be
- * outranked by anything on the page. There are no arbitrary large numbers here
- * and nothing to keep in sync by hand.
+ * THE PAINTING ITSELF IS NOT HERE (§48). `LandscapeBackdrop` owns the five
+ * layers, their stacking and their crop — the flashcard renders the same scene
+ * without any of the machinery below. This file owns the frame: the readability
+ * scrim at 50, the content at 60, and the `isolate` that keeps none of it
+ * outrankable by anything else on the page.
  *
- * THE LAYERS ARE DECORATION, DOWN TO THE MARKUP. The scene is `aria-hidden`,
- * every image has an empty `alt`, none of them can be dragged, selected or
- * clicked, and the whole box is clipped — a learner using a screen reader hears
- * the greeting and nothing about a mountain range, and a learner using a mouse
- * cannot accidentally pick a picture up.
+ * `priority`, because this is above the fold on the app's home screen and five
+ * planes of one painting: a layer that arrived late would pop in over a scene
+ * that is already composed (§17).
  */
 export function ParallaxLandscape({
   className,
@@ -45,30 +42,7 @@ export function ParallaxLandscape({
     // wrapping the greeting to a third line then grows the card instead of
     // being clipped by the `overflow-hidden` the layers need.
     <header ref={ref} className={cn("relative isolate flex items-center overflow-hidden", className)}>
-      <div aria-hidden className="today-hero-scene">
-        {HERO_LAYERS.map((layer, index) => (
-          <Image
-            key={layer.id}
-            src={layer.src}
-            alt=""
-            fill
-            // Above the fold on the app's home screen, and five planes of one
-            // painting: a layer that arrived late would pop in over a scene
-            // that is already composed, so none of them are deferred (§17).
-            priority
-            sizes={HERO_SIZES}
-            draggable={false}
-            className="today-hero-layer select-none object-cover"
-            style={
-              {
-                zIndex: index * 10,
-                "--layer-shift": layer.shift,
-                "--layer-drift": layer.drift,
-              } as CSSProperties
-            }
-          />
-        ))}
-      </div>
+      <LandscapeBackdrop className="today-hero-scene" priority />
 
       <span aria-hidden className="today-hero-scrim absolute inset-0 z-50" />
 

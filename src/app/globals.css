@@ -119,6 +119,66 @@
    calm" means the surfaces are nearly flat and the gold is nearly absent — it
    marks what is active, and nothing else. */
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   WHAT THE CHROME COSTS
+   ─────────────────────────────────────────────────────────────────────────────
+   Four numbers decide how much room a screen actually gets on a phone, and they
+   live here because two different files have to agree on them: `AppShell`
+   RESERVES the space, and any screen that wants to lay itself out against the
+   visible height has to subtract exactly what was reserved. A screen guessing
+   "about 96px for the tab bar" is how the rating buttons ended up below the
+   fold — a number nobody owns is a number that drifts.
+
+   `dvh`, NOT `vh` (§2). Safari's bottom toolbar is part of the phone, not part
+   of the page: `100vh` is the height the viewport would have if that toolbar
+   retracted, so a layout built on it is 70–90px too tall exactly while the
+   learner can see the least. `vh` is kept as the first declaration, as the
+   fallback for a browser that has never heard of the dynamic units. */
+
+:root {
+  /* The phone's brand bar: a 38px avatar in 15px of padding. */
+  --app-header-h: 4.25rem;
+  /* The tab bar's own UI, BEFORE the home-indicator inset it also pays. */
+  --app-tabbar-h: 4rem;
+  --app-main-pt: 0.75rem;
+  /* The air between the last row of a screen and the tab bar over it. */
+  --app-main-pb: 0.75rem;
+}
+
+@media (width >= 48rem) {
+  :root {
+    --app-header-h: 4rem;
+    --app-tabbar-h: 0rem;
+    --app-main-pt: 1.5rem;
+    --app-main-pb: 3rem;
+  }
+}
+
+/* A SHORT SCREEN SPENDS LESS ON AIR. On a phone whose visible height is under
+   about 720px — every iPhone with Safari's toolbars up — 8px of padding above
+   and below the content is 8px the flashcard gets instead, and nobody has ever
+   looked at a review screen and wished the gap under the tab bar were larger
+   (§26, §28). */
+@media (max-height: 720px) {
+  :root {
+    --app-main-pt: 0.5rem;
+    --app-main-pb: 0.5rem;
+  }
+}
+
+/* A screen that FILLS the visible height rather than flowing past it. It is a
+   minimum, not a height: content that genuinely needs more still scrolls. */
+.app-screen {
+  min-height: calc(
+    100vh - var(--app-header-h) - var(--app-main-pt) - var(--app-main-pb) -
+      var(--app-tabbar-h) - env(safe-area-inset-bottom)
+  );
+  min-height: calc(
+    100dvh - var(--app-header-h) - var(--app-main-pt) - var(--app-main-pb) -
+      var(--app-tabbar-h) - env(safe-area-inset-bottom)
+  );
+}
+
 .app-ambient {
   position: relative;
   isolation: isolate;
@@ -260,44 +320,53 @@
   initial-value: 1;
 }
 
-/* The box all five layers share.
+/* THE BOX ALL FIVE LAYERS SHARE, AND THE ONE DEFINITION OF THE COMPOSITION.
 
-   IT IS BIGGER THAN THE HERO ON PURPOSE, AND IN PIXELS RATHER THAN PERCENT.
-   The overscan has to cover the nearest plane's TRAVEL, which is an absolute
+   Two screens now stand in front of this painting — Today's greeting and the
+   review flashcard (§16, §48) — and they differ in exactly two things: whether
+   the scene moves, and where it is cropped. Everything else is here, once, so
+   there is no second place for the stack, the crop or the layer geometry to be
+   spelled out and quietly disagree.
+
+   ONE CROP FOR FIVE LAYERS (§5, §28). `--landscape-focus` is declared on the
+   scene and read by every layer, so there is no way to give the sun one
+   `object-position` and the mountains another and desynchronise the painting.
+
+   64% IS WHERE THE LANDSCAPE IS. A phone is NARROWER than the 3:1 artwork, so
+   `cover` crops horizontally and this number chooses which two thirds survive:
+   64% is where the peaks, the mist and the treeline all sit, with the sun
+   clipped by the right edge. Centring instead lands on the empty dark middle of
+   the painting, which is how a hero ends up looking like a plain card with a
+   faint smudge on it. Both callers override it for their own shape. */
+.landscape-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  --landscape-focus: 64% 48%;
+}
+
+/* THE HERO OVERSCANS ITSELF, ON PURPOSE AND IN PIXELS RATHER THAN PERCENT.
+   The bleed has to cover the nearest plane's TRAVEL, which is an absolute
    distance: 12px sideways, and `12 × 0.62 + 10 × --drift-scale` down once the
    pointer and the scroll drift are both at their limit. A percentage looks
    tidier and is wrong — 3% of a 375px phone is 11px, less than the forest
    moves, so the layer pulls its own edge inside the card and opens a seam on
    exactly the screens where the hero is smallest.
 
-   SO THE TWO BREAKPOINTS DIFFER, because their drift budgets do. The worst
-   case is the pointer at the TOP of the hero — which pushes the layers down —
-   with the scroll drift also at full: `12 × 0.62 + 10 × --drift-scale`, so 17px
-   above `sm` and 23px on a phone. 22px and 28px leave every viewport about
-   3.5px of slack, enough that a fractional device pixel ratio cannot round a
+   SO THE TWO BREAKPOINTS DIFFER, because their drift budgets do: 17px above
+   `sm` and 23px on a phone, against 22px and 28px of bleed — about 3.5px of
+   slack either way, enough that a fractional device pixel ratio cannot round a
    layer's edge into view. Raising `--drift-scale` without raising the matching
    inset is how a phone gets a bright seam along the bottom of the card.
 
-   Overscanning the SCENE rather than each layer is also what keeps them
-   aligned — one box, one crop, five pictures.
+   A STILL SCENE HAS NO TRAVEL AND SO TAKES NONE OF THIS: the flashcard uses
+   `.landscape-scene` alone, which is inset 0.
 
-   ONE CROP FOR FIVE LAYERS (§5, §28). `--hero-focus` is declared here and read
-   by every layer, so there is no way to give the sun one `object-position` and
-   the mountains another and quietly desynchronise the composition.
-
-   THE TWO VALUES DIFFER BECAUSE THE CROP AXIS DOES. From `sm` up the hero is
-   WIDER than the 3:1 painting, so `cover` crops vertically and only the second
-   number does anything — 42% keeps the peaks and the sun in frame. A phone is
-   NARROWER than the painting, so the crop turns horizontal and the number
-   chooses which two thirds of the landscape survive. 64% is where the peaks,
-   the mist and the treeline all sit, with the sun clipped by the right edge;
-   centring it instead lands on the empty dark middle of the painting, which is
-   how a hero ends up looking like a plain card with a faint smudge on it. */
+   FROM `sm` UP THE CROP AXIS FLIPS. The hero is then WIDER than the painting,
+   so `cover` crops vertically and only the second number does anything — 42%
+   keeps the peaks and the sun in frame. */
 .today-hero-scene {
-  position: absolute;
   inset: -28px -18px;
-  z-index: 0;
-  --hero-focus: 64% 48%;
   /* A PHONE HAS NO POINTER, SO THE SCROLL IS THE WHOLE EFFECT. Above `sm` the
      drift is a garnish on top of the pointer parallax and 2…10px of it is
      plenty; on a touch screen that same 2…10px is all there is, on a hero a
@@ -310,7 +379,7 @@
 @media (width >= 40rem) {
   .today-hero-scene {
     inset: -22px -18px;
-    --hero-focus: center 42%;
+    --landscape-focus: center 42%;
     --drift-scale: 1;
   }
 }
@@ -323,8 +392,8 @@
    the effect reads as depth rather than as five pictures being dragged around.
    Scroll drift is the exception and goes WITH the page: the hero sinks slightly
    as it leaves, the way a distant view does. */
-.today-hero-layer {
-  object-position: var(--hero-focus);
+.landscape-layer {
+  object-position: var(--landscape-focus);
   transform: translate3d(
     calc(var(--parallax-x) * var(--layer-shift) * -1px),
     calc(
@@ -339,9 +408,18 @@
    allowed — a blanket `will-change` is five extra compositor layers a reduced
    motion learner pays for and never sees (§16). */
 @media (prefers-reduced-motion: no-preference) {
-  .today-hero-layer {
+  .landscape-layer {
     will-change: transform;
   }
+}
+
+/* A LANDSCAPE THAT WAS NEVER GOING TO MOVE (§15). The flashcard borrows the
+   scene and holds it still, so it must not also borrow five compositor layers
+   promoted for an animation that will never run. The `[data-static]` attribute
+   outranks the promotion above without a second stylesheet knowing about it. */
+.landscape-scene[data-static="true"] .landscape-layer {
+  transform: none;
+  will-change: auto;
 }
 
 /* §14: reduced motion turns the effect OFF, not down. The hook already refuses
@@ -349,7 +427,7 @@
    stale custom property ever survived the switch, the transform still resolves
    to nothing. */
 @media (prefers-reduced-motion: reduce) {
-  .today-hero-layer {
+  .landscape-layer {
     transform: none;
   }
 }
@@ -416,6 +494,130 @@
         color-mix(in srgb, var(--panel-bg) 42%, transparent) 100%
       );
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   POWTÓRKI — A WORKSPACE, NOT A PAGE
+   ─────────────────────────────────────────────────────────────────────────────
+   Answering a flashcard is one gesture: read, flip, rate. If the four ratings
+   are below the fold, that gesture becomes read, flip, SCROLL, hunt, rate — and
+   the scroll happens on every single card. So the review screen is a fixed
+   column the height of `.app-screen`, and the flashcard is the only thing in it
+   that flexes (§39). Every other row is measured, small, and never moves.
+
+   THE GAP IS A FUNCTION OF THE VIEWPORT, NOT A BREAKPOINT. The same iPhone 15
+   Pro is 659px tall in Safari with the toolbars up and 734px installed to the
+   home screen; no media query fires between those two, the height simply
+   changes under the same layout. One `clamp()` on `dvh` spends 7px between rows
+   on the first and 8px on the second, and keeps shrinking on an SE rather than
+   stepping off a cliff. The media queries below are the coarse half of the same
+   idea (§28), for the handful of things that cannot be interpolated. */
+
+.review-screen {
+  --review-gap: clamp(0.375rem, 1.05dvh, 0.6875rem);
+  gap: var(--review-gap);
+}
+
+/* THE CARD TAKES WHAT IS LEFT (§39, §40). It is the one `flex-1` in the column,
+   so its height is the visible viewport minus the rows that are actually
+   load-bearing — never an arbitrary `min-h-52` that pushed the ratings off the
+   bottom of the screen. The floor is what keeps a long German compound readable
+   on the shortest phone; the ceiling is what stops a desktop window from
+   drawing a billboard where a card should be. */
+/* THE FLOOR IS A SHARE OF THE VIEWPORT, NOT A NUMBER OF PIXELS. A fixed floor
+   is what turns a tight screen into a scrolling one: on a 375×812 phone with
+   Safari's toolbars up there are 486 usable pixels, and a card insisting on 152
+   of them pushes „Łatwe" four pixels under the tab bar — which costs a scroll
+   on every single card for four pixels. A fifth of the visible height instead
+   means the card is always the largest thing on the screen and never the reason
+   the screen does not fit. The ceiling stops a desktop window drawing a
+   billboard where a flashcard should be. */
+.review-card {
+  min-height: clamp(6.5rem, 19dvh, 9.5rem);
+  max-height: 19rem;
+}
+
+/* §28 asked for three height tiers; these are the two that do real work, and
+   the `clamp()`es above are the continuous version of the same idea — a phone's
+   height moves under a fixed layout (toolbars retracting) without ever firing a
+   media query, so the interpolation is what actually carries the design and
+   these are for the things that cannot be interpolated. */
+@media (max-height: 820px) {
+  .review-screen {
+    --review-gap: clamp(0.375rem, 1dvh, 0.5rem);
+  }
+}
+
+@media (max-height: 720px) {
+  /* A line of prose explaining keyboard shortcuts, to somebody holding a phone.
+     It is the only genuinely secondary thing on the screen, so it is the only
+     thing allowed to go (§27). */
+  .review-screen .review-hint {
+    display: none;
+  }
+}
+
+/* THE FLASHCARD'S SKY (§14–§17).
+
+   The same five layers as Today's greeting, from the same files, through the
+   same `LandscapeBackdrop` — held still (§15). All this adds is the crop: a
+   card is nearly square where the hero is a letterbox, so it looks lower and
+   further right into the painting, which is where the ridge, the treeline and
+   the edge of the sun are. */
+.review-card-scene {
+  --landscape-focus: 72% 64%;
+}
+
+/* WHAT KEEPS ONE GOLD WORD READABLE ON TOP OF A PAINTING (§17).
+
+   Two gradients, multiplied by being stacked. Where they are both strong — the
+   top and the left, which is exactly where the type is — the artwork sits under
+   about 95% of the card's own navy, and `spüren` reads precisely as it did on
+   the flat `--card` surface it used to have. Where they both let go, at the
+   bottom right, roughly 40% of the landscape comes through: enough for the
+   forest, the ridge and a hint of sun, nowhere near enough to compete with a
+   single word.
+
+   BOTH END IN THE CARD'S OWN COLOUR, the same reason `.cover-scrim` and
+   `.today-hero-scrim` do: a wash written in `--color-dark` would be the page
+   background laid over the card, a shade too dark, and the seam would show
+   exactly where the picture stops.
+
+   THE BACK IS DARKER, because the back is a paragraph rather than a word — a
+   translation, two example sentences, a mnemonic and a cloze all have to clear
+   the same bar the headword does, at a third of its size. */
+.review-card-scrim {
+  --review-card-bg: var(--card);
+
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--review-card-bg) 90%, transparent) 0%,
+      color-mix(in srgb, var(--review-card-bg) 84%, transparent) 50%,
+      color-mix(in srgb, var(--review-card-bg) 58%, transparent) 100%
+    ),
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--review-card-bg) 55%, transparent) 0%,
+      color-mix(in srgb, var(--review-card-bg) 28%, transparent) 60%,
+      color-mix(in srgb, var(--review-card-bg) 5%, transparent) 100%
+    );
+}
+
+.review-card-scrim[data-face="back"] {
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--review-card-bg) 94%, transparent) 0%,
+      color-mix(in srgb, var(--review-card-bg) 90%, transparent) 50%,
+      color-mix(in srgb, var(--review-card-bg) 70%, transparent) 100%
+    ),
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--review-card-bg) 62%, transparent) 0%,
+      color-mix(in srgb, var(--review-card-bg) 38%, transparent) 60%,
+      color-mix(in srgb, var(--review-card-bg) 12%, transparent) 100%
+    );
 }
 
 /* The scrim that turns a library card's artwork into a readable surface.

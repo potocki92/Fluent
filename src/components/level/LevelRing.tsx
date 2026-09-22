@@ -21,16 +21,25 @@ const SIZE_PX: Record<"sm" | "header" | "lg", number> = {
  * Circular progress ring showing the learner's CEFR level and progress towards
  * the next band. The arc is coloured by the current CEFR estimate and animates
  * whenever the ability changes.
+ *
+ * `meta` IS WHAT MAKES THE LARGE RING USABLE IN A ROW (§34). Stacked under the
+ * ring, "Elo: 1240" and the confidence badge turn a 96px circle into a 170px
+ * column — and the settings card built around it into a portrait tile with a
+ * paragraph squeezed beside it. Turned off, the caller puts the same two facts
+ * where its own layout has room. Nothing about the ring itself changes.
  */
 export function LevelRing({
   ability,
   answered,
   size = "lg",
+  meta = true,
   className,
 }: {
   ability: number;
   answered: number;
   size?: "sm" | "header" | "lg";
+  /** Show "Elo: …" and the confidence badge under the ring (large size only). */
+  meta?: boolean;
   className?: string;
 }) {
   const level = abilityToCefr(ability);
@@ -83,7 +92,7 @@ export function LevelRing({
         </div>
       </div>
 
-      {size === "lg" && (
+      {size === "lg" && meta && (
         <div className="flex flex-col items-center gap-1">
           <span className="text-xs text-muted2">Elo: {Math.round(ability)}</span>
           <ConfidenceBadge answered={answered} />
@@ -93,7 +102,12 @@ export function LevelRing({
   );
 }
 
-function ConfidenceBadge({ answered }: { answered: number }) {
+/**
+ * How much the estimate can be trusted, in one chip. Exported so a caller that
+ * turned `meta` off can still show it — there must not be a second opinion
+ * about what „⟳ Kalibracja" means or when it appears.
+ */
+export function ConfidenceBadge({ answered }: { answered: number }) {
   const level = confidenceLevel(answered);
 
   if (level === "calibrating") {
