@@ -226,10 +226,11 @@
    and padding are left to Tailwind so each card can still size itself. */
 .app-panel {
   /* Named, not just applied, because a card that lays something UNDER itself has
-     to be able to fade back to its own surface. „Kontynuuj naukę" masks the
-     material's artwork with a gradient in this exact colour; a gradient written
-     in `--color-dark` instead would be a second, slightly darker grey painted
-     over the first, and that card would sit visibly lower than its neighbour. */
+     to be able to fade back to its own surface. „Kontynuuj naukę" dissolves the
+     material's artwork into this exact colour, through `.cover-scrim-panel`; a
+     gradient written in `--color-dark` instead would be a second, slightly
+     darker grey painted over the first, and that card would sit visibly lower
+     than its neighbour. */
   --panel-bg: color-mix(in srgb, var(--color-card2) 32%, var(--color-dark));
   background-color: var(--panel-bg);
   border: 1px solid color-mix(in srgb, var(--color-gold) 6%, var(--color-border));
@@ -649,7 +650,14 @@
    A CLASS rather than a Tailwind arbitrary value, because nine comma-separated
    colour stops in a class attribute is a string nobody can read or change. */
 .cover-scrim {
-  --cover-scrim-end: color-mix(in srgb, #000 62%, var(--color-card));
+  /* The surface the picture dissolves INTO, named so a caller on a different
+     one can say so. The shelf is made of `--color-card` rows; „Kontynuuj naukę"
+     is an `.app-panel`, a different grey, and a scrim that ended in the shelf's
+     colour would make that card sit visibly lower than the level card beside
+     it. Only the SURFACE moves — the 62% black, the stops and therefore the
+     measured contrast floor below are the same on both. */
+  --cover-scrim-surface: var(--color-card);
+  --cover-scrim-end: color-mix(in srgb, #000 62%, var(--cover-scrim-surface));
 
   background-image: linear-gradient(
     90deg,
@@ -662,6 +670,15 @@
     color-mix(in srgb, var(--cover-scrim-end) 95%, transparent) 58%,
     var(--cover-scrim-end) 68%
   );
+}
+
+/* The same scrim, on Today's panels rather than the shelf's rows.
+
+   It is a modifier instead of a second gradient because there is only one set
+   of measured stops and there must stay only one: the day this list is tuned,
+   it has to be tuned once. `.app-panel` names `--panel-bg` for exactly this. */
+.cover-scrim-panel {
+  --cover-scrim-surface: var(--panel-bg);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

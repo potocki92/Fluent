@@ -969,6 +969,14 @@ reprocessed or imported.
   for the one card that shows a picture — so an admin replacing a photo at noon
   cannot invalidate a plan, move an item's status or trigger a regeneration.
   `supabase/tests/10_material_cover_security.sql` §C7 pins that.
+- **The card is the picture, not a thumbnail beside one.** „Kontynuuj naukę"
+  uses the shelf's illustrated treatment and the shelf's component
+  (`MaterialCover` full bleed, `.cover-scrim`, a 40/42% left reservation for the
+  content), because the two surfaces show the same materials and a learner
+  should recognise a book on Today the way they recognise it on the shelf. The
+  scrim is re-based onto `--panel-bg` with `.cover-scrim-panel` — one set of
+  measured stops, two surfaces — and a cover that fails to load drops the card
+  back to its plain icon form rather than leaving a 40% hole.
 - **Only activities that NAME a material get one.** `continue_text`, `new_text`,
   `continue_chapter`, `new_chapter`, `chapter_preparation` and
   `chapter_assessment` all have a material behind them, and the card's kicker
