@@ -2447,6 +2447,24 @@ export type Database = {
       };
     };
     Functions: {
+      list_notebook_entries: {
+        Args: {
+          p_filter: string;
+          p_library_item_id: string | null;
+          p_chapter_id: string | null;
+          p_search: string | null;
+          /**
+           * The cursor is all three or none: a partial one silently degrades
+           * to the single-column comparison that skipped tied rows. See
+           * `supabase/migrations/20260922140000_notebook_keyset_pagination.sql`.
+           */
+          p_cursor_created_at: string | null;
+          p_cursor_entry_type: string | null;
+          p_cursor_entry_id: number | null;
+          p_limit: number;
+        };
+        Returns: Database["public"]["Views"]["notebook_entries"]["Row"][];
+      };
       review_word_suggestion: {
         Args: { p_suggestion_id: number; p_decision: "approved" | "rejected" };
         Returns: {
