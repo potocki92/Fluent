@@ -7,7 +7,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
 import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
+import { useOwnedTimeout } from "@/hooks/useOwnedTimeout";
 import { useQuizDeck } from "@/hooks/useQuizDeck";
+import { settleAction } from "@/lib/errors";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
@@ -19,6 +21,14 @@ import { cn } from "@/lib/utils";
 
 /** Fast answer threshold in ms — answered within 3 s grades as "easy". */
 const FAST_THRESHOLD_MS = 3000;
+
+/**
+ * How long the correct/wrong highlight holds before the next card.
+ *
+ * Shorter than a test's reveal: a quiz card is one word, and there is no
+ * explanation to read. It was the literal `900` inside the callback.
+ */
+const REVEAL_MS = 900;
 
 const cardVariants: Variants = {
   enter: { opacity: 0, scale: 0.95, x: 0 },
@@ -51,6 +61,7 @@ export function QuizSession({
   // True once the "ucz się dalej" extras have been folded into the deck.
   const [extended, setExtended] = useState(false);
   const shownAt = useRef<number>(0);
+  const reveal = useOwnedTimeout();
   // One idempotency token per question presentation, so a double tap (or a
   // retried request) settles the same review rather than a second one.
   const interactionId = useRef("");
@@ -88,45 +99,50 @@ export function QuizSession({
       setExitDir(correct ? 1 : -1);
       setBusy(true);
       setError(null);
-      try {
-        const result = await updateSrs({
-          wordId: current.wordId,
-          grade,
-          interactionId: ensureInteractionId(interactionId),
-          mode: "quiz",
-          // German prompt, Polish options: picking the right one is recognition,
-          // so this feeds receptive vocabulary and never the active channel.
-          direction: "de_to_pl",
-          responseMs: elapsed,
-        });
-        if (!result.ok) {
-          setError(result.message);
-          setChosen(null);
-          setBusy(false);
-          return;
-        }
-        setResults((r) => [
-          ...r,
-          { wordId: current.wordId, grade, mastered: result.isMastered },
-        ]);
-        // The action bumped today's review count and the vocabulary streak in
-        // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
-        // update live instead of staying frozen until the next page load.
-        void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
-        // Brief visual feedback (highlight correct/wrong) before advancing.
-        window.setTimeout(() => {
-          setChosen(null);
-          setIndex((i) => i + 1);
-          setBusy(false);
-        }, 900);
-      } catch (err) {
-        console.error("Failed to update SRS:", err);
-        setError("Coś poszło nie tak. Spróbuj ponownie za chwilę.");
+      // Settled rather than `try`/`catch`: a rejected action now arrives as a
+      // classified failure carrying Polish copy from the taxonomy, so one
+      // branch handles both shapes and the catch that guessed at a message is
+      // gone. Retrying is safe — the interaction id is not cleared on a
+      // failure, so the next attempt settles the SAME review.
+      const result = await settleAction(
+        () =>
+          updateSrs({
+            wordId: current.wordId,
+            grade,
+            interactionId: ensureInteractionId(interactionId),
+            mode: "quiz",
+            // German prompt, Polish options: picking the right one is
+            // recognition, so this feeds receptive vocabulary and never the
+            // active channel.
+            direction: "de_to_pl",
+            responseMs: elapsed,
+          }),
+        `updateSrs ${current.wordId}`,
+      );
+      if (!result.ok) {
+        setError(result.message);
         setChosen(null);
         setBusy(false);
+        return;
       }
+      setResults((r) => [
+        ...r,
+        { wordId: current.wordId, grade, mastered: result.isMastered },
+      ]);
+      // The action bumped today's review count and the vocabulary streak in
+      // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
+      // update live instead of staying frozen until the next page load.
+      void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
+      // Brief visual feedback (highlight correct/wrong) before advancing.
+      // Owned, so leaving the quiz mid-reveal cancels it instead of advancing
+      // a deck that is no longer on screen.
+      reveal.schedule(() => {
+        setChosen(null);
+        setIndex((i) => i + 1);
+        setBusy(false);
+      }, REVEAL_MS);
     },
-    [current, busy, chosen, queryClient],
+    [current, busy, chosen, queryClient, reveal],
   );
 
   // Keyboard: 1–4 choose option.

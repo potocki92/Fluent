@@ -10,7 +10,7 @@ import {
   skipChapterPreparation,
   type PreparationCard,
 } from "@/actions/chapter-preparation";
-import { FLUENT_ERROR_MESSAGES } from "@/lib/errors";
+import { FLUENT_ERROR_MESSAGES, settleAction } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 /**
@@ -68,12 +68,18 @@ export function PreparationRunner({
       setSelected(optionIdx);
       setError(null);
 
-      const result = await answerPreparationItem({
-        sessionId,
-        wordId: card.wordId,
-        selectedIdx: optionIdx,
-        responseMs: Date.now() - startedAt.current,
-      });
+      // Settled: `setPending(false)` is after the await, so a rejected action
+      // used to leave every option disabled with nothing on screen to explain it.
+      const result = await settleAction(
+        () =>
+          answerPreparationItem({
+            sessionId,
+            wordId: card.wordId,
+            selectedIdx: optionIdx,
+            responseMs: Date.now() - startedAt.current,
+          }),
+        `answerPreparationItem ${sessionId}`,
+      );
 
       setPending(false);
       if (!result.ok) {
@@ -97,7 +103,10 @@ export function PreparationRunner({
     }
 
     setPending(true);
-    const result = await finalizeChapterPreparation(sessionId);
+    const result = await settleAction(
+      () => finalizeChapterPreparation(sessionId),
+      `finalizeChapterPreparation ${sessionId}`,
+    );
     setPending(false);
     if (!result.ok) {
       setError(result.message);
@@ -110,7 +119,10 @@ export function PreparationRunner({
 
   const skip = useCallback(async () => {
     setPending(true);
-    const result = await skipChapterPreparation(chapterId);
+    const result = await settleAction(
+      () => skipChapterPreparation(chapterId),
+      `skipChapterPreparation ${chapterId}`,
+    );
     setPending(false);
     if (!result.ok) {
       setError(FLUENT_ERROR_MESSAGES[result.code]);

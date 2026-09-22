@@ -6,6 +6,7 @@ import { PartyPopper } from "lucide-react";
 
 import { gradeNotebookCard } from "@/actions/review-notebook";
 import type { ReviewGrade } from "@/actions/update-srs";
+import { settleAction } from "@/lib/errors";
 import { Progress } from "@/components/ui/progress";
 import type { DueNotebookCard } from "@/lib/notebook/queries";
 import {
@@ -65,17 +66,25 @@ export function NotebookReviewSession({ cards }: { cards: DueNotebookCard[] }) {
       setBusy(true);
       setError(null);
 
-      const result = await gradeNotebookCard({
-        annotationId: current.annotationId,
-        sentenceNoteId: current.sentenceNoteId,
-        grade,
-        interactionId: ensureInteractionId(interactionId),
-        // What the card DEMANDED, decided by the card builder rather than here —
-        // it is the same judgement the evidence map makes, and it must not be
-        // re-made by the UI.
-        mode: card!.mode,
-        direction: card!.direction,
-      });
+      // Settled: `setBusy(false)` is after the await, so a rejected action
+      // used to leave every grade button disabled with nothing to explain it.
+      // Retrying is safe — the interaction id is not cleared on a failure, so
+      // the second attempt settles the SAME review rather than a new one.
+      const result = await settleAction(
+        () =>
+          gradeNotebookCard({
+            annotationId: current.annotationId,
+            sentenceNoteId: current.sentenceNoteId,
+            grade,
+            interactionId: ensureInteractionId(interactionId),
+            // What the card DEMANDED, decided by the card builder rather than
+            // here — it is the same judgement the evidence map makes, and it
+            // must not be re-made by the UI.
+            mode: card!.mode,
+            direction: card!.direction,
+          }),
+        `gradeNotebookCard ${current.annotationId ?? current.sentenceNoteId}`,
+      );
 
       setBusy(false);
       if (!result.ok) {
