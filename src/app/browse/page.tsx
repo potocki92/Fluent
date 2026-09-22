@@ -6,7 +6,8 @@ import { BrowseFilters } from "@/components/words/BrowseFilters";
 import { WordList } from "@/components/words/WordList";
 import { getQueryClient } from "@/lib/query-client";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { buildWordFilters, fetchWordsOffsetPage } from "@/hooks/useWords";
+import { buildWordFilters } from "@/hooks/useWords";
+import { dictionaryKeys, fetchWordsPage } from "@/lib/dictionary/queries";
 import { SAVED_WORDS_KEY, SAVED_WORD_COLUMNS } from "@/hooks/useSavedWords";
 import type { SavedWord } from "@/types";
 
@@ -56,9 +57,11 @@ export default async function BrowsePage({
     totalWords(),
     Promise.allSettled([
       queryClient.prefetchInfiniteQuery({
-        queryKey: ["words", filters],
+        // Same key factory and same adapter the client hook uses — with the
+        // SERVER client, so the prefetch never depends on a browser singleton.
+        queryKey: dictionaryKeys.list(filters),
         queryFn: ({ pageParam }) =>
-          fetchWordsOffsetPage(pageParam as number, filters),
+          fetchWordsPage(supabase, pageParam as number, filters),
         initialPageParam: 0,
         getNextPageParam: (lastPage) => lastPage.nextPage,
         pages: 1,

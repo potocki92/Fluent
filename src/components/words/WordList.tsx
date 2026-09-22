@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { saveWord, unsaveWord } from "@/actions/save-word";
-import { useWords, buildWordFilters } from "@/hooks/useWords";
+import { useWords, useWordDetail, buildWordFilters } from "@/hooks/useWords";
 import { useSavedWords } from "@/hooks/useSavedWords";
 import { WordDetailSheet } from "@/components/words/WordDetailSheet";
 import { WordRow, type WordStatus } from "@/components/words/WordRow";
+import type { DictionaryListWord } from "@/lib/dictionary/contracts";
 import { masteryProgress } from "@/lib/sm2";
-import type { Word } from "@/types";
 
 /**
  * Compact, scannable list view of the dictionary. Replaces the card grid: each
@@ -74,7 +74,7 @@ export function WordList({
   );
 
   const onSave = useCallback(
-    async (word: Word) => {
+    async (word: DictionaryListWord) => {
       const next = !isSaved(word.id);
       setOverrides((o) => ({ ...o, [word.id]: next }));
       try {
@@ -95,8 +95,14 @@ export function WordList({
   );
   const total = data?.pages[0]?.count ?? 0;
 
-  // The word whose detail sheet is open (null when closed).
-  const [selected, setSelected] = useState<Word | null>(null);
+  // The word whose detail sheet is open (null when closed). The list row is
+  // held for the header; everything else the sheet shows is fetched by id,
+  // because the list query deliberately does not select it.
+  const [selected, setSelected] = useState<DictionaryListWord | null>(null);
+  const {
+    data: detail,
+    isLoading: isLoadingDetail,
+  } = useWordDetail(selected?.id ?? null);
 
   // Infinite scroll: load the next page when the sentinel enters the viewport.
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -156,6 +162,8 @@ export function WordList({
 
       <WordDetailSheet
         word={selected}
+        detail={detail}
+        isLoadingDetail={isLoadingDetail}
         isSaved={selected ? isSaved(selected.id) : false}
         onSave={() => selected && onSave(selected)}
         open={selected !== null}

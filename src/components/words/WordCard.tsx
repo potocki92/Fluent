@@ -7,7 +7,8 @@ import { Check, Plus, Volume2 } from "lucide-react";
 import { CEFR_COLORS } from "@/lib/cefr";
 import { speakGerman } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import type { Word, WordType } from "@/types";
+import type { DictionaryListWord } from "@/lib/dictionary/contracts";
+import type { WordType } from "@/types";
 
 /** Background/text tokens for the article (rodzaj) chip. */
 const ARTICLE_CHIP: Record<"der" | "die" | "das", string> = {
@@ -28,7 +29,7 @@ export function WordCard({
   isSaved,
   onSave,
 }: {
-  word: Word;
+  word: DictionaryListWord;
   isSaved: boolean;
   onSave: () => void;
 }) {
