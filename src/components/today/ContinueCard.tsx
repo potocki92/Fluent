@@ -1,11 +1,8 @@
-import Image from "next/image";
+"use client";
+
 import Link from "next/link";
-import {
-  ArrowRight,
-  CalendarClock,
-  PartyPopper,
-  type LucideIcon,
-} from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, CalendarClock, PartyPopper } from "lucide-react";
 
 import type { TodayPlanItem } from "@/actions/today-plan";
 import { MaterialCover } from "@/components/library/MaterialCover";
@@ -18,11 +15,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * How wide the thumbnail is rendered, so `next/image` fetches that and not a
- * 4000 px original. Both layers below declare the SAME `sizes` deliberately —
- * see {@link CardArtwork}.
+ * How wide the artwork is actually rendered, so `next/image` fetches that and
+ * not a 4000 px original. The picture spans the WHOLE card — the scrim hides its
+ * right-hand half rather than cropping it — so this is the card's width, not the
+ * visible strip's. Today is a `max-w-5xl` dashboard whose `lg` grid gives this
+ * card the `1.6fr` track: about 592 px at the widest.
  */
-const ARTWORK_SIZES = "(min-width: 640px) 104px, 76px";
+const ARTWORK_SIZES = "(min-width: 1024px) 592px, 100vw";
 
 /**
  * „Kontynuuj naukę" — the one thing to do next, and the button that starts it.
@@ -34,18 +33,21 @@ const ARTWORK_SIZES = "(min-width: 640px) 104px, 76px";
  * is being offered, and keeps one destination, which is the same href the row in
  * the plan below points at.
  *
- * THE THUMBNAIL IS THE MATERIAL, WHEN THERE IS ONE. Material artwork now exists
- * — an admin attaches it to a text and it is stored once, on the library item
- * (`src/lib/library/artwork.ts`) — so an activity that NAMES a material shows
- * that material's picture, and a learner recognises yesterday's café story
- * without reading a word. That includes the Story drills: „PRZYGOTOWANIE ·
- * Die neuen Nachbarn" is about the same book the shelf shows, and the kicker
- * above the title is what keeps the kind of work distinct, not the absence of a
- * photograph. Everything else keeps the icon it always had: „Powtórki" is a
- * deck, not a material, and a stock photograph of one would be decoration
- * pretending to be information. A material with no artwork, a URL that no longer
- * resolves, or an activity with no material behind it all land on the same
- * fallback — `PLAN_ITEM_ICONS` on its warm ground.
+ * TWO CARDS, ONE COMPONENT, AND THE PICTURE DECIDES WHICH — the same split
+ * `LibraryItemCard` makes on the shelf, deliberately built the same way so the
+ * two surfaces stay one design. An activity whose material has artwork gets
+ * {@link CoverCard}: the image IS the card, full bleed, dissolved into the
+ * panel's own colour by `.cover-scrim` so there is no seam, no tile and no
+ * second background. Everything else keeps {@link PlainCard} exactly as it was —
+ * the activity's icon on its warm ground, the same padding, the same rhythm.
+ * „Powtórki" is a deck, not a material, and a stock photograph of one would be
+ * decoration pretending to be information.
+ *
+ * IT IS A CLIENT COMPONENT FOR THE FALLBACK, for the same reason the shelf is. A
+ * cover URL can outlive its object, and the illustrated card RESERVES 40% of its
+ * width for a picture — so a dead URL there is not a missing thumbnail, it is a
+ * hole where the design was. The one piece of state here is "that image did not
+ * load", and it drops the card back to the plain form, which needs no picture.
  *
  * IT HOLDS NO AUTHORITY AND FETCHES NOTHING. The artwork arrives as a prop,
  * resolved on the server next to the plan; a Supabase query between two pieces
@@ -65,167 +67,228 @@ export function ContinueCard({
   artwork?: MaterialArtwork | null;
   className?: string;
 }) {
+  const [coverFailed, setCoverFailed] = useState(false);
+
   if (!item) return <DayDone isComplete={isComplete} className={className} />;
 
-  const Icon = PLAN_ITEM_ICONS[item.type];
-  const label = planItemLabel(item);
-  const reason = renderReason({ code: item.reasonCode, data: item.reasonData });
   // The last word on whether a picture is shown, and it re-checks the activity's
   // type rather than trusting the caller — see `planItemArtwork`.
   const cover = planItemArtwork(item, artwork);
 
-  // The kicker names the KIND of work; the line under it names the material. For
-  // an activity the plan snapshotted no title for — a review queue is not "a
-  // text" — those two collapse onto the same word, and „Powtórki / Powtórki" is
-  // a card that says one thing twice. Then the kind is the only thing there is
-  // to say, so the card says it once, as the title.
-  const category = PLAN_ITEM_CATEGORY_PL[item.type] ?? "Nauka";
-  const kicker = category === label ? null : category;
+  return cover && !coverFailed ? (
+    <CoverCard
+      item={item}
+      coverUrl={cover.url}
+      onCoverError={() => setCoverFailed(true)}
+      className={className}
+    />
+  ) : (
+    <PlainCard item={item} className={className} />
+  );
+}
+
+/**
+ * The illustrated card: artwork edge to edge, text on the far side of a gradient.
+ *
+ * THE PICTURE IS NOT A COLUMN. It runs the full width and height of the card and
+ * the scrim dissolves it into the panel's own colour from about a third of the
+ * way across, so a learner recognises yesterday's café story before reading a
+ * word and the card still belongs to the column of panels it sits in. The 40%
+ * left padding RESERVES the bright end for the image; it is not a column
+ * boundary, and nothing is drawn there.
+ *
+ * EVERY PIECE OF CONTENT SHARES THAT COLUMN, the button included. A CTA that
+ * spanned the whole card would cut a gold bar across the photograph, and one
+ * that floated over its bright half would be the only element on Today without a
+ * readable background. Inset with the rest it is still ~216 px on a 390 px
+ * phone — a comfortable target, and unmistakably the same button.
+ *
+ * AND IT KEEPS ITS OWN LINE AT EVERY WIDTH, unlike the plain card's. Reserving
+ * 42% for the picture leaves the content about 323 px even on the widest Today
+ * (`max-w-5xl`, the `1.6fr` track ≈ 591 px); an inline button takes 150 of them
+ * and „Die neuen Nachbarn" needs 175, so the material's own name is the first
+ * thing to be truncated. Stacked, the title gets the whole column at every
+ * breakpoint and the card is one layout instead of two.
+ *
+ * `object-center` anchors the crop, and this is the one place it differs from
+ * the shelf ON PURPOSE. A shelf row is wide and short, so its picture is scaled
+ * to the width and barely trimmed sideways — `object-left` costs it nothing.
+ * This card is the other shape: the strip is ~40% as wide as the card and twice
+ * as tall, so a landscape cover is scaled to the HEIGHT and about half its width
+ * is cut. Anchoring left would then show a cover's left edge and drop the
+ * subject the admin was told to centre; centring keeps it.
+ */
+function CoverCard({
+  item,
+  coverUrl,
+  onCoverError,
+  className,
+}: {
+  item: TodayPlanItem;
+  coverUrl: string;
+  onCoverError: () => void;
+  className?: string;
+}) {
+  return (
+    <section
+      className={cn(
+        "app-panel relative overflow-hidden rounded-xl",
+        className,
+      )}
+      aria-labelledby="continue-card-heading"
+    >
+      <MaterialCover
+        coverUrl={coverUrl}
+        sizes={ARTWORK_SIZES}
+        className="absolute inset-0"
+        imageClassName="object-center"
+        // Above the fold — load it now rather than when it scrolls into view.
+        // Not `preload`: the LCP element on Today is the card's own text, and
+        // Next 16 deprecated `priority` precisely because "important" and
+        // "preload in the head" are different claims.
+        eager
+        // There is no icon to fall back to HERE: a failed cover re-renders the
+        // whole card in its plain form, which has one.
+        fallback={null}
+        onError={onCoverError}
+      />
+      <span aria-hidden className="cover-scrim cover-scrim-panel absolute inset-0" />
+
+      {/* 40% on a phone, 42% from `sm` — the shelf's numbers and its reasoning:
+          the picture wants the larger share, but at 390px 42% leaves the title
+          too little to stay on one line. The content decides the height. */}
+      <div className="relative flex flex-col gap-3 p-5 pl-[40%] sm:pl-[42%]">
+        <h2 id="continue-card-heading" className="text-base font-bold">
+          Kontynuuj naukę
+        </h2>
+
+        <MaterialLine item={item} onArtwork />
+
+        <ContinueButton item={item} className="w-full" />
+      </div>
+    </section>
+  );
+}
+
+/** The card as it has always been: the activity's icon, then the text beside it. */
+function PlainCard({
+  item,
+  className,
+}: {
+  item: TodayPlanItem;
+  className?: string;
+}) {
+  const Icon = PLAN_ITEM_ICONS[item.type];
 
   return (
     <section
-      className={cn("app-panel relative overflow-hidden rounded-xl p-5", className)}
+      className={cn("app-panel rounded-xl p-5", className)}
       aria-labelledby="continue-card-heading"
     >
-      {cover && <CardAmbience url={cover.url} />}
-
-      <h2
-        id="continue-card-heading"
-        className="relative z-10 text-base font-bold"
-      >
+      <h2 id="continue-card-heading" className="text-base font-bold">
         Kontynuuj naukę
       </h2>
 
-      <div className="relative z-10 mt-4 flex items-center gap-4">
-        {cover ? (
-          <CardArtwork url={cover.url} icon={Icon} />
-        ) : (
-          <span className="block size-14 shrink-0 overflow-hidden rounded-lg sm:size-16">
-            <PlanIconTile icon={Icon} />
-          </span>
-        )}
-
-        <div className="min-w-0 flex-1">
-          {kicker && (
-            <p className="text-xs font-medium uppercase tracking-wide text-gold">
-              {kicker}
-            </p>
-          )}
-          <p className="truncate text-lg font-semibold" title={label}>
-            {label}
-          </p>
-          <p className="truncate text-xs text-muted2" title={reason}>
-            {reason}
-          </p>
-        </div>
-
-        <Button
-          asChild
-          className="hidden shrink-0 rounded-full bg-gold px-5 text-dark hover:bg-gold-dark sm:inline-flex"
+      <div className="mt-4 flex items-center gap-4">
+        <span
+          aria-hidden
+          className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-gold/20 to-blue/10 text-gold sm:size-16"
         >
-          <Link href={planItemHref(item)}>
-            Kontynuuj
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
-        </Button>
+          <Icon className="size-6" />
+        </span>
+
+        <MaterialLine item={item} />
+        <ContinueButton item={item} className="hidden shrink-0 px-5 sm:inline-flex" />
       </div>
 
       {/* On a phone the button owns its own line: squeezed next to a title it
           becomes a 60px target with a truncated label. */}
-      <Button
-        asChild
-        className="relative z-10 mt-4 w-full rounded-full bg-gold text-dark hover:bg-gold-dark sm:hidden"
-      >
-        <Link href={planItemHref(item)}>
-          Kontynuuj
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
-      </Button>
+      <ContinueButton item={item} className="mt-4 w-full sm:hidden" />
     </section>
   );
 }
 
 /**
- * The material's picture, at the size it is actually rendered.
+ * What the activity is, in the three lines both cards draw.
  *
- * 4:3 ON A DESKTOP, SQUARE ON A PHONE, and neither may push the card wider than
- * the screen: `shrink-0` fixes the tile, the text next to it owns `min-w-0`, and
- * the truncation stays where it already was. A 104 px tile and a 96-character
- * German title on a 375 px screen is the case this layout is measured against.
+ * The kicker names the KIND of work; the line under it names the material. For
+ * an activity the plan snapshotted no title for — a review queue is not "a
+ * text" — those two collapse onto the same word, and „Powtórki / Powtórki" is a
+ * card that says one thing twice. Then the kind is the only thing there is to
+ * say, so the card says it once, as the title.
  *
- * DECORATIVE, so `alt=""`. The picture repeats what the title beside it already
- * says; describing it again would make a screen reader announce the same
- * material twice, and there is no information in it a learner could otherwise
- * miss.
- *
- * ABOVE THE FOLD, so it loads eagerly rather than waiting to be scrolled into
- * view — but not `preload`: the LCP element on Today is the card's own text, and
- * Next 16 deprecated `priority` precisely because "important" and "preload in
- * the head" are different claims.
- *
- * `MaterialCover` is shared with the shelf so that a URL which no longer
- * resolves lands on the SAME fallback here as it does there — the activity's own
- * icon, rather than an empty bordered box.
+ * `onArtwork` changes two things, both because the text is then living in a
+ * column about 40% narrower than the card. It WRAPS instead of truncating —
+ * „Die Verwandlung und andere Erzählungen aus Prag" and the reason under it both
+ * lose their point at one line, and the shelf clamps its title for exactly this
+ * reason — and it LIFTS the reason's colour, which is a contrast requirement
+ * rather than a style preference: over a blown-out cover `--color-muted2` would
+ * need the scrim at 0.85 where this text starts, which would mean covering the
+ * picture almost to the type, while `--color-main` clears 4.5:1 at the 0.62 the
+ * scrim actually delivers there.
  */
-function CardArtwork({ url, icon: Icon }: { url: string; icon: LucideIcon }) {
+function MaterialLine({
+  item,
+  onArtwork = false,
+}: {
+  item: TodayPlanItem;
+  onArtwork?: boolean;
+}) {
+  const label = planItemLabel(item);
+  const reason = renderReason({ code: item.reasonCode, data: item.reasonData });
+  const category = PLAN_ITEM_CATEGORY_PL[item.type] ?? "Nauka";
+  const kicker = category === label ? null : category;
+
   return (
-    <MaterialCover
-      coverUrl={url}
-      sizes={ARTWORK_SIZES}
-      className="size-[76px] rounded-xl border border-border/80 sm:h-[78px] sm:w-[104px]"
-      eager
-      fallback={<PlanIconTile icon={Icon} />}
-    />
+    <div className="min-w-0 flex-1">
+      {kicker && (
+        <p className="text-xs font-medium uppercase tracking-wide text-gold">
+          {kicker}
+        </p>
+      )}
+      <p
+        className={cn(
+          "text-lg font-semibold",
+          onArtwork ? "line-clamp-2 break-words leading-snug" : "truncate",
+        )}
+        title={label}
+      >
+        {label}
+      </p>
+      <p
+        className={cn(
+          "text-xs",
+          onArtwork ? "line-clamp-2 text-main" : "truncate text-muted2",
+        )}
+        title={reason}
+      >
+        {reason}
+      </p>
+    </div>
   );
 }
 
-/** The warm ground the activity's icon has always sat on. */
-function PlanIconTile({ icon: Icon }: { icon: LucideIcon }) {
+/** One destination, wherever the card draws the button — `planItemHref` owns it. */
+function ContinueButton({
+  item,
+  className,
+}: {
+  item: TodayPlanItem;
+  className?: string;
+}) {
   return (
-    <span
-      aria-hidden
-      className="flex size-full items-center justify-center bg-gradient-to-br from-gold/20 to-blue/10 text-gold"
+    <Button
+      asChild
+      className={cn(
+        "rounded-full bg-gold text-dark hover:bg-gold-dark",
+        className,
+      )}
     >
-      <Icon className="size-6" />
-    </span>
-  );
-}
-
-/**
- * The same picture again, as atmosphere.
- *
- * WHY IT IS BARELY THERE. The card's job is to be read and tapped; the artwork's
- * job is to make it recognisable. So the image sits on the right at a tenth of
- * its opacity under a gradient that is fully the panel colour on the left, and
- * the text above it never loses contrast. On a phone it is fainter still and
- * narrower — a small screen is mostly text, and there is no room to spend on
- * atmosphere at the cost of legibility.
- *
- * IT COSTS NO EXTRA REQUEST. It declares the same `sizes` as the thumbnail, so
- * `next/image` resolves both to the same optimized URL and the browser fetches
- * it once. The blur is what makes a 104 px source look deliberate rather than
- * low-resolution when it is stretched across a third of the card.
- */
-function CardAmbience({ url }: { url: string }) {
-  return (
-    <span aria-hidden className="pointer-events-none absolute inset-0 select-none">
-      <span className="absolute inset-y-0 right-0 block w-3/5 opacity-[0.07] blur-[2px] sm:w-2/5 sm:opacity-[0.12]">
-        <Image
-          src={url}
-          alt=""
-          fill
-          sizes={ARTWORK_SIZES}
-          loading="eager"
-          className="object-cover"
-        />
-      </span>
-      {/* The mask, in the panel's OWN colour (`--panel-bg`, declared by
-          `.app-panel`) rather than `card` or `dark`: either of those is a
-          different grey from the one this card is actually painted in, and
-          laying it over the left half would make the card sit visibly lower than
-          the one beside it. */}
-      <span className="absolute inset-0 block bg-gradient-to-r from-[var(--panel-bg)] from-40% via-[var(--panel-bg)]/80 to-transparent" />
-    </span>
+      <Link href={planItemHref(item)}>
+        Kontynuuj
+        <ArrowRight className="size-4" aria-hidden />
+      </Link>
+    </Button>
   );
 }
 
