@@ -2741,6 +2741,10 @@ export type Database = {
           p_furthest_token_position: number | null;
           p_active_seconds: number;
           p_max_active_seconds: number;
+          /** The receipt: one id is applied exactly once. */
+          p_report_id: string;
+          /** Monotonic within a reading; guards the resume bookmark's order. */
+          p_report_seq: number;
         };
         Returns: {
           progress_ratio: number;
@@ -2749,6 +2753,8 @@ export type Database = {
           reading_word_count: number;
           active_seconds: number;
           words_read: number;
+          /** False when this exact report had already been applied. */
+          applied: boolean;
         }[];
       };
       /** Finishes a chapter. Refuses below `p_min_ratio`; idempotent. */

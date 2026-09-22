@@ -118,6 +118,8 @@ export async function startReadingSession(
 
 export interface ReadingProgressResult {
   progressRatio: number;
+  /** False when this exact report had already been applied. */
+  applied: boolean;
   furthestWordOffset: number;
   readingWordCount: number;
   activeSeconds: number;
@@ -149,6 +151,18 @@ export async function reportReadingProgress(input: {
   resume: ReadingAnchor;
   furthest: ReadingAnchor;
   activeSeconds: number;
+  /**
+   * The receipt. The database applies one id EXACTLY once, which is what makes
+   * retrying a report safe — and therefore what lets the reader hold on to its
+   * seconds through a failure instead of dropping them.
+   */
+  reportId: string;
+  /**
+   * Monotonic within one reading. A report whose seq the session has already
+   * passed contributes its seconds and its furthest mark but does not move the
+   * resume bookmark backwards.
+   */
+  reportSeq: number;
 }): Promise<ActionResult<ReadingProgressResult>> {
   const supabase = await createServerSupabaseClient();
   const {
@@ -171,6 +185,8 @@ export async function reportReadingProgress(input: {
     p_furthest_token_position: toStoredPosition(input.furthest.tokenPosition),
     p_active_seconds: Math.max(0, Math.trunc(input.activeSeconds)),
     p_max_active_seconds: MAX_ACTIVE_SECONDS_PER_REPORT,
+    p_report_id: input.reportId,
+    p_report_seq: input.reportSeq,
   });
   if (error) return failFrom(error, `reportReadingProgress: ${input.sessionId}`);
 
@@ -181,6 +197,7 @@ export async function reportReadingProgress(input: {
   return {
     ok: true,
     progressRatio: ratio,
+    applied: row.applied ?? true,
     furthestWordOffset: row.furthest_word_offset ?? 0,
     readingWordCount: row.reading_word_count ?? 0,
     activeSeconds: row.active_seconds ?? 0,

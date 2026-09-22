@@ -87,13 +87,30 @@ export function useActiveReadingClock() {
    *
    * Draining rather than reading is what makes the server-side accumulation
    * correct: each report carries an increment that has been counted exactly
-   * once, so a lost request loses a few seconds instead of double-counting the
-   * whole session.
+   * once. What it cannot do on its own is survive a failed write — see
+   * {@link refund}.
    */
   const drain = useCallback(() => {
     const whole = Math.floor(secondsRef.current);
     secondsRef.current -= whole;
     return whole;
+  }, []);
+
+  /**
+   * Put drained seconds back.
+   *
+   * Draining used to be a one-way door, and that was the bug: a report that
+   * failed took its seconds with it, because they had already left the clock
+   * and no retry carried them. Twenty minutes of reading over a flaky
+   * connection recorded four.
+   *
+   * The seconds now come back here whenever a report is ABANDONED rather than
+   * retried — the reader unmounting with one still in flight. (A report that
+   * WILL be retried keeps its own seconds and its own receipt, so it cannot
+   * double-count; see `src/lib/reading/flush.ts`.)
+   */
+  const refund = useCallback((seconds: number) => {
+    if (seconds > 0) secondsRef.current += seconds;
   }, []);
 
   /** Seconds accumulated but not yet drained — for the live summary. */
@@ -121,5 +138,8 @@ export function useActiveReadingClock() {
   // reader came to seal its own reading session while the learner was still
   // reading — after which every progress report was refused as belonging to a
   // finished session, and with it the chapter's completion.
-  return useMemo(() => ({ drain, peek, isActive }), [drain, isActive, peek]);
+  return useMemo(
+    () => ({ drain, refund, peek, isActive }),
+    [drain, isActive, peek, refund],
+  );
 }

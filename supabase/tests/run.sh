@@ -38,6 +38,7 @@ MIGRATIONS=(
   supabase/migrations/20260921120000_material_covers.sql
   supabase/migrations/20260922120000_dictionary_write_integrity.sql
   supabase/migrations/20260922140000_notebook_keyset_pagination.sql
+  supabase/migrations/20260922160000_reading_progress_receipts.sql
 )
 
 # The suites run against the same database, in order: 01 exercises the test
@@ -57,6 +58,7 @@ SUITES=(
   supabase/tests/10_material_cover_security.sql
   supabase/tests/11_dictionary_write_integrity.sql
   supabase/tests/12_notebook_pagination.sql
+  supabase/tests/13_reading_progress_receipts.sql
 )
 
 if ! "$PSQL" -d "$ADMIN_DB" -tAc 'select 1' >/dev/null 2>&1; then
