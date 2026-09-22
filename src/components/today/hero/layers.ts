@@ -48,9 +48,15 @@ export interface HeroLayer {
  * TOGETHER THEY ARE A BUDGET, NOT TWO INDEPENDENT NUMBERS. Pointer and scroll
  * add on the vertical axis, and the sum is what `.today-hero-scene` has to
  * overscan past the hero's edge. The worst case is the forest at the bottom of
- * its travel: 12 × `PARALLAX_VERTICAL_DAMPING` + 10 ≈ 17px, against 20px of
- * overscan. Raising a `drift` past this without widening that inset is how a
- * phone gets a bright seam along the bottom of the card.
+ * its travel: 12 × `PARALLAX_VERTICAL_DAMPING` + 10 × `--drift-scale`, which is
+ * 17px above `sm` against 20px of overscan and 23px on a phone against 26px.
+ * Raising a `drift` past this without widening that inset is how a phone gets a
+ * bright seam along the bottom of the card.
+ *
+ * `drift` IS THE SMALLER NUMBER HERE AND THE BIGGER ONE ON A PHONE. These are
+ * the desktop values, where the scroll is a garnish on top of the pointer;
+ * `--drift-scale` in `globals.css` works them harder below `sm`, because a
+ * touch screen has no pointer and the scroll is the only thing moving.
  *
  * ALIGNMENT IS NOT NEGOTIABLE (§5). Every file here is the same 2172×724 frame
  * of the same painting, and the renderer gives all five the identical box,

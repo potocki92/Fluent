@@ -80,15 +80,35 @@ export function settled(current: number, target: number): boolean {
 }
 
 /**
- * How far the hero has scrolled up out of the viewport, as 0 (untouched) … 1
- * (entirely gone).
+ * How far the hero has risen from where it rests, as 0 (untouched) … 1 (a full
+ * hero-height of scroll spent).
  *
- * `top` is the hero's distance from the top of the viewport, so it is positive
- * while the hero is still below the fold and goes negative as it leaves. That
- * makes 0 the value on a freshly loaded `/today`, which is what §30 asks for:
- * no scroll offset is baked in before the learner has scrolled anything.
+ * MEASURED FROM REST, NOT FROM THE TOP OF THE VIEWPORT, and that distinction is
+ * the whole of this function. Driving the drift off the hero's distance from
+ * the viewport's top edge — `-top / height`, the obvious version — means
+ * NOTHING MOVES until the hero's top edge has already crossed it. On a phone
+ * that is the first 72px of scroll: the hero slides a third of the way up,
+ * perfectly still, and only then starts to breathe. Worse, it finishes late —
+ * the app's sticky header has covered the hero entirely by 164px, so better
+ * than a third of the travel is spent where nobody can see it. The effect
+ * exists, and on the screen most learners use it is invisible.
+ *
+ * Rest is "the page has not been scrolled", so `scrolled` IS the distance
+ * risen, and one hero-height of it spends the whole drift. That starts the
+ * motion on the first pixel of scroll and lands the end of it just before the
+ * chrome finishes covering the hero — on a 148px phone hero, at 148px of
+ * scroll against 164px of visible life.
+ *
+ * IT ASSUMES THE HERO RESTS AT THE TOP OF ITS PAGE, which Today's does. Given
+ * anything lower down the page it would drift early rather than on cue; there
+ * is exactly one caller, and this is cheaper and steadier than the alternative
+ * — caching a resting offset that a resize, a font swap or a banner above the
+ * hero would silently invalidate.
+ *
+ * Clamped at 0 so iOS rubber-banding, which reports a negative scroll offset at
+ * the top of the page, cannot push the scene the wrong way.
  */
-export function scrollProgress(top: number, height: number): number {
+export function scrollProgress(scrolled: number, height: number): number {
   if (height <= 0) return 0;
-  return clamp(-top / height, 0, 1);
+  return clamp(scrolled / height, 0, 1);
 }
