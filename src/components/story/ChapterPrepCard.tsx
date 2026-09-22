@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BookOpen, Gauge, Sparkles } from "lucide-react";
 
-import type { ChapterStoryState } from "@/actions/chapter-analysis";
+import type { ChapterStoryState } from "@/lib/story/contracts";
 import { cn } from "@/lib/utils";
 
 /**

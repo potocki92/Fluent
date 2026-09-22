@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { skipPlanItem, type TodayPlan } from "@/actions/today-plan";
+import { skipPlanItem } from "@/actions/today-plan";
+import type { TodayPlan } from "@/lib/learning/planner/contracts";
 import { nextPlanItem } from "@/lib/learning/planner/routes";
 import {
   runSkipPlanItem,

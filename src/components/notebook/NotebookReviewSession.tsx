@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import { PartyPopper } from "lucide-react";
 
 import { gradeNotebookCard } from "@/actions/review-notebook";
-import type { ReviewGrade } from "@/actions/update-srs";
+import type { ReviewGrade } from "@/lib/sm2";
 import { settleAction } from "@/lib/errors";
 import { Progress } from "@/components/ui/progress";
 import type { DueNotebookCard } from "@/lib/notebook/queries";

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PartyPopper, TrendingUp } from "lucide-react";
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import {
   PLAN_ITEM_TITLE_PL,
   renderEstimatedTime,

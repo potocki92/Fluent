@@ -2,7 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { resolveReaderWord, type ReaderDictionaryWord } from "@/actions/reading";
+import { resolveReaderWord } from "@/actions/reading";
+import type { ReaderDictionaryWord } from "@/lib/reading/contracts";
 import {
   resolveGlossWordId,
   type GlossTarget,

@@ -1,4 +1,4 @@
-import type { TodayPlan } from "@/actions/today-plan";
+import type { TodayPlan } from "@/lib/learning/planner/contracts";
 import type { MaterialArtwork } from "@/lib/library/artwork";
 import { nextPlanItem } from "@/lib/learning/planner/routes";
 import { ContinueCard } from "@/components/today/ContinueCard";

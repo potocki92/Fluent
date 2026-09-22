@@ -32,6 +32,11 @@ import {
   type RankedPreteachWord,
 } from "@/lib/story/preparation";
 import type { WordEvidence } from "@/lib/story/knowledge";
+import type {
+  ChapterStoryState,
+  PreparationOffer,
+  PreparationWord,
+} from "@/lib/story/contracts";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import type { Json } from "@/types/database";
 
@@ -57,58 +62,16 @@ import type { Json } from "@/types/database";
  * coverage behind it.
  */
 
-/** The preparation offer, when there is one worth making. */
-export interface PreparationOffer {
-  /** How many words would be pre-taught. */
-  wordCount: number;
-  estimatedMinutes: number;
-  /** The words themselves, for the preparation screen. */
-  words: PreparationWord[];
-}
-
-export interface PreparationWord {
-  wordId: number;
-  lemma: string;
-  display: string;
-  translation: string;
-  contextSentence: string | null;
-  contextSource: "chapter_opening" | "dictionary" | "none";
-  firstSentencePosition: number;
-}
-
-export interface ChapterStoryState {
-  chapterId: string;
-  libraryItemId: string;
-  slug: string;
-  position: number;
-  title: string | null;
-  itemTitle: string;
-  wordCount: number;
-  estimatedMinutes: number;
-
-  /** Whole percent, or null when there is no honest figure to show. */
-  coveragePercent: number | null;
-  coverageConfidence: EstimateConfidence;
-  /** Polish, ready to render: "pewność: wysoka" or "za mało danych". */
-  coverageConfidenceLabel: string;
-
-  difficultyLabel: DifficultyLabel;
-  /** Polish: "Wymagający". NOT a statement about the learner's level. */
-  difficultyLabelPl: string;
-  difficultyConfidence: EstimateConfidence;
-
-  preparation: PreparationOffer | null;
-  /** True when a validated bank can fill a Challenge for this chapter. */
-  hasChallenge: boolean;
-  /** Where the learner is in the chapter's LEARNING lifecycle. */
-  lifecycle:
-    | "not_started"
-    | "prepared"
-    | "reading"
-    | "read"
-    | "assessment_pending"
-    | "completed";
-}
+/**
+ * The SHAPES live in `@/lib/story/contracts` — a module with no `"use server"`
+ * on it — so a chapter card can describe a chapter without pulling a Server
+ * Action into its graph. Re-exported for callers that want both.
+ */
+export type {
+  ChapterStoryState,
+  PreparationOffer,
+  PreparationWord,
+} from "@/lib/story/contracts";
 
 export async function getChapterStoryState(
   chapterId: string,

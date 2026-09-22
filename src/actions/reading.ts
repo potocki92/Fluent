@@ -13,6 +13,10 @@ import {
   readingLookupEvidence,
 } from "@/lib/learning/evidence";
 import { prepareEvidence } from "@/lib/learning/commit-evidence";
+import type {
+  ChapterSummary,
+  ReaderDictionaryWord,
+} from "@/lib/reading/contracts";
 import {
   CHAPTER_COMPLETION_RATIO,
   MAX_ACTIVE_SECONDS_PER_REPORT,
@@ -207,15 +211,14 @@ export async function reportReadingProgress(input: {
 }
 
 
-/** What the learner is shown after finishing a chapter. Real numbers, no AI. */
-export interface ChapterSummary {
-  alreadyCompleted: boolean;
-  wordsRead: number;
-  activeSeconds: number;
-  lookupCount: number;
-  uniqueLookupCount: number;
-  savedWordCount: number;
-}
+/**
+ * The SHAPES live in `@/lib/reading/contracts`, so a card or a hook can
+ * describe them without importing a Server Action module.
+ */
+export type {
+  ChapterSummary,
+  ReaderDictionaryWord,
+} from "@/lib/reading/contracts";
 
 /**
  * Finish a chapter.
@@ -412,20 +415,6 @@ export async function saveWordFromReader(input: {
 // ─────────────────────────────────────────────────────────────────────────────
 // the dictionary, as of right now
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** The dictionary entry behind a tapped word, exactly as the gloss shows it. */
-export interface ReaderDictionaryWord {
-  id: number;
-  lemma: string;
-  display: string;
-  article: string | null;
-  word_type: string;
-  translation_pl: string | null;
-  example_de: string | null;
-  example_pl: string | null;
-  ipa: string | null;
-  plural: string | null;
-}
 
 const GLOSS_COLUMNS =
   "id, lemma, display, article, word_type, translation_pl, example_de, example_pl, ipa, plural";

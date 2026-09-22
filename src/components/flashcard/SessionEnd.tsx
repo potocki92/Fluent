@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { PartyPopper } from "lucide-react";
 
-import type { ReviewGrade } from "@/actions/update-srs";
+import type { ReviewGrade } from "@/lib/sm2";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 

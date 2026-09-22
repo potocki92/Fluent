@@ -2,13 +2,22 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import { review, GRADE_QUALITY, DEFAULT_EASE_FACTOR } from "@/lib/sm2";
+import {
+  review,
+  GRADE_QUALITY,
+  DEFAULT_EASE_FACTOR,
+  type ReviewGrade,
+} from "@/lib/sm2";
 import { reviewEvidence, type ReviewDirection, type ReviewMode } from "@/lib/learning/evidence";
 import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import { sanitizeResponseMs } from "@/lib/response-time";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 
-export type ReviewGrade = keyof typeof GRADE_QUALITY;
+/**
+ * The grade's SHAPE lives in `@/lib/sm2`, beside the grades it names, so a
+ * component can type a button without importing a Server Action module.
+ */
+export type { ReviewGrade } from "@/lib/sm2";
 
 export interface UpdateSrsInput {
   wordId: number;

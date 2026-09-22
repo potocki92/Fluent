@@ -11,7 +11,8 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Check, Frown, Lightbulb, Rocket, Volume2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { updateSrs } from "@/actions/update-srs";
+import type { ReviewGrade } from "@/lib/sm2";
 import { settleAction } from "@/lib/errors";
 import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";

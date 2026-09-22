@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, CalendarClock, PartyPopper } from "lucide-react";
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import { MaterialCover } from "@/components/library/MaterialCover";
 import { planItemArtwork, type MaterialArtwork } from "@/lib/library/artwork";
 import { PLAN_ITEM_CATEGORY_PL, renderReason } from "@/lib/learning/planner/reasons";

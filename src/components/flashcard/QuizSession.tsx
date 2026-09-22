@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { updateSrs } from "@/actions/update-srs";
+import type { ReviewGrade } from "@/lib/sm2";
 import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import { useOwnedTimeout } from "@/hooks/useOwnedTimeout";

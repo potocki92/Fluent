@@ -93,7 +93,9 @@ Respect the existing `src/`-rooted structure:
 - `supabase/schema.sql` — database schema (one-paste bootstrap). Incremental history
   lives in `supabase/migrations/`; the two are kept identical by
   `node supabase/sync-schema.mjs`. Database security tests: `supabase/tests/`.
-- `docs/architecture/` — ADRs. Read `test-sessions.md` before touching the test,
+- `docs/architecture/` — ADRs. Read `module-boundaries.md` before moving a type,
+  adding an import across layers or relaxing a lint rule — it is the one place
+  the direction of the arrows is written down. Read `test-sessions.md` before touching the test,
   calibration or progress-write paths, `learning-engine.md` before touching
   learning events, review history or any knowledge/skill/concept state,
   `today-engine.md` before touching daily plans, the priority engine, weakness
@@ -112,7 +114,14 @@ Respect the existing `src/`-rooted structure:
   contextual word meanings, sentence translations, the "nie rozumiem" signal,
   phrases, text selection in the reader, the word sheet's information
   hierarchy, the notebook route or contextual review.
-- Tests are colocated as `src/**/*.test.ts` (Vitest), e.g. `src/lib/elo.test.ts`, `src/lib/sm2.test.ts`.
+- Tests are colocated. `src/**/*.test.ts` is the domain — pure functions,
+  reducers, adapters — and runs in `node`. `src/**/*.test.tsx` is a hook or a
+  component, needs a DOM, and opts into jsdom with a `@vitest-environment
+  jsdom` docblock of its own, so the ~850 pure tests never pay jsdom's startup
+  cost. Mount a hook with `renderHook` from `src/lib/testing/render-hook.tsx`
+  (about forty lines over `react-dom/client` and React's own `act`) rather than
+  adding a testing library; use `deferred()` from `src/lib/testing/deferred.ts`
+  to hold a call open in a concurrency test.
 - Database migrations may only ever WIDEN a check constraint on a re-run. Guard
   every `drop constraint` / `add constraint` block on whether the value that
   migration introduces is already permitted, or re-applying `schema.sql` to a
@@ -140,6 +149,13 @@ Do NOT move the project to root-level folders or out of `src/`. There is no `fea
 - Use `"use client"` only when a file uses hooks, browser APIs, local state, Zustand, event handlers, or client-only UI.
 - Keep server-compatible files server-compatible by default.
 - Do not import client-only hooks/stores into server-only modules.
+- **A shape two layers share lives in a module neither owns.** A type exported
+  from a `"use server"` file drags a Server Action into the graph of every
+  component and pure function that borrows it. Contracts live in
+  `src/lib/<domain>/contracts.ts` (`planner/contracts.ts`, `story/contracts.ts`,
+  `reading/contracts.ts`, `dictionary/contracts.ts`) and the action re-exports
+  the type for callers that want both. Client and server exports never share a
+  barrel.
 - Use the browser Supabase client in client code, the server client in server actions/components. Do not mix them.
 - Before using a Next API, check the local Next docs referenced at the top of this file.
 
@@ -321,14 +337,25 @@ The UI is Polish-first and copy is currently hardcoded inline in components (the
 
 Before considering a task complete, run the most relevant available checks:
 
-- `npm run lint` (ESLint).
+- `npm run lint` (ESLint). This also enforces the module boundaries — see
+  `eslint.config.mjs` and `docs/architecture/module-boundaries.md`. The patterns
+  cover the alias AND the relative spelling of the same import, so a rule cannot
+  be dodged by rewriting `@/actions/x` as `../actions/x`.
+- `npm run typecheck` (`next typegen && tsc --noEmit`). The typegen is part of
+  it: the generated route types are checked rather than being something that
+  only exists on a dev machine.
 - `npm run build` when the change touches routing, Next config, server/client boundaries, metadata, server actions, or shared UI.
 - `npm run test` (Vitest, `vitest run`) when domain logic in `src/lib/` changes; add/update colocated `*.test.ts`.
 - `supabase/tests/run.sh` when RLS, grants, migrations or any SQL function changes.
   It needs only a PostgreSQL superuser connection (`PGHOST`/`PGPORT`/`PGUSER`), not a
   Supabase project, and verifies the bootstrap path, the upgrade path and idempotency.
+  After editing a migration, re-run `node supabase/sync-schema.mjs` — CI fails if
+  `schema.sql` has drifted from the migrations it is a copy of.
 
-The only test/build scripts that exist are `dev`, `build`, `start`, `lint`, `test`, `test:watch`. Do not invent results for scripts that do not exist.
+The only test/build scripts that exist are `dev`, `build`, `start`, `lint`,
+`typecheck`, `test`, `test:watch`. Do not invent results for scripts that do not
+exist. `.github/workflows/ci.yml` runs lint, typecheck, test and build in one
+job and the SQL suites in another.
 
 ## Forbidden Patterns
 
@@ -339,7 +366,20 @@ Do not:
 - replace TanStack Query or bypass the Supabase `lib/supabase/*` seam from UI
 - add route groups, `features/`, `store/`, or `data/` directories on a whim
 - bypass strict TypeScript or add `any` as a shortcut
-- silence ESLint without fixing the cause
+- silence ESLint without fixing the cause — and never widen a boundary rule in
+  `eslint.config.mjs` to make an import pass. The adapter exceptions there are a
+  LIST, not a glob, on purpose: adding one is a decision somebody makes and
+  writes down beside the file it covers
+- export a shared TYPE from a `"use server"` module; put it in a contracts
+  module and re-export it from the action
+- return an empty collection, a `null` a `??` absorbs, or a default score from a
+  read that a WRITE depends on — a failed read is a `FluentFailure`, and a
+  legitimately empty result is a different fact that must not share its
+  representation (see `src/lib/learning/commit-evidence.ts`)
+- `await` a Server Action from a component without `settleAction` — a rejected
+  action skips every `setPending(false)` after the `await` and freezes the screen
+- `window.setTimeout` in a component without owning the handle; use
+  `useOwnedTimeout` so leaving cancels it
 - hardcode colors when a token exists, or change global design tokens casually
 - duplicate domain calculations already in `src/lib/` (Elo / SM-2 / CEFR / the
   knowledge model / the priority engine) — including re-implementing them in

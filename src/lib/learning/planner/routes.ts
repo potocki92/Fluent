@@ -10,7 +10,7 @@
  * whose button leads nowhere.
  */
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 
 export function planItemHref(item: TodayPlanItem): string {
   switch (item.type) {

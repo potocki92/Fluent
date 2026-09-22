@@ -17,6 +17,7 @@ import {
   type ConceptCode,
 } from "@/lib/learning/concepts";
 import { isSkillCode, type SkillCode } from "@/lib/learning/skills";
+import type { ChallengeResult } from "@/lib/story/contracts";
 import {
   buildBlueprint,
   fitBlueprint,
@@ -268,19 +269,11 @@ export async function answerChallengeQuestion(input: {
 }
 
 /** What the learner is shown after the Challenge. Real numbers only. */
-export interface ChallengeResult {
-  correct: number;
-  total: number;
-  comprehension: { correct: number; total: number };
-  vocabulary: { correct: number; total: number };
-  grammar: { correct: number; total: number };
-  headlinePl: string;
-  /** One sentence of coaching, or null when the data does not support one. */
-  detailPl: string | null;
-  /** The few things most worth revisiting. May be empty — that is a real result. */
-  reviewTargets: { label: string; kind: "word" | "concept" }[];
-  alreadyFinalized: boolean;
-}
+/**
+ * The SHAPE lives in `@/lib/story/contracts`, so the result card can describe a
+ * Challenge result without importing a Server Action module.
+ */
+export type { ChallengeResult } from "@/lib/story/contracts";
 
 /** A stale knowledge read is recomputed rather than forced through. */
 const MAX_ATTEMPTS = 3;

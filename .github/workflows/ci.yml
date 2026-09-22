@@ -1,0 +1,104 @@
+name: CI
+
+# The four checks a contributor runs locally, run again on every push — plus
+# the SQL suite, which needs a PostgreSQL service and therefore its own job.
+#
+# WHY THE SPLIT. `lint`, `typecheck`, `test` and `build` need Node and nothing
+# else, so they finish in a couple of minutes and tell you about the change you
+# just made. The database suite provisions Postgres, applies `schema.sql` on an
+# empty database AND replays every migration in order, and verifies the two
+# produce the same thing. It is slower, it fails for different reasons, and
+# mixing the two would make "CI is red" stop meaning anything specific.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  # A second push to the same branch supersedes the first: nobody is waiting on
+  # the results of a commit that is no longer the head.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # Includes `next typegen`, so the generated route types are part of what
+      # is checked rather than something that only exists on a dev machine.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      # Needs the public env vars to exist, not to be real: the build only
+      # resolves them, and every Supabase call happens at request time.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-key
+
+  database:
+    name: database (bootstrap · upgrade · idempotency)
+    runs-on: ubuntu-latest
+
+    # A plain PostgreSQL is enough: `supabase/tests/00_supabase_shim.sql` stands
+    # in for `auth.users`, `auth.uid()` and the anon/authenticated/service_role
+    # roles, so the suite needs no Supabase project and no secrets.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Run the security suites
+        run: ./supabase/tests/run.sh
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      # `schema.sql` is a verbatim concatenation of the migrations, produced by
+      # a script. A migration edited without re-running it would leave the
+      # one-paste bootstrap describing a different database from the one
+      # `supabase db push` builds — which nothing else would notice.
+      - name: schema.sql is in step with the migrations
+        run: |
+          node supabase/sync-schema.mjs
+          if ! git diff --quiet -- supabase/schema.sql; then
+            echo "::error file=supabase/schema.sql::schema.sql is stale — run 'node supabase/sync-schema.mjs' and commit the result."
+            git --no-pager diff -- supabase/schema.sql
+            exit 1
+          fi
