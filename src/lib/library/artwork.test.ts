@@ -77,19 +77,20 @@ describe("planItemArtworkLookup", () => {
     expect(planItemArtworkLookup(item({ type: "new_chapter" }))).toBeNull();
   });
 
-  it("leaves the Story-engine activities on their own icons", () => {
-    // A preparation drill is work ABOUT a chapter, not the chapter — giving it
-    // the book's photograph would make two different kinds of task look alike.
+  it("gives the Story-engine activities the book they are about", () => {
+    // A preparation drill and a challenge both NAME a material, and the card
+    // already says which kind of work it is in its kicker — so the picture is
+    // how a learner recognises the book, not a claim about the task.
     expect(
       planItemArtworkLookup(
-        item({ type: "chapter_preparation", libraryItemId: "book-1" }),
+        item({ type: "chapter_preparation", libraryItemId: "book-1", chapterId: "ch-2" }),
       ),
-    ).toBeNull();
+    ).toEqual({ by: "library_item", itemId: "book-1" });
     expect(
       planItemArtworkLookup(
-        item({ type: "chapter_assessment", libraryItemId: "book-1" }),
+        item({ type: "chapter_assessment", chapterId: "ch-2" }),
       ),
-    ).toBeNull();
+    ).toEqual({ by: "chapter", chapterId: "ch-2" });
   });
 });
 
@@ -100,6 +101,12 @@ describe("planItemArtwork", () => {
     );
     expect(
       planItemArtwork(item({ type: "continue_chapter", libraryItemId: "b" }), COVER),
+    ).toEqual(COVER);
+    expect(
+      planItemArtwork(item({ type: "chapter_preparation", libraryItemId: "b" }), COVER),
+    ).toEqual(COVER);
+    expect(
+      planItemArtwork(item({ type: "chapter_assessment", libraryItemId: "b" }), COVER),
     ).toEqual(COVER);
   });
 

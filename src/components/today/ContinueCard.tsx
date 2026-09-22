@@ -36,13 +36,16 @@ const ARTWORK_SIZES = "(min-width: 640px) 104px, 76px";
  *
  * THE THUMBNAIL IS THE MATERIAL, WHEN THERE IS ONE. Material artwork now exists
  * — an admin attaches it to a text and it is stored once, on the library item
- * (`src/lib/library/artwork.ts`) — so a reading task shows the picture of what
- * you are about to read, and a learner recognises yesterday's café story without
- * reading a word. Everything else keeps the icon it always had: „Powtórki" is a
+ * (`src/lib/library/artwork.ts`) — so an activity that NAMES a material shows
+ * that material's picture, and a learner recognises yesterday's café story
+ * without reading a word. That includes the Story drills: „PRZYGOTOWANIE ·
+ * Die neuen Nachbarn" is about the same book the shelf shows, and the kicker
+ * above the title is what keeps the kind of work distinct, not the absence of a
+ * photograph. Everything else keeps the icon it always had: „Powtórki" is a
  * deck, not a material, and a stock photograph of one would be decoration
  * pretending to be information. A material with no artwork, a URL that no longer
- * resolves, or a non-reading activity all land on the same fallback —
- * `PLAN_ITEM_ICONS` on its warm ground.
+ * resolves, or an activity with no material behind it all land on the same
+ * fallback — `PLAN_ITEM_ICONS` on its warm ground.
  *
  * IT HOLDS NO AUTHORITY AND FETCHES NOTHING. The artwork arrives as a prop,
  * resolved on the server next to the plan; a Supabase query between two pieces
