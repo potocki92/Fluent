@@ -37,7 +37,7 @@ export function DesktopHeader() {
   const hasAccount = isAccountUser(user);
 
   return (
-    <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 lg:px-6">
+    <div className="mx-auto flex h-[calc(var(--app-header-h)-1px)] max-w-6xl items-center gap-4 px-4 lg:px-6">
       <div className="flex flex-1 justify-start">
         <Link
           href="/today"

@@ -29,9 +29,12 @@ const cardVariants: Variants = {
 export function QuizSession({
   cards,
   extra,
+  className,
 }: {
   cards: SavedWordWithWord[];
   extra?: SavedWordWithWord[];
+  /** The height the review screen has left for it — see `ReviewModeSwitch`. */
+  className?: string;
 }) {
   const queryClient = useQueryClient();
   // The active deck — narrowed to mistakes when re-drilling.
@@ -168,21 +171,25 @@ export function QuizSession({
 
   if (isLoading) {
     return (
-      <Card className="items-center gap-3 bg-[#2d3748] p-8 text-center">
-        <div className="h-5 w-36 animate-pulse rounded bg-[#374151]" />
-        <div className="h-4 w-48 animate-pulse rounded bg-[#374151]" />
-      </Card>
+      <div className={cn("flex items-center justify-center", className)}>
+        <Card className="w-full items-center gap-3 bg-card p-8 text-center">
+          <div className="h-5 w-36 animate-pulse rounded bg-secondary" />
+          <div className="h-4 w-48 animate-pulse rounded bg-secondary" />
+        </Card>
+      </div>
     );
   }
 
   if (finished) {
     return (
-      <SessionEnd
-        results={results}
-        onRepeat={repeatMistakes}
-        onContinue={canContinue ? continueAhead : undefined}
-        firstLabel="poprawnych"
-      />
+      <div className={cn("flex items-center justify-center", className)}>
+        <SessionEnd
+          results={results}
+          onRepeat={repeatMistakes}
+          onContinue={canContinue ? continueAhead : undefined}
+          firstLabel="poprawnych"
+        />
+      </div>
     );
   }
 
@@ -192,15 +199,20 @@ export function QuizSession({
   const word = current.word;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm text-muted2">
+    // THE SAME COLUMN THE FLASHCARD SESSION IS (§39): a measured progress row, a
+    // question that takes what is left, a measured mastery bar. The quiz stays
+    // visually neutral though (§50) — the landscape is the flashcard's, and a
+    // painting behind four answer buttons is decoration competing with a
+    // decision.
+    <div className={cn("review-screen flex flex-col", className)}>
+      <div className="shrink-0 space-y-0.5">
+        <div className="flex justify-between text-xs leading-tight text-muted2">
           <span>Quiz</span>
           <span>
             {index + 1} / {questions.length}
           </span>
         </div>
-        <Progress value={progress} />
+        <Progress value={progress} className="h-1.5" />
       </div>
 
       <AnimatePresence mode="popLayout" custom={exitDir}>
@@ -211,17 +223,18 @@ export function QuizSession({
           initial="enter"
           animate="center"
           exit="exit"
-          transition={{ duration: 0.25 }}
+          transition={{ duration: 0.22 }}
+          className="flex min-h-0 flex-1 flex-col"
         >
-          <Card className="items-start gap-4 bg-[#2d3748] p-5">
+          <Card className="min-h-0 flex-1 items-start gap-3 overflow-y-auto bg-card p-4">
             {/* Word prompt */}
             <div className="flex w-full items-center gap-2">
               <span
                 className={cn(
-                  "rounded-lg px-2 py-0.5 text-sm font-semibold",
+                  "rounded-lg px-2 py-0.5 text-xs font-semibold",
                   word.article
                     ? ARTICLE_CHIP[word.article]
-                    : "bg-[#374151] text-[#a0aec0]",
+                    : "bg-secondary text-muted2",
                 )}
               >
                 {word.article ?? TYPE_LABEL[word.word_type]}
@@ -234,7 +247,7 @@ export function QuizSession({
                 </p>
               )}
             </div>
-            <p className="w-full text-center text-2xl font-bold text-[#d4a574]">
+            <p className="w-full text-center text-[clamp(1.5rem,6vw,1.875rem)] font-bold leading-tight text-gold">
               {word.display}
             </p>
 
@@ -251,14 +264,16 @@ export function QuizSession({
                     disabled={busy || revealed}
                     onClick={() => answer(i)}
                     className={cn(
-                      "flex items-center gap-2 rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors",
+                      // 44px is the iOS touch-target floor, and an answer is
+                      // the one control here a learner taps in a hurry (§37).
+                      "flex min-h-11 items-center gap-2 rounded-xl border px-3.5 py-2 text-left text-[0.8125rem] font-medium transition-colors",
                       !revealed
-                        ? "border-[#374151] bg-[#374151] text-[#e2e8f0] hover:border-[#4a5568] hover:bg-[#4a5568]"
+                        ? "border-secondary bg-secondary text-main hover:border-[#4a5568] hover:bg-[#4a5568]"
                         : isCorrect
-                          ? "border-[#48bb78] bg-[#48bb78]/20 text-[#48bb78]"
+                          ? "border-green/45 bg-green/10 text-green"
                           : isChosen
-                            ? "border-[#f56565] bg-[#f56565]/20 text-[#f56565]"
-                            : "border-[#374151] bg-[#2d3748] text-muted2",
+                            ? "border-red/45 bg-red/10 text-red"
+                            : "border-secondary bg-card text-muted2",
                     )}
                   >
                     <span className="shrink-0 text-xs opacity-60">{i + 1}</span>
@@ -272,14 +287,17 @@ export function QuizSession({
                 {error}
               </p>
             )}
-            <p className="hidden w-full text-center text-xs text-muted2 sm:block">
+            <p className="review-hint hidden w-full text-center text-xs text-muted2 sm:block">
               1–4 — wybierz odpowiedź
             </p>
           </Card>
         </motion.div>
       </AnimatePresence>
 
-      <MasteryBar interval={intervalById.get(current.wordId) ?? 0} />
+      <MasteryBar
+        className="shrink-0"
+        interval={intervalById.get(current.wordId) ?? 0}
+      />
     </div>
   );
 }

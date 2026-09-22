@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
-import { Lightbulb } from "lucide-react";
+import { Check, Frown, Lightbulb, Rocket, Volume2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
@@ -11,6 +11,7 @@ import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import { MnemonicDialog } from "@/components/words/MnemonicDialog";
 import { MasteryBar } from "@/components/flashcard/MasteryBar";
+import { LandscapeBackdrop } from "@/components/today/hero/LandscapeBackdrop";
 import { speakGerman } from "@/lib/speech";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -23,27 +24,46 @@ import { cn } from "@/lib/utils";
 /**
  * The recall ratings, mapped onto the SM-2 grades the action accepts, in
  * keyboard order (1–4). "easy" stretches the interval the most.
+ *
+ * LUCIDE, NOT EMOJI (§23). ❌😓✅🚀 are four different typefaces drawn by four
+ * different vendors: they do not share a size, a weight, an optical centre or a
+ * colour, and none of them can take the semantic tone the rating means. The
+ * glyphs below are the same stroke weight as every other icon in Fluent.
+ *
+ * THE COLOUR IS A BORDER AND A LABEL, NEVER A FILL (§24). Four saturated
+ * rectangles under a flashcard is a traffic light, not a study screen — so the
+ * surface stays the app's own dark and the meaning is carried by the outline.
+ * These are the tokens, not new hexes: the palette is unchanged.
  */
-const RATINGS: { grade: ReviewGrade; label: string; className: string }[] = [
+const RATINGS: {
+  grade: ReviewGrade;
+  label: string;
+  icon: typeof Check;
+  className: string;
+}[] = [
   {
     grade: "again",
-    label: "❌ Jeszcze raz",
-    className: "border-[#f56565] bg-[#f56565]/20 text-[#f56565]",
+    label: "Jeszcze raz",
+    icon: X,
+    className: "border-red/45 bg-red/10 text-red",
   },
   {
     grade: "hard",
-    label: "😓 Trudne",
-    className: "border-[#d4a574] bg-[#d4a574]/20 text-[#d4a574]",
+    label: "Trudne",
+    icon: Frown,
+    className: "border-gold/45 bg-gold/10 text-gold",
   },
   {
     grade: "good",
-    label: "✅ Dobrze",
-    className: "border-[#48bb78] bg-[#48bb78]/20 text-[#48bb78]",
+    label: "Dobrze",
+    icon: Check,
+    className: "border-green/45 bg-green/10 text-green",
   },
   {
     grade: "easy",
-    label: "🚀 Łatwe",
-    className: "border-[#4299e1] bg-[#4299e1]/20 text-[#4299e1]",
+    label: "Łatwe",
+    icon: Rocket,
+    className: "border-blue/45 bg-blue/10 text-blue",
   },
 ];
 
@@ -55,16 +75,36 @@ const cardVariants: Variants = {
 };
 
 /**
+ * How wide the flashcard is actually painted. The review screen sits in the
+ * shell's `max-w-2xl` column with a 16px gutter, so 640px is its real ceiling —
+ * the optimizer must not be left fetching a 2172px original for a 361px card.
+ */
+const CARD_SIZES = "(min-width: 768px) 640px, 100vw";
+
+/**
  * A full spaced-repetition review session: a flip flashcard, progress bar,
  * recall ratings, and an end-of-session summary. Each rating persists through
  * the `updateSrs` server action (SM-2 scheduling lives in `src/lib/sm2.ts`).
+ *
+ * IT IS A COLUMN WITH ONE FLEXIBLE ROW (§39). Progress, mastery, the mnemonic
+ * and the four ratings are all measured and `shrink-0`; the card takes whatever
+ * is left of the viewport. That is the whole reason the ratings are reachable
+ * without scrolling — nothing here has a height it chose for itself.
+ *
+ * THE RATINGS ARE ALWAYS IN THE LAYOUT, and disabled until the card is turned.
+ * Mounting them on flip would shrink the card by ~100px mid-animation, which is
+ * both ugly and a moving target for the thumb already heading for „Dobrze";
+ * reserving their space keeps the two faces exactly the same size (§41) and the
+ * screen perfectly still from the first card to the last.
  */
 export function ReviewSession({
   cards,
   extra,
+  className,
 }: {
   cards: SavedWordWithWord[];
   extra?: SavedWordWithWord[];
+  className?: string;
 }) {
   const queryClient = useQueryClient();
   const [deck, setDeck] = useState(cards);
@@ -196,12 +236,14 @@ export function ReviewSession({
 
   if (finished) {
     return (
-      <SessionEnd
-        results={results}
-        onRepeat={repeatMistakes}
-        onContinue={canContinue ? continueAhead : undefined}
-        firstLabel="nauczonych"
-      />
+      <div className={cn("flex items-center justify-center", className)}>
+        <SessionEnd
+          results={results}
+          onRepeat={repeatMistakes}
+          onContinue={canContinue ? continueAhead : undefined}
+          firstLabel="nauczonych"
+        />
+      </div>
     );
   }
 
@@ -209,140 +251,228 @@ export function ReviewSession({
   const progress = (index / deck.length) * 100;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm text-muted2">
+    <div className={cn("review-screen flex flex-col", className)}>
+      <div className="shrink-0 space-y-0.5">
+        <div className="flex justify-between text-xs leading-tight text-muted2">
           <span>Powtórki</span>
           <span>
             {index + 1} / {deck.length}
           </span>
         </div>
-        <Progress value={progress} />
+        <Progress value={progress} className="h-1.5" />
       </div>
 
-      <AnimatePresence mode="popLayout" custom={exitDir}>
-        <motion.div
-          key={index}
-          custom={exitDir}
-          variants={cardVariants}
-          initial="enter"
-          animate="center"
-          exit="exit"
-          transition={{ duration: 0.25 }}
-        >
-          <button
-            type="button"
-            onClick={() => setFlipped((f) => !f)}
-            className="block w-full text-left [perspective:1000px]"
-            aria-label="Odwróć fiszkę"
+      {/* THE ONE THING THAT FLEXES. `min-h-0` is what allows it to give height
+          back to the rows below when the viewport is short (§40); `.review-card`
+          supplies the floor and the ceiling it may not cross. */}
+      <div className="review-card relative min-h-0 flex-1">
+        <AnimatePresence mode="popLayout" custom={exitDir}>
+          <motion.div
+            key={index}
+            custom={exitDir}
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.22 }}
+            className="absolute inset-0"
           >
-            <motion.div
-              className="relative min-h-52 [transform-style:preserve-3d]"
-              animate={{ rotateY: flipped ? 180 : 0 }}
-              transition={{ duration: 0.4 }}
+            <button
+              type="button"
+              onClick={() => setFlipped((f) => !f)}
+              className="block size-full text-left [perspective:1000px]"
+              aria-label="Odwróć fiszkę"
             >
-              {/* Front — German prompt */}
-              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-4 text-center [backface-visibility:hidden]">
-                <span
-                  className={cn(
-                    "rounded-lg px-2 py-0.5 text-sm font-semibold",
-                    word.article
-                      ? ARTICLE_CHIP[word.article]
-                      : "bg-[#374151] text-[#a0aec0]",
-                  )}
-                >
-                  {word.article ?? TYPE_LABEL[word.word_type]}
-                </span>
-                <p className="text-2xl font-bold text-[#d4a574]">{word.display}</p>
-                {/* The chip already shows the type for non-nouns; only nouns
-                    (chip = der/die/das) need the spelled-out type below. */}
-                {word.article && (
-                  <p className="text-xs uppercase tracking-wide text-muted2">
-                    {TYPE_LABEL[word.word_type]}
+              <motion.div
+                className="relative size-full [transform-style:preserve-3d]"
+                animate={{ rotateY: flipped ? 180 : 0 }}
+                transition={{ duration: 0.38 }}
+              >
+                {/* Front — German prompt */}
+                <CardFace>
+                  <span
+                    className={cn(
+                      "rounded-lg px-2 py-0.5 text-xs font-semibold",
+                      word.article
+                        ? ARTICLE_CHIP[word.article]
+                        : "bg-dark/55 text-muted2",
+                    )}
+                  >
+                    {word.article ?? TYPE_LABEL[word.word_type]}
+                  </span>
+                  <p className="text-[clamp(1.75rem,7vw,2.125rem)] font-bold leading-tight text-gold">
+                    {word.display}
                   </p>
-                )}
-                <p className="mt-2 text-xs italic text-muted2">
-                  Dotknij, aby zobaczyć
-                </p>
-              </Card>
+                  {/* The chip already shows the type for non-nouns; only nouns
+                      (chip = der/die/das) need the spelled-out type below. */}
+                  {word.article && (
+                    <p className="text-[0.625rem] uppercase tracking-wide text-muted2">
+                      {TYPE_LABEL[word.word_type]}
+                    </p>
+                  )}
+                  <p className="text-[0.8125rem] italic text-muted2">
+                    Dotknij, aby zobaczyć
+                  </p>
+                </CardFace>
 
-              {/* Back — Polish translation + examples */}
-              <Card className="absolute inset-0 items-center justify-center gap-3 bg-[#2d3748] p-4 text-center [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                <p className="text-lg font-semibold">
-                  {word.translation_pl ?? "—"}
-                </p>
-                {word.example_de && (
-                  <p className="text-sm italic text-muted2">{word.example_de}</p>
-                )}
-                {word.example_pl && (
-                  <p className="text-xs text-muted2">{word.example_pl}</p>
-                )}
-                {word.mnemonic && (
-                  <div className="mt-1 flex items-start gap-1.5 text-left">
-                    <Lightbulb className="mt-0.5 size-4 shrink-0 text-gold" />
-                    <p className="text-xs text-muted2">{word.mnemonic}</p>
-                  </div>
-                )}
-                {/* THE SENTENCE IT WAS MET IN. A word saved while reading has a
-                    place it came from, and a card that shows only the headword
-                    has thrown away the reason it meant anything (§61). It is on
-                    the BACK, with the answer: on the front it would either give
-                    the answer away or replace the DE → PL card with a different
-                    exercise, and this card's evidence is recorded as DE → PL. */}
-                <OriginContext card={current} />
-              </Card>
-            </motion.div>
-          </button>
-        </motion.div>
-      </AnimatePresence>
+                {/* Back — Polish translation + examples */}
+                <CardFace back>
+                  <p className="text-lg font-semibold leading-snug">
+                    {word.translation_pl ?? "—"}
+                  </p>
+                  {word.example_de && (
+                    <p className="line-clamp-2 text-[0.8125rem] italic leading-snug text-muted2">
+                      {word.example_de}
+                    </p>
+                  )}
+                  {word.example_pl && (
+                    <p className="line-clamp-2 text-xs leading-snug text-muted2">
+                      {word.example_pl}
+                    </p>
+                  )}
+                  {word.mnemonic && (
+                    <div className="flex items-start gap-1.5 text-left">
+                      <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-gold" />
+                      <p className="line-clamp-2 text-xs text-muted2">
+                        {word.mnemonic}
+                      </p>
+                    </div>
+                  )}
+                  {/* THE SENTENCE IT WAS MET IN. A word saved while reading has a
+                      place it came from, and a card that shows only the headword
+                      has thrown away the reason it meant anything (§61). It is on
+                      the BACK, with the answer: on the front it would either give
+                      the answer away or replace the DE → PL card with a different
+                      exercise, and this card's evidence is recorded as DE → PL. */}
+                  <OriginContext card={current} />
+                </CardFace>
+              </motion.div>
+            </button>
+          </motion.div>
+        </AnimatePresence>
 
-      <MasteryBar interval={current.interval} />
+        {/* A SIBLING OF THE FLIP BUTTON, NEVER A CHILD OF IT (§20). A button
+            inside a button is invalid markup and unreachable by keyboard; over
+            it, the speaker gets its own 44px target without stealing the tap
+            that turns the card. */}
+        <button
+          type="button"
+          onClick={() => speakGerman(word.display)}
+          aria-label={`Przeczytaj: ${word.display}`}
+          className="absolute right-1 top-1 z-20 flex size-11 items-center justify-center rounded-full text-muted2 transition-colors hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring/50"
+        >
+          <Volume2 className="size-[1.125rem]" aria-hidden />
+        </button>
+      </div>
 
-      {flipped && (
-        <div className="space-y-2">
-          <MnemonicDialog
-            wordId={word.id}
-            display={word.display}
-            mnemonic={word.mnemonic}
-            onSaved={handleMnemonicSaved}
-            trigger={
-              <button
-                type="button"
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <Lightbulb className="size-3.5" />
-                {word.mnemonic ? "Edytuj skojarzenie" : "Dodaj skojarzenie"}
-              </button>
-            }
-          />
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {RATINGS.map(({ grade, label, className }, i) => (
-              <button
-                key={grade}
-                type="button"
-                disabled={busy}
-                onClick={() => rate(grade)}
-                className={cn(
-                  "rounded-xl border px-3 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
-                  className,
-                )}
-              >
-                <span className="mr-1 opacity-60">{i + 1}</span>
-                {label}
-              </button>
-            ))}
-          </div>
-          {error && (
-            <p role="alert" className="text-center text-xs text-red">
-              {error}
-            </p>
+      <MasteryBar className="shrink-0" interval={current.interval} />
+
+      <div className="review-screen flex shrink-0 flex-col">
+        <MnemonicDialog
+          wordId={word.id}
+          display={word.display}
+          mnemonic={word.mnemonic}
+          onSaved={handleMnemonicSaved}
+          trigger={
+            <button
+              type="button"
+              className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-secondary text-[0.8125rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Lightbulb className="size-3.5" />
+              {word.mnemonic ? "Edytuj skojarzenie" : "Dodaj skojarzenie"}
+            </button>
+          }
+        />
+
+        <div
+          className={cn(
+            "grid grid-cols-2 gap-2 transition-opacity",
+            !flipped && "opacity-45",
           )}
-          <p className="hidden text-center text-xs text-muted2 sm:block">
-            Spacja — odwróć · 1–4 — oceń
-          </p>
+        >
+          {RATINGS.map(({ grade, label, icon: Icon, className: tone }, i) => (
+            <button
+              key={grade}
+              type="button"
+              disabled={busy || !flipped}
+              onClick={() => rate(grade)}
+              className={cn(
+                "flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl border text-[0.8125rem] font-semibold transition-colors",
+                "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default",
+                tone,
+              )}
+            >
+              <span className="flex items-center gap-1.5 leading-none">
+                <span className="text-[0.625rem] font-medium opacity-60">
+                  {i + 1}
+                </span>
+                <Icon className="size-4" aria-hidden />
+              </span>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+
+        {error && (
+          <p role="alert" className="text-center text-xs text-red">
+            {error}
+          </p>
+        )}
+        <p className="review-hint hidden text-center text-xs text-muted2 sm:block">
+          Spacja — odwróć · 1–4 — oceń
+        </p>
+      </div>
     </div>
+  );
+}
+
+/**
+ * One side of the flashcard: the landscape, the scrim that makes it readable,
+ * and the content on top.
+ *
+ * THE SAME SKY AS „DZIEŃ DOBRY" (§14, §47). `LandscapeBackdrop` is the one
+ * definition of that composition — the five files, their order and their crop —
+ * so this is the greeting's landscape rather than a copy of it, and there is no
+ * `review-background.jpg` anywhere. It is rendered STILL (§15): a learner
+ * reading one German word does not need the mountains to breathe, and the
+ * `motion={false}` also takes back the five compositor layers the hero promotes.
+ *
+ * ONLY THE CURRENT CARD HAS ONE (§49). `AnimatePresence` mounts exactly one
+ * card at a time, so the deck behind it costs nothing.
+ *
+ * BOTH FACES ARE `absolute inset-0`, which is what makes them the same size
+ * whatever they contain (§41) — a three-line example sentence can never make
+ * the back taller than the front and shove the ratings off the screen.
+ */
+function CardFace({
+  back = false,
+  children,
+}: {
+  back?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card
+      className={cn(
+        "absolute inset-0 gap-0 overflow-hidden rounded-2xl border-border/70 p-0 py-0 shadow-none",
+        "[backface-visibility:hidden]",
+        back && "[transform:rotateY(180deg)]",
+      )}
+    >
+      <LandscapeBackdrop
+        className="review-card-scene"
+        sizes={CARD_SIZES}
+        motion={false}
+      />
+      <span
+        aria-hidden
+        data-face={back ? "back" : "front"}
+        className="review-card-scrim absolute inset-0 z-50"
+      />
+      <div className="relative z-[60] flex size-full flex-col items-center justify-center gap-2 overflow-y-auto px-5 py-4 text-center">
+        {children}
+      </div>
+    </Card>
   );
 }
 
@@ -370,11 +500,13 @@ function OriginContext({ card }: { card: SavedWordWithWord }) {
   );
 
   return (
-    <blockquote className="mt-1 w-full border-l-2 border-gold/40 pl-2 text-left text-xs italic leading-relaxed text-muted2">
+    <blockquote className="line-clamp-3 w-full border-l-2 border-gold/40 pl-2 text-left text-xs italic leading-snug text-muted2">
       {cloze ? (
         <>
           {cloze.before}
-          <span className="font-semibold not-italic text-gold">{CLOZE_BLANK}</span>
+          <span className="font-semibold not-italic text-gold">
+            {CLOZE_BLANK}
+          </span>
           {cloze.after}
         </>
       ) : (

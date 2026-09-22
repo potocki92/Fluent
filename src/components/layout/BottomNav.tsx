@@ -24,6 +24,14 @@ import { cn } from "@/lib/utils";
  *
  * `md:hidden`, because above that width the top bar is the navigation — the two
  * are never on screen together.
+ *
+ * 64px OF UI, PLUS THE SAFE AREA, AND THE NUMBER LIVES IN `globals.css`. A tab
+ * bar is the only chrome on a phone that is ALWAYS there, so its height is the
+ * single biggest number a full-height screen has to subtract; `--app-tabbar-h`
+ * is what `.app-screen` reads and what `AppShell` reserves. It used to be
+ * whatever the content came to, reserved as "6rem, probably enough" (§5). The
+ * `- 1px` is the top hairline: the token is the WHOLE bar, border included, or
+ * every full-height screen ends up one pixel too long to fit.
  */
 export function BottomNav() {
   const pathname = usePathname();
@@ -35,7 +43,7 @@ export function BottomNav() {
       aria-label="Nawigacja"
       className="app-chrome fixed inset-x-0 bottom-0 z-40 border-t border-border/60 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
-      <ul className="mx-auto flex max-w-2xl items-stretch justify-around px-2">
+      <ul className="mx-auto flex h-[calc(var(--app-tabbar-h)-1px)] max-w-2xl items-stretch justify-around px-2">
         {MOBILE_NAV.map((item) => {
           const active = isRouteActive(pathname, item);
           const Icon = item.icon;
@@ -45,21 +53,22 @@ export function BottomNav() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  // 44px is the floor for a touch target, and this row is the
-                  // one place in the app where every pixel of it is load-bearing.
-                  "flex min-h-[3.25rem] flex-col items-center justify-center gap-1 py-1.5 text-[0.6875rem] font-medium transition-colors",
+                  // The bar sets the height now, so the link simply fills it:
+                  // at 64px every target clears the 44px floor with room to
+                  // spare, and the icon and label stay optically centred in it.
+                  "flex size-full flex-col items-center justify-center gap-0.5 text-[0.6875rem] font-medium leading-tight transition-colors",
                   "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   active ? "text-gold" : "text-muted2 hover:text-main",
                 )}
               >
                 <span
                   className={cn(
-                    "flex items-center justify-center rounded-full px-4 py-1 transition-colors",
+                    "flex items-center justify-center rounded-full px-3.5 py-0.5 transition-colors",
                     active && "bg-gold/12",
                   )}
                   aria-hidden
                 >
-                  <Icon className="size-5" />
+                  <Icon className="size-[1.375rem]" />
                 </span>
                 {item.label}
               </Link>

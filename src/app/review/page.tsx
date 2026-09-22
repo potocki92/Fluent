@@ -6,7 +6,7 @@ import { requireAccountUser } from "@/lib/auth/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getQueryClient } from "@/lib/query-client";
 import { ReviewModeSwitch } from "@/components/flashcard/ReviewModeSwitch";
-import { DailyGoalRing } from "@/components/flashcard/DailyGoalRing";
+import { ReviewHeader } from "@/components/flashcard/ReviewHeader";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import {
   WORD_GOAL_KEY,
@@ -49,13 +49,16 @@ export default async function ReviewPage({
       await primeWordGoal(supabase, queryClient);
       return (
         <HydrationBoundary state={dehydrate(queryClient)}>
-          <div className="space-y-4">
-            <h1 className="text-lg font-bold">Nowe słówka</h1>
-            <p className="text-sm text-muted2">
-              Zestaw z Twojego dzisiejszego planu.
-            </p>
-            <DailyGoalRing />
-            <ReviewModeSwitch cards={planned} extra={[]} />
+          <div className="app-screen review-screen flex flex-col">
+            <ReviewHeader
+              title="Nowe słówka"
+              note="Zestaw z Twojego dzisiejszego planu."
+            />
+            <ReviewModeSwitch
+              className="min-h-0 flex-1"
+              cards={planned}
+              extra={[]}
+            />
           </div>
         </HydrationBoundary>
       );
@@ -85,8 +88,8 @@ export default async function ReviewPage({
   if (dueCards.length === 0 && extraCards.length === 0 && notebookDue === 0) {
     return (
       <div className="space-y-4">
-        <h1 className="text-lg font-bold">Powtórki</h1>
-        <Card className="items-center gap-3 bg-[#2d3748] p-5 text-center">
+        <h1 className="text-[1.75rem] font-bold leading-tight">Powtórki</h1>
+        <Card className="items-center gap-3 bg-card p-5 text-center">
           <PartyPopper className="size-8 text-gold" />
           <p className="font-semibold">🎉 Wszystko powtórzone!</p>
           <p className="text-sm text-muted2">
@@ -111,16 +114,26 @@ export default async function ReviewPage({
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold">Powtórki</h1>
-        {dueCards.length === 0 && (
-          <p className="text-sm text-muted2">
-            Brak zaległych powtórek — uczysz się do przodu.
-          </p>
-        )}
-        <DailyGoalRing />
-        <NotebookDeckLink count={notebookDue} />
-        <ReviewModeSwitch cards={initialCards} extra={continuation} />
+      {/* ONE SCREEN, NOT A PAGE (§25, §39). The column is exactly as tall as the
+          space between the header and the tab bar, and `ReviewModeSwitch` is the
+          only child that flexes — everything above it is measured. That is what
+          puts the four ratings on screen WITH the card instead of a scroll below
+          it, and `min-h-0` is what lets the chain actually shrink (§40). */}
+      <div className="app-screen review-screen flex flex-col">
+        <ReviewHeader
+          title="Powtórki"
+          note={
+            dueCards.length === 0
+              ? "Brak zaległych powtórek — uczysz się do przodu."
+              : undefined
+          }
+        />
+        <ReviewModeSwitch
+          className="min-h-0 flex-1"
+          cards={initialCards}
+          extra={continuation}
+          trailing={<NotebookDeckLink count={notebookDue} />}
+        />
       </div>
     </HydrationBoundary>
   );
@@ -147,19 +160,24 @@ async function countDueNotebookCards(
   return count ?? 0;
 }
 
-/** The way into the contextual deck — shown only when it has something in it. */
+/**
+ * The way into the contextual deck — shown only when it has something in it.
+ *
+ * IT RIDES THE MODE SWITCH'S ROW (§10). As a card of its own it cost the review
+ * screen 51px — on an iPhone with Safari's toolbars up, a third of the
+ * flashcard — to say "5". Here it is a 44px target with the count on it, the
+ * accessible name carries the rest, and the flashcard keeps its height.
+ */
 function NotebookDeckLink({ count }: { count: number }) {
   if (count === 0) return null;
   return (
     <Link
       href="/review/notebook"
-      className="flex items-center justify-between gap-3 rounded-xl border border-[#374151] bg-[#2d3748] px-4 py-3 transition-colors hover:border-gold/50"
+      aria-label={`Powtórki z zeszytu: ${count}`}
+      className="app-panel app-panel-link flex h-12 shrink-0 items-center gap-1.5 rounded-xl px-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
-      <span className="flex items-center gap-2 text-sm font-medium">
-        <NotebookPen className="size-4 text-gold" />
-        Powtórki z zeszytu
-      </span>
-      <span className="rounded-full bg-gold/15 px-2 py-0.5 text-xs font-semibold text-gold">
+      <NotebookPen className="size-4 text-gold" aria-hidden />
+      <span className="text-xs font-semibold text-gold" aria-hidden>
         {count}
       </span>
     </Link>
@@ -177,9 +195,9 @@ function parseWordIds(value: string | undefined): number[] {
 }
 
 /**
- * Prime the daily-goal ring so it renders filled on first paint instead of
- * flashing its loading skeleton while the client fetches the profile. Best
- * effort: on any failure DailyGoalRing just falls back to its client fetch
+ * Prime the daily-goal ring so the header renders filled on first paint instead
+ * of flashing its loading skeleton while the client fetches the profile. Best
+ * effort: on any failure `ReviewHeader` just falls back to its client fetch
  * rather than crashing the Server Component render.
  */
 async function primeWordGoal(

@@ -31,10 +31,13 @@ export default async function LibraryPage() {
   );
   const rest = shelf.filter((entry) => !reading.includes(entry));
 
+  // §29: the density, not the design. Sections 32px apart pushed the third
+  // material below the fold on a 393px phone for no reason anyone could point
+  // at; 20px between sections and 10px between rows puts the shelf on screen.
   return (
-    <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">Biblioteka</h1>
+    <div className="space-y-5">
+      <header className="space-y-0.5">
+        <h1 className="text-[1.75rem] font-bold leading-tight">Biblioteka</h1>
         <p className="text-sm text-muted2">
           Czytaj prawdziwe teksty — Fluent zapamięta, gdzie skończyłeś.
         </p>
@@ -83,7 +86,7 @@ function ImportEntry() {
   return (
     <Link
       href="/library/import"
-      className="flex items-center gap-3 rounded-xl border border-dashed border-border p-3 transition-colors hover:border-gold/50"
+      className="flex min-h-[3.25rem] items-center gap-3 rounded-xl border border-dashed border-border px-3 py-2 transition-colors hover:border-gold/50"
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#374151] text-gold">
         <BookUp className="size-4" />
@@ -108,11 +111,11 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted2">
+    <section className="space-y-2">
+      <h2 className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted2">
         {title}
       </h2>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-2.5">{children}</div>
     </section>
   );
 }

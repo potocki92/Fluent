@@ -62,7 +62,7 @@ export function AccountMenu() {
         <button
           type="button"
           aria-label="Menu konta"
-          className="flex size-9 items-center justify-center rounded-full bg-gold text-sm font-semibold uppercase text-dark transition-opacity outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60"
+          className="flex size-[2.375rem] shrink-0 items-center justify-center rounded-full bg-gold text-sm font-semibold uppercase text-dark transition-opacity outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60"
           disabled={isPending}
         >
           {isPending ? (
