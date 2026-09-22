@@ -115,6 +115,43 @@ describe("baseFormCandidates", () => {
     expect(baseFormCandidates("gespielt")).toContain("spielen");
   });
 
+  /**
+   * PRESENT TENSE, e → i/ie. Ablaut is not confined to the preterite: *gelten*
+   * becomes *gilt*, *nehmen* becomes *nimmt*. These are the most frequent verbs
+   * in German, so a de-inflector that misses them leaves ordinary prose
+   * unglossable even when the infinitive is in the dictionary.
+   */
+  it("recovers an infinitive from a present tense with a changed stem vowel", () => {
+    expect(baseFormCandidates("gilt")).toContain("gelten");
+    expect(baseFormCandidates("gibt")).toContain("geben");
+    expect(baseFormCandidates("nimmt")).toContain("nehmen");
+    expect(baseFormCandidates("spricht")).toContain("sprechen");
+    expect(baseFormCandidates("hilft")).toContain("helfen");
+    expect(baseFormCandidates("sieht")).toContain("sehen");
+    expect(baseFormCandidates("trifft")).toContain("treffen");
+    expect(baseFormCandidates("hält")).toContain("halten");
+  });
+
+  it("answers lassen for lässt rather than lesen", () => {
+    // *lässt* folded is *lasst*; stripped of `-st` that is *las*, which the
+    // table maps to *lesen*. Before the present-tense rows existed, "er lässt"
+    // was glossed "to read" — a wrong answer, not a missing one. The table is
+    // consulted on the roots before the speculative stems, so the row wins.
+    const candidates = baseFormCandidates("lässt");
+
+    expect(candidates).toContain("lassen");
+    expect(candidates.indexOf("lassen")).toBeLessThan(candidates.indexOf("lesen"));
+  });
+
+  it("needs no row for the verbs that only take an umlaut", () => {
+    // Folding plus suffix stripping already reaches these, which is why the
+    // block above stays as small as it does.
+    expect(baseFormCandidates("fährt")).toContain("fahren");
+    expect(baseFormCandidates("läuft")).toContain("laufen");
+    expect(baseFormCandidates("trägt")).toContain("tragen");
+    expect(baseFormCandidates("schläft")).toContain("schlafen");
+  });
+
   it("leaves a modal alone rather than claiming it for a look-alike", () => {
     // *kannte* is *kennen*; *kann* is *können* and belongs to nobody else. A
     // table that mapped the stem would answer "to know" for the modal in every
