@@ -122,11 +122,10 @@ export default async function ReviewPage({
       <div className="app-screen review-screen flex flex-col">
         <ReviewHeader
           title="Powtórki"
-          note={
-            dueCards.length === 0
-              ? "Brak zaległych powtórek — uczysz się do przodu."
-              : undefined
-          }
+          // One line, because the header gives it one (see `ReviewHeader`).
+          // „Brak zaległych powtórek — uczysz się do przodu." was cut off mid
+          // word at 393px, which reads as a bug rather than as good news.
+          note={dueCards.length === 0 ? "Uczysz się do przodu" : undefined}
         />
         <ReviewModeSwitch
           className="min-h-0 flex-1"
