@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -8,44 +8,37 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import {
   startPracticeSession,
   type PracticeQuestion,
+  type StartedPracticeSession,
 } from "@/actions/start-practice-session";
-import { answerPracticeQuestion } from "@/actions/answer-practice-question";
-import { finalizePracticeSession } from "@/actions/finalize-practice-session";
+import {
+  answerPracticeQuestion,
+  type AnsweredPracticeQuestion,
+} from "@/actions/answer-practice-question";
+import {
+  finalizePracticeSession,
+  type FinalizedPracticeSession,
+} from "@/actions/finalize-practice-session";
+import { useQuestionSession } from "@/hooks/useQuestionSession";
 import { QuestionCard } from "@/components/texts/QuestionCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { shuffleWithOrder } from "@/lib/shuffle";
-import { cn } from "@/lib/utils";
-
-/** How long the answer feedback stays on screen. Matches the reading test. */
-const REVEAL_MS = 1500;
-
-interface ActiveSession {
-  sessionId: string;
-  conceptLabel: string;
-  questions: PracticeQuestion[];
-  /** Per-question display order; `order[displayed]` is the stored index. */
-  shuffled: { items: string[]; order: number[] }[];
-}
-
-interface Feedback {
-  isCorrect: boolean;
-  correctIdx: number;
-}
+import { SessionError } from "@/components/ui/session-error";
+import { SessionProgress } from "@/components/ui/session-progress";
+import { REVEAL_MS } from "@/lib/session/constants";
+import { displayedIndex, isBusy } from "@/lib/session/question-session";
 
 /**
  * Runs one weakness drill.
  *
- * Same shape as {@link TestRunner} and for the same reason: the component holds
- * no authority over the outcome. It asks the server for a session (which decides
- * the items), posts one answer at a time, and asks the server to seal it. What
- * lives in React state here is presentation — which question is showing, the
- * shuffled option order, the feedback currently on screen.
+ * Same mechanics as {@link TestRunner} — both drive `useQuestionSession`, so
+ * the phases, the reveal timer, staleness and a settled transport are decided
+ * in one place rather than twice.
  *
  * WHAT A DRILL IS NOT: a test. Finishing it moves the learner's concept
  * knowledge and today's plan, and touches neither their Elo rating nor their
  * CEFR band. Somebody who practises their worst area should never watch their
- * level drop for it.
+ * level drop for it — which is why that difference lives in the actions this
+ * file injects and not in the shared controller.
  */
 export function PracticeRunner({
   conceptCode,
@@ -56,126 +49,64 @@ export function PracticeRunner({
 }) {
   const router = useRouter();
 
-  const [session, setSession] = useState<ActiveSession | null>(null);
-  const [index, setIndex] = useState(0);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<{ correct: number; total: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const onFinalized = useCallback(() => {
+    // The drill moved the plan inside its own transaction; refreshing makes
+    // Today show it without the learner having to reload anything.
+    router.refresh();
+  }, [router]);
 
-  const questionShownAt = useRef(0);
-  // React 19 Strict Mode runs effects twice; starting is idempotent server-side
-  // (it resumes), so this only avoids a redundant round trip.
-  const startedRef = useRef(false);
-
-  const finalize = useCallback(
-    async (sessionId: string) => {
-      const finished = await finalizePracticeSession(sessionId);
-      if (!finished.ok) {
-        setPending(false);
-        setError(finished.message);
-        return;
-      }
-      setResult({ correct: finished.correct, total: finished.total });
-      // The drill moved the plan inside its own transaction; refreshing makes
-      // Today show it without the learner having to reload anything.
-      router.refresh();
-    },
-    [router],
+  const { state, choose, retry } = useQuestionSession<
+    PracticeQuestion,
+    StartedPracticeSession,
+    AnsweredPracticeQuestion,
+    FinalizedPracticeSession
+  >(
+    useMemo(
+      () => ({
+        start: () => startPracticeSession({ conceptCode, planItemId }),
+        readStarted: (started) => ({
+          sessionId: started.sessionId,
+          questions: started.questions,
+          resumeAt: started.resumeAt,
+        }),
+        optionsOf: (question) => question.options,
+        answer: ({ sessionId, question, selectedIdx, responseMs }) =>
+          answerPracticeQuestion({
+            sessionId,
+            questionId: question.questionId,
+            selectedIdx,
+            responseMs,
+          }),
+        readVerdict: (answered) => ({
+          isCorrect: answered.isCorrect,
+          correctIdx: answered.correctIdx,
+        }),
+        finalize: finalizePracticeSession,
+        onFinalized,
+        revealMs: REVEAL_MS,
+      }),
+      [conceptCode, planItemId, onFinalized],
+    ),
   );
 
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    void (async () => {
-      const started = await startPracticeSession({ conceptCode, planItemId });
-      if (!started.ok) {
-        setError(started.message);
-        return;
-      }
-
-      setSession({
-        sessionId: started.sessionId,
-        conceptLabel: started.conceptLabel,
-        questions: started.questions,
-        shuffled: started.questions.map((question) =>
-          shuffleWithOrder(question.options),
-        ),
-      });
-
-      // A resumed drill with every item answered never got sealed (the tab
-      // closed, or the finalize failed): finish it rather than showing a screen
-      // with nothing left to answer.
-      if (started.resumeAt >= started.questions.length) {
-        setPending(true);
-        await finalize(started.sessionId);
-        return;
-      }
-      setIndex(started.resumeAt);
-    })();
-  }, [conceptCode, planItemId, finalize]);
-
-  useEffect(() => {
-    questionShownAt.current = Date.now();
-  }, [index]);
-
-  async function choose(displayedIdx: number) {
-    if (!session || pending || feedback) return;
-    const question = session.questions[index];
-    const isLast = index === session.questions.length - 1;
-
-    setSelected(displayedIdx);
-    setPending(true);
-
-    const answer = await answerPracticeQuestion({
-      sessionId: session.sessionId,
-      questionId: question.questionId,
-      selectedIdx: session.shuffled[index].order[displayedIdx],
-      responseMs: Date.now() - questionShownAt.current,
-    });
-
-    if (!answer.ok) {
-      setPending(false);
-      setSelected(null);
-      setError(answer.message);
-      return;
-    }
-
-    setFeedback({ isCorrect: answer.isCorrect, correctIdx: answer.correctIdx });
-
-    if (isLast) {
-      window.setTimeout(() => void finalize(session.sessionId), REVEAL_MS);
-      return;
-    }
-
-    window.setTimeout(() => {
-      setIndex((i) => i + 1);
-      setSelected(null);
-      setFeedback(null);
-      setPending(false);
-    }, REVEAL_MS);
-  }
-
-  if (error) {
+  if (state.phase === "failed" && state.error) {
     return (
-      <Card className="items-center gap-3 p-5 text-center">
-        <p className="text-sm text-red">{error}</p>
-        <Button asChild variant="ghost">
-          <Link href="/today">Wróć do planu</Link>
-        </Button>
-      </Card>
+      <SessionError
+        message={state.error}
+        onRetry={state.retry ? retry : undefined}
+        backHref="/today"
+        backLabel="Wróć do planu"
+      />
     );
   }
 
-  if (result) {
+  if (state.phase === "finished" && state.result) {
     return (
       <Card className="items-center gap-3 p-5 text-center">
         <CheckCircle2 className="size-8 text-green" aria-hidden />
         <p className="text-lg font-bold">Ćwiczenie zakończone</p>
         <p className="text-sm text-muted2">
-          {result.correct} z {result.total} poprawnie
+          {state.result.correct} z {state.result.total} poprawnie
         </p>
         <p className="max-w-xs text-xs text-muted2">
           Te odpowiedzi trafiły do Twojego profilu — kolejne plany uwzględnią je
@@ -188,7 +119,7 @@ export function PracticeRunner({
     );
   }
 
-  if (!session) {
+  if (state.questions.length === 0) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted2">
         <Loader2 className="size-4 animate-spin" aria-hidden /> Przygotowujemy
@@ -197,46 +128,45 @@ export function PracticeRunner({
     );
   }
 
-  const total = session.questions.length;
-  const question = session.questions[index];
-  const view = session.shuffled[index];
+  const question = state.questions[state.index];
+  if (!question) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted2">
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Zapisujemy
+        wynik…
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-muted2">
-          Pytanie {index + 1}/{total}
+      <SessionProgress
+        index={state.index}
+        total={state.questions.length}
+        answered={state.feedback !== null}
+      />
+
+      {/* A failed answer leaves the item untouched and the drill open: the way
+          back is to answer again, so the error sits beside the question. */}
+      {state.error && state.phase === "answering" && (
+        <p className="text-sm text-red" role="alert">
+          {state.error}
         </p>
-        <div className="flex items-center gap-1.5" aria-hidden>
-          {session.questions.map((q, i) => (
-            <span
-              key={q.questionId}
-              className={cn(
-                "size-2 rounded-full",
-                i < index || (i === index && feedback)
-                  ? "bg-gold"
-                  : i === index
-                    ? "bg-[#a0aec0]"
-                    : "bg-[#374151]",
-              )}
-            />
-          ))}
-        </div>
-      </div>
+      )}
 
       <QuestionCard
         prompt={question.prompt}
-        options={view.items}
-        selected={selected}
+        options={state.shuffled[state.index].items}
+        selected={state.selected}
         result={
-          feedback
+          state.feedback
             ? {
-                isCorrect: feedback.isCorrect,
-                correctIdx: view.order.indexOf(feedback.correctIdx),
+                isCorrect: state.feedback.isCorrect,
+                correctIdx: displayedIndex(state, state.feedback.correctIdx),
               }
             : null
         }
-        pending={pending}
+        pending={isBusy(state.phase)}
         onChoose={choose}
       />
     </div>
