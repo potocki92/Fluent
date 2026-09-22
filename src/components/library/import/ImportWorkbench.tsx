@@ -32,6 +32,7 @@ import {
   IMPORT_ERROR_MESSAGES,
   STAGE_LABELS,
 } from "@/lib/import/state";
+import { settleAction } from "@/lib/errors";
 
 /**
  * One import, from "uploaded" to "ready".
@@ -158,14 +159,22 @@ function Review({ detail }: { detail: BookImportDetail }) {
     setError(null);
 
     startTransition(async () => {
-      const saved = await updateImportMetadata({ importId: detail.id, title, author });
+      // Settled: a rejected action skipped every `setConfirming(false)` below
+      // and left the button spinning on "Importuję…" for good.
+      const saved = await settleAction(
+        () => updateImportMetadata({ importId: detail.id, title, author }),
+        `updateImportMetadata ${detail.id}`,
+      );
       if (!saved.ok) {
         setError(saved.message);
         setConfirming(false);
         return;
       }
 
-      const result = await confirmBookImport(detail.id);
+      const result = await settleAction(
+        () => confirmBookImport(detail.id),
+        `confirmBookImport ${detail.id}`,
+      );
       if (!result.ok) {
         setError(result.message);
         setConfirming(false);
@@ -296,25 +305,46 @@ function Processing({ detail }: { detail: BookImportDetail }) {
     ready: detail.processedChapters,
     failed: detail.failedChapters,
   });
-  const [stalled, setStalled] = useState(false);
+  const [stalled, setStalled] = useState<string | null>(null);
   const running = useRef(false);
+  // Cleared when this screen goes away, so a batch still in flight stops
+  // driving a loop — and stops writing state — for a page nobody is on.
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const pump = useCallback(
     async (retryFailed: boolean) => {
       if (running.current) return;
       running.current = true;
+      setStalled(null);
 
       try {
         // One batch per turn of the loop, because a serverless function cannot
         // hold a 42-chapter book. The loop is the caller's; the batch size and
         // the ordering are the server's.
         for (;;) {
-          const result = await processImportBatch({
-            importId: detail.id,
-            retryFailed,
-          });
+          // Settled: an unwrapped rejection used to escape this loop entirely.
+          // The `finally` below still ran, so the spinner kept spinning at
+          // whatever percentage it had reached, `stalled` was never set, and
+          // the "Spróbuj ponownie" button below never appeared — an import
+          // that looked like it was working and was not.
+          const result = await settleAction(
+            () => processImportBatch({ importId: detail.id, retryFailed }),
+            `processImportBatch ${detail.id}`,
+          );
+          // The learner navigated away mid-batch. The work already committed
+          // is durable and the next visit resumes from it; carrying on here
+          // would only write state into a tree that is gone.
+          if (!alive.current) return;
+
           if (!result.ok) {
-            setStalled(true);
+            setStalled(result.message);
             break;
           }
 
@@ -330,7 +360,7 @@ function Processing({ detail }: { detail: BookImportDetail }) {
         }
       } finally {
         running.current = false;
-        router.refresh();
+        if (alive.current) router.refresh();
       }
     },
     [detail.id, router],
@@ -383,7 +413,13 @@ function Processing({ detail }: { detail: BookImportDetail }) {
         </Button>
       )}
 
-      {(stalled || progress.failed > 0) && (
+      {stalled && (
+        <p className="text-center text-sm text-red" role="alert">
+          {stalled}
+        </p>
+      )}
+
+      {(stalled !== null || progress.failed > 0) && (
         <Button variant="outline" className="w-full" onClick={() => void pump(true)}>
           <RefreshCw className="size-4" /> Spróbuj ponownie
         </Button>
@@ -429,6 +465,7 @@ function Ready({ detail }: { detail: BookImportDetail }) {
 function Failed({ detail }: { detail: BookImportDetail }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const code = detail.errorCode ?? "extract_failed";
   const hint = IMPORT_ERROR_HINTS[code];
@@ -442,6 +479,11 @@ function Failed({ detail }: { detail: BookImportDetail }) {
           {IMPORT_ERROR_MESSAGES[code]}
         </p>
         {hint && <p className="mt-2 text-xs text-muted2">{hint}</p>}
+        {retryError && (
+          <p className="mt-2 text-xs text-red" role="alert">
+            {retryError}
+          </p>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -454,7 +496,13 @@ function Failed({ detail }: { detail: BookImportDetail }) {
           disabled={pending}
           onClick={() =>
             startTransition(async () => {
-              await analyzeBookImport(detail.id);
+              const result = await settleAction(
+                () => analyzeBookImport(detail.id),
+                `analyzeBookImport ${detail.id}`,
+              );
+              // A refused retry used to be indistinguishable from one that ran
+              // and failed the same way again: both simply refreshed.
+              if (!result.ok) setRetryError(result.message);
               router.refresh();
             })
           }
@@ -485,6 +533,7 @@ function CancelButton({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [armed, setArmed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   if (!armed) {
     return (
@@ -499,20 +548,36 @@ function CancelButton({
   }
 
   return (
-    <Button
-      variant="destructive"
-      disabled={pending}
-      onClick={() =>
-        startTransition(async () => {
-          await cancelBookImport(importId);
-          router.push("/library/import");
-          router.refresh();
-        })
-      }
-    >
-      {pending ? <Loader2 className="size-4 animate-spin" /> : null}
-      Na pewno usuń
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      {failure && (
+        <p className="text-xs text-red" role="alert">
+          {failure}
+        </p>
+      )}
+      <Button
+        variant="destructive"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const result = await settleAction(
+              () => cancelBookImport(importId),
+              `cancelBookImport ${importId}`,
+            );
+            // Navigating away regardless would tell the learner their file was
+            // deleted when it is still sitting in the private bucket.
+            if (!result.ok) {
+              setFailure(result.message);
+              return;
+            }
+            router.push("/library/import");
+            router.refresh();
+          })
+        }
+      >
+        {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+        Na pewno usuń
+      </Button>
+    </div>
   );
 }
 

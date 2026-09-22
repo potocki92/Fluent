@@ -6,6 +6,8 @@
  * string/function (breaking `supabase.select(WORD_GOAL_COLUMNS)`).
  */
 
+import { learnerKeys } from "@/lib/query-keys";
+
 export interface WordGoalData {
   goal: number;
   /** Reviews done today — 0 when the last review date is not today. */
@@ -16,7 +18,7 @@ export interface WordGoalData {
 }
 
 /** TanStack key for the daily word goal — shared so the server can prime it. */
-export const WORD_GOAL_KEY = ["word-goal"] as const;
+export const WORD_GOAL_KEY = learnerKeys.wordGoal();
 
 /** Profile columns the daily goal needs; shared by the client fetch + prefetch. */
 export const WORD_GOAL_COLUMNS =

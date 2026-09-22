@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { saveTextWords } from "@/actions/save-text-words";
 import { extractLemmas } from "@/lib/lemmas";
 import { Button } from "@/components/ui/button";
+import { savedWordKeys } from "@/lib/query-keys";
 
 export function SaveTextWordsButton({
   textId,
@@ -29,7 +30,7 @@ export function SaveTextWordsButton({
       const { saved } = await saveTextWords(textId);
       setSavedCount(saved);
       setStatus("done");
-      await queryClient.invalidateQueries({ queryKey: ["saved_words"] });
+      await queryClient.invalidateQueries({ queryKey: savedWordKeys.all });
     } catch {
       setStatus("idle");
     }

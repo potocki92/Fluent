@@ -13,50 +13,27 @@ import {
   MAX_DAILY_MINUTES,
   MIN_DAILY_MINUTES,
 } from "@/lib/learning/planner/constants";
+import type {
+  TodayPlan,
+  TodayPlanItem,
+} from "@/lib/learning/planner/contracts";
 import type { EvidenceLevel, PlanItemType } from "@/lib/learning/planner/types";
 import type { PlanReasonCode, PlanReasonData } from "@/lib/learning/planner/reasons";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import type { ConceptCode } from "@/lib/learning/concepts";
 import type { Json } from "@/types/database";
 
-/** One activity of today's plan, as the UI reads it. */
-export interface TodayPlanItem {
-  id: string;
-  position: number;
-  type: PlanItemType;
-  status: "pending" | "in_progress" | "completed" | "skipped";
-  estimatedMinutes: number;
-  targetCount: number;
-  completedCount: number;
-  reasonCode: PlanReasonCode;
-  reasonData: PlanReasonData;
-  textId: number | null;
-  libraryItemId: string | null;
-  chapterId: string | null;
-  conceptCode: ConceptCode | null;
-  wordIds: number[];
-  /** Snapshotted display detail — titles, labels, previews. */
-  payload: Record<string, unknown>;
-  /** Developer-facing priority breakdown. Never rendered for a learner. */
-  signals: Record<string, number>;
-  priorityScore: number;
-}
-
-export interface TodayPlan {
-  id: string;
-  learningDate: string;
-  timezone: string;
-  status: "pending" | "in_progress" | "completed";
-  targetMinutes: number;
-  estimatedMinutes: number;
-  /** Minutes left across the items that are not finished. */
-  remainingMinutes: number;
-  algorithmVersion: string;
-  evidenceLevel: EvidenceLevel;
-  items: TodayPlanItem[];
-  /** Consecutive days ending today whose plan was completed. */
-  streak: number;
-}
+/**
+ * The plan's SHAPE lives in `@/lib/learning/planner/contracts` — a module with
+ * no `"use server"` on it — so a client component or a pure planner function
+ * can describe a plan item without pulling a Server Action into its graph.
+ * Re-exported here for the callers that want both the type and the loader.
+ */
+export type {
+  TodayPlan,
+  TodayPlanItem,
+} from "@/lib/learning/planner/contracts";
+import { toJson } from "@/lib/json";
 
 const PLAN_COLUMNS =
   "id, learning_date, timezone, status, target_minutes, estimated_minutes, algorithm_version, evidence_level";
@@ -148,7 +125,7 @@ export async function getOrCreateTodayPlan(): Promise<ActionResult<TodayPlan>> {
     p_target_minutes: targetMinutes,
     p_algorithm_version: draft.algorithmVersion,
     p_evidence_level: draft.evidenceLevel,
-    p_items: draftItemRows(draft) as unknown as Json,
+    p_items: toJson(draftItemRows(draft)),
     p_replace_onboarding: replaceOnboarding,
   });
   if (createError) {

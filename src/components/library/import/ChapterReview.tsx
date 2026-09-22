@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { editImportChapter } from "@/actions/book-import";
+import { settleAction } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CONFIDENCE_LABELS } from "@/lib/import/state";
@@ -104,7 +105,10 @@ function ChapterRow({
   const run = (edit: Parameters<typeof editImportChapter>[1]) => {
     setError(null);
     startTransition(async () => {
-      const result = await editImportChapter(importId, edit);
+      const result = await settleAction(
+        () => editImportChapter(importId, edit),
+        `editImportChapter ${importId}`,
+      );
       if (!result.ok) setError(result.message);
       else router.refresh();
     });

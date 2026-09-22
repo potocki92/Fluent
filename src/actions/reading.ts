@@ -7,13 +7,16 @@ import {
   EMPTY_SNAPSHOT,
   evidenceJson,
   foldEvidence,
-  type KnowledgeSnapshot,
 } from "@/lib/learning/aggregate";
 import {
   chapterReadingEvidence,
   readingLookupEvidence,
 } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
+import type {
+  ChapterSummary,
+  ReaderDictionaryWord,
+} from "@/lib/reading/contracts";
 import {
   CHAPTER_COMPLETION_RATIO,
   MAX_ACTIVE_SECONDS_PER_REPORT,
@@ -119,6 +122,8 @@ export async function startReadingSession(
 
 export interface ReadingProgressResult {
   progressRatio: number;
+  /** False when this exact report had already been applied. */
+  applied: boolean;
   furthestWordOffset: number;
   readingWordCount: number;
   activeSeconds: number;
@@ -150,6 +155,18 @@ export async function reportReadingProgress(input: {
   resume: ReadingAnchor;
   furthest: ReadingAnchor;
   activeSeconds: number;
+  /**
+   * The receipt. The database applies one id EXACTLY once, which is what makes
+   * retrying a report safe — and therefore what lets the reader hold on to its
+   * seconds through a failure instead of dropping them.
+   */
+  reportId: string;
+  /**
+   * Monotonic within one reading. A report whose seq the session has already
+   * passed contributes its seconds and its furthest mark but does not move the
+   * resume bookmark backwards.
+   */
+  reportSeq: number;
 }): Promise<ActionResult<ReadingProgressResult>> {
   const supabase = await createServerSupabaseClient();
   const {
@@ -172,6 +189,8 @@ export async function reportReadingProgress(input: {
     p_furthest_token_position: toStoredPosition(input.furthest.tokenPosition),
     p_active_seconds: Math.max(0, Math.trunc(input.activeSeconds)),
     p_max_active_seconds: MAX_ACTIVE_SECONDS_PER_REPORT,
+    p_report_id: input.reportId,
+    p_report_seq: input.reportSeq,
   });
   if (error) return failFrom(error, `reportReadingProgress: ${input.sessionId}`);
 
@@ -182,6 +201,7 @@ export async function reportReadingProgress(input: {
   return {
     ok: true,
     progressRatio: ratio,
+    applied: row.applied ?? true,
     furthestWordOffset: row.furthest_word_offset ?? 0,
     readingWordCount: row.reading_word_count ?? 0,
     activeSeconds: row.active_seconds ?? 0,
@@ -191,15 +211,14 @@ export async function reportReadingProgress(input: {
 }
 
 
-/** What the learner is shown after finishing a chapter. Real numbers, no AI. */
-export interface ChapterSummary {
-  alreadyCompleted: boolean;
-  wordsRead: number;
-  activeSeconds: number;
-  lookupCount: number;
-  uniqueLookupCount: number;
-  savedWordCount: number;
-}
+/**
+ * The SHAPES live in `@/lib/reading/contracts`, so a card or a hook can
+ * describe them without importing a Server Action module.
+ */
+export type {
+  ChapterSummary,
+  ReaderDictionaryWord,
+} from "@/lib/reading/contracts";
 
 /**
  * Finish a chapter.
@@ -325,14 +344,15 @@ export async function recordWordLookup(input: {
     occurredAt: new Date().toISOString(),
   });
 
-  let snapshot: KnowledgeSnapshot = EMPTY_SNAPSHOT;
-  try {
-    snapshot = await loadKnowledgeSnapshot(supabase, user.id, [evidence]);
-  } catch (error) {
-    return fail("database_error", "recordWordLookup: snapshot", error);
-  }
-
-  const fold = foldEvidence(snapshot, [evidence]);
+  // This path already refused rather than committing an empty payload; it now
+  // says so through the one helper every other commit uses.
+  const prepared = await prepareEvidence(
+    supabase,
+    user.id,
+    [evidence],
+    `recordWordLookup ${input.interactionId}`,
+  );
+  if (!prepared.ok) return prepared;
 
   let service;
   try {
@@ -349,7 +369,7 @@ export async function recordWordLookup(input: {
     p_sentence_id: input.sentenceId,
     p_occurrence_id: input.occurrenceId,
     p_session_id: input.readingSessionId,
-    p_evidence: evidenceJson(fold.payload),
+    p_evidence: prepared.json,
   });
   if (error) return failFrom(error, `recordWordLookup: ${input.interactionId}`);
 
@@ -395,20 +415,6 @@ export async function saveWordFromReader(input: {
 // ─────────────────────────────────────────────────────────────────────────────
 // the dictionary, as of right now
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** The dictionary entry behind a tapped word, exactly as the gloss shows it. */
-export interface ReaderDictionaryWord {
-  id: number;
-  lemma: string;
-  display: string;
-  article: string | null;
-  word_type: string;
-  translation_pl: string | null;
-  example_de: string | null;
-  example_pl: string | null;
-  ipa: string | null;
-  plural: string | null;
-}
 
 const GLOSS_COLUMNS =
   "id, lemma, display, article, word_type, translation_pl, example_de, example_pl, ipa, plural";

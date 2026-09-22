@@ -23,6 +23,7 @@ import type {
   WordTopic,
   WordType,
 } from "@/types";
+import { adminKeys, wordKeys } from "@/lib/query-keys";
 
 /** Sentinel for the "no value" option in nullable Selects (Radix forbids ""). */
 const NONE = "none";
@@ -104,8 +105,8 @@ export function WordForm({ word, onDone }: Props) {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
-      await queryClient.invalidateQueries({ queryKey: ["words"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.words() });
+      await queryClient.invalidateQueries({ queryKey: wordKeys.all });
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Coś poszło nie tak.");

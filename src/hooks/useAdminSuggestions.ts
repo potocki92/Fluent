@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Word, WordSuggestion } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 /** A pending suggestion with the word it targets, for the admin review queue. */
 export type AdminSuggestionRow = WordSuggestion & {
@@ -15,7 +16,7 @@ export type AdminSuggestionRow = WordSuggestion & {
  */
 export function useAdminSuggestions() {
   return useQuery({
-    queryKey: ["adminSuggestions"],
+    queryKey: adminKeys.suggestions(),
     queryFn: async (): Promise<AdminSuggestionRow[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { wordKeys } from "@/lib/query-keys";
 
 interface TooltipWord {
   id: number;
@@ -34,7 +35,7 @@ export function WordTooltip({
   const [open, setOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["word-tooltip", lemma],
+    queryKey: wordKeys.tooltip(lemma),
     enabled: open,
     queryFn: async (): Promise<TooltipWord> => {
       const supabase = createClientSupabaseClient();

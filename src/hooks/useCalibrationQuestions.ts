@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { CalibrationQuestion } from "@/types";
+import { learnerKeys } from "@/lib/query-keys";
 
 /**
  * Fetch the standalone placement-test item bank from the answer-free
@@ -11,7 +12,7 @@ import type { CalibrationQuestion } from "@/types";
  */
 export function useCalibrationQuestions() {
   return useQuery({
-    queryKey: ["calibration-questions"],
+    queryKey: learnerKeys.calibrationQuestions(),
     queryFn: async (): Promise<CalibrationQuestion[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

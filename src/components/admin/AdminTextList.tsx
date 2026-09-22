@@ -20,6 +20,7 @@ import { deleteText, setTextStatus } from "@/actions/admin-texts";
 import { useAdminTexts, type AdminTextRow } from "@/hooks/useAdminTexts";
 import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
+import { adminKeys, textKeys } from "@/lib/query-keys";
 
 /** Rendered at 64px, 80px from `sm` — the thumbnail's real ceiling. */
 const THUMB_SIZES = "80px";
@@ -55,8 +56,8 @@ export function AdminTextList() {
     const next = text.status === "published" ? "draft" : "published";
     try {
       await setTextStatus(text.id, next);
-      await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
-      await queryClient.invalidateQueries({ queryKey: ["texts"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
+      await queryClient.invalidateQueries({ queryKey: textKeys.all });
     } catch {
       // Leave the list untouched; the next refetch reflects the true state.
     } finally {
@@ -69,8 +70,8 @@ export function AdminTextList() {
     setDeleting(true);
     try {
       await deleteText(toDelete.id);
-      await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
-      await queryClient.invalidateQueries({ queryKey: ["texts"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
+      await queryClient.invalidateQueries({ queryKey: textKeys.all });
       setToDelete(null);
     } catch {
       // Keep the dialog open so the admin can retry.

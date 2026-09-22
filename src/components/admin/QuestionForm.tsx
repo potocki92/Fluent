@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createQuestion, updateQuestion } from "@/actions/admin-questions";
 import type { QuestionInput, QuestionWithAnswer } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 type Props = { textId: number } & (
   | { mode: "create"; onDone?: () => void }
@@ -86,9 +87,9 @@ export function QuestionForm(props: Props) {
         await createQuestion(props.textId, input);
       }
       await queryClient.invalidateQueries({
-        queryKey: ["adminQuestions", props.textId],
+        queryKey: adminKeys.questions(props.textId),
       });
-      await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
 
       if (props.mode === "create") {
         setPrompt("");

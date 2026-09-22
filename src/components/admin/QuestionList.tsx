@@ -17,6 +17,7 @@ import { QuestionForm } from "@/components/admin/QuestionForm";
 import { deleteQuestion } from "@/actions/admin-questions";
 import { cn } from "@/lib/utils";
 import type { QuestionWithAnswer } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 export function QuestionList({
   textId,
@@ -36,9 +37,9 @@ export function QuestionList({
     try {
       await deleteQuestion(toDelete.id);
       await queryClient.invalidateQueries({
-        queryKey: ["adminQuestions", textId],
+        queryKey: adminKeys.questions(textId),
       });
-      await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
       setToDelete(null);
     } catch {
       // Keep the dialog open so the admin can retry.

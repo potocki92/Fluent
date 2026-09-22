@@ -2,18 +2,22 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import { review, GRADE_QUALITY, DEFAULT_EASE_FACTOR } from "@/lib/sm2";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  review,
+  GRADE_QUALITY,
+  DEFAULT_EASE_FACTOR,
+  type ReviewGrade,
+} from "@/lib/sm2";
 import { reviewEvidence, type ReviewDirection, type ReviewMode } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import { sanitizeResponseMs } from "@/lib/response-time";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 
-export type ReviewGrade = keyof typeof GRADE_QUALITY;
+/**
+ * The grade's SHAPE lives in `@/lib/sm2`, beside the grades it names, so a
+ * component can type a button without importing a Server Action module.
+ */
+export type { ReviewGrade } from "@/lib/sm2";
 
 export interface UpdateSrsInput {
   wordId: number;
@@ -125,15 +129,16 @@ export async function updateSrs(
       }),
     ];
 
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        // Never swallowed: knowledge that quietly stopped being written would be
-        // indistinguishable from a learner who stopped practising.
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    // Refusing here loses nothing: `apply_review` is keyed on the interaction
+    // id, so the retry that follows settles the SAME review rather than a
+    // second one — and it does so with the knowledge update intact.
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      evidence,
+      `updateSrs word ${input.wordId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const { data, error } = await service.rpc("apply_review", {
       p_user_id: user.id,
@@ -161,7 +166,7 @@ export async function updateSrs(
           is_mastered: next.isMastered,
         },
       },
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
     });
 
     const result = data?.[0];

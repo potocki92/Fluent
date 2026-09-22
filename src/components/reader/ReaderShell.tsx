@@ -14,6 +14,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -71,7 +72,7 @@ import { useChapterNotebook } from "@/hooks/useChapterNotebook";
 import { useReadingLine } from "@/hooks/useReadingLine";
 import { useReadingPosition } from "@/hooks/useReadingPosition";
 import { useReadingRestore } from "@/hooks/useReadingRestore";
-import type { FluentFailure } from "@/lib/errors";
+import { settleAction, type FluentFailure } from "@/lib/errors";
 import { newInteractionId } from "@/lib/interaction-id";
 import { EMPTY_SUMMARY, summarizeNotebook } from "@/lib/notebook/summary";
 import {
@@ -83,10 +84,15 @@ import {
   WORD_TAP_SNAP_PX,
 } from "@/lib/reading/constants";
 import {
-  hasUnsavedPosition,
+  abandonFlush,
+  initialFlushState,
+  runFlush,
+  type FlushPorts,
+  type FlushState,
+} from "@/lib/reading/flush";
+import {
   movedEnoughToPersist,
   type ChapterWordIndex,
-  type PersistedPosition,
   type ReadingAnchor,
 } from "@/lib/reading/position";
 import {
@@ -234,9 +240,13 @@ export function ReaderShell({
   // ends up showing a value React never told it about.
   const sessionRef = useRef<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  /** What the server already knows. Null until the first successful report. */
-  const persistedRef = useRef<PersistedPosition | null>(null);
-  const lastFlushRef = useRef(0);
+  /**
+   * The progress-write coordinator's whole memory: what the server has
+   * confirmed, what is in flight, what was sent and never acknowledged.
+   * A ref because timers and `pagehide` handlers read it, and none of it is
+   * anything render may look at.
+   */
+  const flushRef = useRef<FlushState>(initialFlushState(null));
 
   const clock = useActiveReadingClock();
   const { data: marks } = useChapterNotebook(chapter.id);
@@ -317,6 +327,7 @@ export function ReaderShell({
       if (cancelled || !result.ok) return;
 
       sessionRef.current = result.sessionId;
+      flushRef.current.sessionId = result.sessionId;
       setSessionId(result.sessionId);
       // Forward only: a server ratio behind what this sitting has already read
       // is stale, not authoritative.
@@ -380,68 +391,79 @@ export function ReaderShell({
   // Returns whether the server now agrees. Callers that merely keep the
   // bookmark warm ignore it; finishing the chapter CANNOT, because
   // `complete_reading_chapter` only knows what the last report told it.
-  const flush = useCallback(
-    async (force = false): Promise<{ ok: true } | FluentFailure> => {
-      const sessionId = sessionRef.current;
-      if (!sessionId) return { ok: true };
-
+  // THE COORDINATION LIVES IN `src/lib/reading/flush.ts`. What used to be here
+  // was a `useCallback` doing five things at once, and getting two of them
+  // wrong in ways nobody reports: `clock.drain()` ran BEFORE the request, so a
+  // failed report took its seconds with it, and a retry would have
+  // double-counted them because `active_seconds` is an increment with nothing
+  // to recognise a repeat by. The coordinator holds the seconds inside an
+  // unconfirmed report, retries it under the same receipt, serialises reports
+  // and orders them. All of that is testable without a browser; this is the
+  // part that is not.
+  const ports = useMemo<FlushPorts>(
+    () => ({
       // Resolved NOW rather than taken from the last sample: a flush fired by
       // `pagehide` has to record where the learner actually is, and by then the
       // scroll that put them there may not have produced a sample yet.
-      const state = position.sample();
-      const seconds = clock.peek();
-
-      if (!force && !hasUnsavedPosition(state, persistedRef.current, seconds)) {
-        return { ok: true };
-      }
-
-      // Drained only once we are committed to sending: seconds taken and then
-      // dropped are seconds of reading nobody ever gets back.
-      clock.drain();
-      persistedRef.current = {
-        resumeOffset: state.resumeOffset,
-        furthestOffset: state.furthestOffset,
-      };
-      lastFlushRef.current = Date.now();
-
-      const report = (id: string) =>
-        reportReadingProgress({
-          sessionId: id,
-          resume: state.resume,
-          furthest: state.furthest,
-          activeSeconds: seconds,
-        });
-
-      let result = await report(sessionId);
-
-      // A SEALED SESSION IS NOT A DEAD END. A second tab, a restore from the
-      // back/forward cache, or simply having been away long enough can leave the
-      // reader holding a session the server has finished with — and without
-      // this, the rest of the sitting would silently write nothing and the
-      // chapter could never be completed. Opening a new one is exactly what
-      // arriving on the page does, so do that and say it again, once.
-      if (!result.ok && isStaleSession(result.code)) {
-        const reopened = await startReadingSession(chapter.id);
-        if (reopened.ok) {
-          sessionRef.current = reopened.sessionId;
-          setSessionId(reopened.sessionId);
-          position.mergeServer(reopened.progressRatio);
-          result = await report(reopened.sessionId);
-        }
-      }
-
-      if (!result.ok) {
-        // The server did not take it, so pretend nothing was written: the next
-        // flush must try again rather than believe a report that never landed.
-        persistedRef.current = null;
-        return result;
-      }
-
-      position.mergeServer(result.progressRatio);
-      return { ok: true };
-    },
+      sample: () => position.sample(),
+      takeSeconds: () => clock.drain(),
+      refundSeconds: (seconds) => clock.refund(seconds),
+      send: (id, report) =>
+        settleAction(
+          () =>
+            reportReadingProgress({
+              sessionId: id,
+              resume: report.resume,
+              furthest: report.furthest,
+              activeSeconds: report.activeSeconds,
+              reportId: report.reportId,
+              reportSeq: report.seq,
+            }),
+          `reportReadingProgress ${id}`,
+        ),
+      reopen: async () => {
+        const reopened = await settleAction(
+          () => startReadingSession(chapter.id),
+          `startReadingSession ${chapter.id}`,
+        );
+        if (!reopened.ok) return reopened;
+        // Forward only: a server ratio behind what this sitting has already
+        // read is stale, not authoritative.
+        position.mergeServer(reopened.progressRatio);
+        return {
+          ok: true,
+          sessionId: reopened.sessionId,
+          progressRatio: reopened.progressRatio,
+        };
+      },
+      onAccepted: (ratio) => position.mergeServer(ratio),
+      onSessionChanged: (id) => {
+        sessionRef.current = id;
+        setSessionId(id);
+      },
+      now: () => Date.now(),
+      newReportId: () => newInteractionId(),
+    }),
     [chapter.id, clock, position],
   );
+
+  const flush = useCallback(
+    (force = false): Promise<{ ok: true } | FluentFailure> => {
+      flushRef.current.sessionId = sessionRef.current;
+      return runFlush(flushRef.current, ports, { force });
+    },
+    [ports],
+  );
+
+  // A report still in flight when the reader goes away will never be retried,
+  // so its seconds go back to the clock rather than into a garbage-collected
+  // object. (On a hard navigation the page is going too; on a client-side one
+  // it is not, and the next chapter's reader inherits a clock that still knows
+  // about them.)
+  useEffect(() => {
+    const state = flushRef.current;
+    return () => abandonFlush(state, ports);
+  }, [ports]);
 
   // A REQUEST PER SCROLL EVENT IS BOTH USELESS AND ABUSIVE. Progress is only
   // worth a round trip when the answer changed, so it is batched: one write
@@ -453,9 +475,10 @@ export function ReaderShell({
   // app wrote nothing on the way out and came back to 42%.
   useEffect(() => {
     const timer = window.setInterval(() => {
+      const coordinator = flushRef.current;
       const state = position.stateRef.current;
-      const moved = movedEnoughToPersist(state, persistedRef.current);
-      const due = Date.now() - lastFlushRef.current >= PROGRESS_FLUSH_MS;
+      const moved = movedEnoughToPersist(state, coordinator.persisted);
+      const due = Date.now() - coordinator.lastFlushAt >= PROGRESS_FLUSH_MS;
       if (moved || due) void flush();
     }, PROGRESS_FLUSH_MIN_MS);
 
@@ -1177,17 +1200,6 @@ export function ReaderShell({
       />
     </div>
   );
-}
-
-/**
- * Is this failure "your session is gone", rather than something about the data?
- *
- * The two codes a finished or vanished reading session comes back as. Anything
- * else — a refused position, a database error — is not fixed by opening a new
- * session and must not be retried into one.
- */
-function isStaleSession(code: FluentFailure["code"]): boolean {
-  return code === "session_completed" || code === "not_found";
 }
 
 /**

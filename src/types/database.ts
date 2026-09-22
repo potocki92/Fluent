@@ -41,7 +41,12 @@ export type Database = {
           created_at: string;
         };
         Insert: {
-          id: number;
+          // Optional since `20260922120000_dictionary_write_integrity.sql`:
+          // the column defaults to `nextval('words_id_seq')`, so a new entry
+          // lets the database allocate rather than racing `max(id) + 1`. The
+          // seeds and the wordlist import still name their own ids, and a
+          // trigger keeps the sequence ahead of them.
+          id?: number;
           lemma: string;
           display: string;
           article?: "der" | "die" | "das" | null;
@@ -2442,6 +2447,35 @@ export type Database = {
       };
     };
     Functions: {
+      list_notebook_entries: {
+        Args: {
+          p_filter: string;
+          p_library_item_id: string | null;
+          p_chapter_id: string | null;
+          p_search: string | null;
+          /**
+           * The cursor is all three or none: a partial one silently degrades
+           * to the single-column comparison that skipped tied rows. See
+           * `supabase/migrations/20260922140000_notebook_keyset_pagination.sql`.
+           */
+          p_cursor_created_at: string | null;
+          p_cursor_entry_type: string | null;
+          p_cursor_entry_id: number | null;
+          p_limit: number;
+        };
+        Returns: Database["public"]["Views"]["notebook_entries"]["Row"][];
+      };
+      review_word_suggestion: {
+        Args: { p_suggestion_id: number; p_decision: "approved" | "rejected" };
+        Returns: {
+          suggestion_id: number;
+          status: "pending" | "approved" | "rejected";
+          /** True when THIS call was the one that decided it. */
+          applied: boolean;
+          /** The word the edit landed on, or null when nothing was written. */
+          updated_word_id: number | null;
+        }[];
+      };
       bump_word_review: {
         Args: Record<string, never>;
         Returns: number;
@@ -2707,6 +2741,10 @@ export type Database = {
           p_furthest_token_position: number | null;
           p_active_seconds: number;
           p_max_active_seconds: number;
+          /** The receipt: one id is applied exactly once. */
+          p_report_id: string;
+          /** Monotonic within a reading; guards the resume bookmark's order. */
+          p_report_seq: number;
         };
         Returns: {
           progress_ratio: number;
@@ -2715,6 +2753,8 @@ export type Database = {
           reading_word_count: number;
           active_seconds: number;
           words_read: number;
+          /** False when this exact report had already been applied. */
+          applied: boolean;
         }[];
       };
       /** Finishes a chapter. Refuses below `p_min_ratio`; idempotent. */

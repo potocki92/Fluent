@@ -521,6 +521,59 @@ slept machine, a paused debugger and a forged request. The result is not
 laboratory-accurate and does not try to be; it is the difference between a
 number that is roughly true and one that is fiction.
 
+### A progress report carries a receipt
+
+> **Contract change**, `20260922160000_reading_progress_receipts.sql`. Before
+> it, a report was fire-and-hope and the reader was forced to choose between two
+> wrong answers.
+
+`active_seconds` is an INCREMENT (`p.active_seconds + v_seconds`), and there was
+nothing to recognise a report by. That left `ReaderShell.flush` with two options:
+
+- **Drop the seconds when a write fails** — what it did. `clock.drain()` ran
+  before the request, so a failed report took the time with it. Twenty minutes
+  of reading over a patchy connection recorded four.
+- **Keep them and retry** — which double-counts, because a request that reached
+  the database and whose *response* was lost is indistinguishable, from the
+  browser, from one that never arrived.
+
+Neither is fixable alone: holding the seconds for a retry is exactly what makes
+double-counting possible. So a report is now identified.
+
+- **`p_report_id`** — a receipt, minted once per attempt-to-deliver. The
+  function applies an id it has already seen EXACTLY once: a repeat returns the
+  state it holds and adds nothing. This is what makes retrying safe, and
+  therefore what lets the client keep its seconds through a failure.
+- **`p_report_seq`** — monotonic within one reading. `furthest_*` never needed
+  it (`greatest(...)` is monotonic by construction), but `resume_*` is a
+  BOOKMARK, written as given — so a slow report landing after a faster one used
+  to rewind the learner's place. A report whose seq the session has already
+  passed now contributes its seconds and its furthest mark, and leaves the
+  bookmark alone.
+
+Both parameters are optional, so a tab open across the deploy keeps working at
+the old at-least-once semantics. Deduplication is against the session's LAST
+report only, which is all the client needs: `src/lib/reading/flush.ts` sends one
+report at a time and retries the most recent one.
+
+The coordination itself lives in `src/lib/reading/flush.ts` — pure, with the
+transport injected — rather than in the component, because every guarantee above
+is about ORDERING and RETRY, and none of them can be asserted from a `.tsx`
+file. Its rules:
+
+- seconds are held inside the unconfirmed report until the server confirms it,
+  and go back to the clock only when the report is ABANDONED (the reader
+  unmounts) rather than retried;
+- one report is in flight at a time — a flush arriving during another marks the
+  coordinator instead of opening a second request;
+- a sealed session is reopened once and the SAME report is re-sent unchanged, so
+  reopening cannot duplicate its time either;
+- a late RESULT does not repaint: applying an older reply's ratio would push the
+  progress bar backwards.
+
+Exercised by `src/lib/reading/flush.test.ts` (the coordinator) and
+`supabase/tests/13_reading_progress_receipts.sql` (the database half).
+
 ## Contextual vocabulary
 
 ### A lookup is not a failed test

@@ -13411,3 +13411,547 @@ comment on column public.library_items.cover_url is
   'The material''s artwork: an absolute URL, normally a public object in the content-covers bucket. Set for a passage through legacy_text_id, inherited by every chapter of a book, and never duplicated onto chapters.';
 
 -- === END 20260921120000_material_covers.sql ===
+
+-- === BEGIN supabase/migrations/20260922120000_dictionary_write_integrity.sql ===
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- DICTIONARY WRITE INTEGRITY — who allocates an id, and who owns a transaction.
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Two admin write paths did in the application what only the database can do.
+--
+-- 1. ALLOCATING AN ID. `createWord` read `max(id)`, added one, and inserted:
+--
+--      select id from words order by id desc limit 1;   -- 2588
+--      insert into words (id, …) values (2589, …);
+--
+--    Two admins adding a word in the same few milliseconds both read 2588 and
+--    both try 2589. One wins; the other gets a primary-key violation surfaced
+--    as a raw Postgres message. Nothing was corrupted, but the losing admin's
+--    work vanished behind an error nobody could act on — and the window widens
+--    with every import running alongside.
+--
+--    `words.id` is a plain `bigint` rather than an identity column BECAUSE the
+--    seeds and the DTZ wordlist import insert explicit ids, and those ids are
+--    referenced by `saved_words`, `word_occurrences`, `user_word_knowledge`,
+--    `questions.tested_word_id` and a learner's own annotations. Renumbering is
+--    out of the question. So this does not convert the column: it attaches a
+--    sequence as a DEFAULT and keeps that sequence ahead of every explicit id,
+--    which leaves all existing rows and all existing ids exactly as they are
+--    while making the next allocation atomic.
+--
+-- 2. REVIEWING A SUGGESTION. `reviewSuggestion` ran three statements with no
+--    transaction and no lock: read the status, patch `words`, mark the
+--    suggestion. Two admins opening the same queue both read `pending`, both
+--    apply the edit, and both stamp their own name on it. Worse, a failure
+--    between statements two and three left the word EDITED and the suggestion
+--    still `pending` — so the next review applied the same edit again.
+--
+--    `review_word_suggestion` does all of it in one statement, under a row
+--    lock, and is idempotent: a suggestion that is no longer pending returns
+--    the decision it already has instead of applying anything a second time.
+--
+-- Non-destructive and idempotent, like every migration here: no data is moved,
+-- no id changes, and re-running it is a no-op.
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 1. AN ATOMIC ID FOR A NEW DICTIONARY WORD.
+-- ─────────────────────────────────────────────────────────────────────────────
+create sequence if not exists public.words_id_seq as bigint owned by public.words.id;
+
+-- Start where the dictionary already is. `greatest` with the sequence's own
+-- current value is what makes this safe to re-run: a second application can
+-- only ever move the sequence forward, never back onto ids already handed out.
+select setval(
+  'public.words_id_seq',
+  greatest(
+    coalesce((select max(id) from public.words), 0),
+    coalesce(pg_sequence_last_value('public.words_id_seq'), 0),
+    1
+  ),
+  true
+);
+
+alter table public.words alter column id set default nextval('public.words_id_seq');
+
+-- AN EXPLICIT ID MUST NOT LEAVE THE SEQUENCE BEHIND IT. The seeds and the
+-- wordlist import name their own ids; without this, the sequence would still be
+-- sitting at 1 afterwards and the first admin-created word would collide with
+-- seed row 1. Comparing against `pg_sequence_last_value` rather than calling
+-- `nextval` means a bulk import does not burn an id per row — and a
+-- default-allocated id compares equal, so the normal path does no work at all.
+create or replace function public.words_keep_id_sequence_ahead()
+returns trigger language plpgsql as $$
+begin
+  if new.id is not null
+     and new.id > coalesce(pg_sequence_last_value('public.words_id_seq'), 0) then
+    perform setval('public.words_id_seq', new.id, true);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists words_keep_id_sequence_ahead on public.words;
+create trigger words_keep_id_sequence_ahead
+  before insert on public.words
+  for each row execute function public.words_keep_id_sequence_ahead();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. REVIEWING A SUGGESTION, ONCE.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SECURITY DEFINER because it writes `words`, and the admin check is taken from
+-- `auth.uid()` through the existing `is_admin()` — never from a parameter. The
+-- reviewer recorded is the caller, for the same reason.
+create or replace function public.review_word_suggestion(
+  p_suggestion_id bigint,
+  p_decision      text
+)
+returns table (
+  suggestion_id     bigint,
+  status            text,
+  /** True when this call was the one that decided it. */
+  applied           boolean,
+  /** The word the edit landed on, or null when nothing was written. */
+  updated_word_id   bigint
+)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_suggestion public.word_suggestions%rowtype;
+  v_value      text;
+  v_reviewer   uuid := auth.uid();
+begin
+  if not public.is_admin() then
+    raise exception 'admin required' using errcode = 'FL403';
+  end if;
+  if p_decision not in ('approved', 'rejected') then
+    raise exception 'decision must be approved or rejected' using errcode = 'FL422';
+  end if;
+
+  -- The lock is the whole point: a concurrent reviewer waits here and then sees
+  -- the decided row, instead of racing past the `pending` check beside us.
+  select * into v_suggestion
+  from public.word_suggestions
+  where id = p_suggestion_id
+  for update;
+
+  if not found then
+    raise exception 'suggestion % not found', p_suggestion_id using errcode = 'FL404';
+  end if;
+
+  -- ALREADY DECIDED. Not an error — two tabs, a double click, a retry after a
+  -- dropped response. Report what it is and write nothing.
+  if v_suggestion.status <> 'pending' then
+    return query select v_suggestion.id, v_suggestion.status, false, null::bigint;
+    return;
+  end if;
+
+  updated_word_id := null;
+
+  -- `field = 'other'` is a free-form note, never a column to overwrite.
+  if p_decision = 'approved' and v_suggestion.field <> 'other' then
+    v_value := btrim(v_suggestion.suggestion);
+
+    update public.words
+       set translation_pl = case when v_suggestion.field = 'translation_pl'
+                                 then v_value else translation_pl end,
+           example_de     = case when v_suggestion.field = 'example_de'
+                                 then v_value else example_de end,
+           example_pl     = case when v_suggestion.field = 'example_pl'
+                                 then v_value else example_pl end
+     where id = v_suggestion.word_id;
+
+    if not found then
+      raise exception 'word % not found', v_suggestion.word_id using errcode = 'FL404';
+    end if;
+    updated_word_id := v_suggestion.word_id;
+  end if;
+
+  update public.word_suggestions
+     set status      = p_decision,
+         reviewed_at = now(),
+         reviewed_by = v_reviewer
+   where id = p_suggestion_id;
+
+  return query select p_suggestion_id, p_decision, true, updated_word_id;
+end;
+$$;
+
+-- Narrow grant: a signed-in admin calls this from a Server Action on their own
+-- cookie-bound client, and `is_admin()` inside decides. `anon` has no business
+-- here at all.
+revoke all on function public.review_word_suggestion(bigint, text) from public;
+grant execute on function public.review_word_suggestion(bigint, text) to authenticated;
+
+-- === END 20260922120000_dictionary_write_integrity.sql ===
+
+-- === BEGIN supabase/migrations/20260922140000_notebook_keyset_pagination.sql ===
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- NOTEBOOK PAGINATION — a cursor that is actually a cursor.
+-- ═════════════════════════════════════════════════════════════════════════════
+-- WHAT WAS WRONG. The notebook paged with a keyset on `created_at` alone:
+--
+--     .order("created_at", { ascending: false }).limit(25)
+--     .lt("created_at", pageParam)          -- the last row's timestamp
+--
+-- and a comment explaining that two notes sharing a microsecond "does not
+-- happen at human pace, across two tables". Both halves of that are wrong.
+--
+--   * `created_at` defaults to `now()`, which in PostgreSQL is TRANSACTION
+--     START TIME — identical for every row written by one statement or one
+--     transaction. Saving a word annotation and the sentence translation around
+--     it in one request gives them the same timestamp, exactly.
+--   * `notebook_entries` is a UNION of `user_text_annotations` and
+--     `user_sentence_notes`, so "across two tables" makes ties MORE likely, not
+--     less: the two sequences are independent and nothing orders the halves
+--     against each other.
+--
+-- And a tie is not a cosmetic wobble. `created_at DESC` alone is not a total
+-- order, so rows sharing a timestamp come back in whatever order the plan
+-- produced this time; then `.lt(cursor)` is a STRICT comparison, so every row
+-- sharing the boundary timestamp is skipped. A learner who saved four notes in
+-- one save, with the page boundary falling inside them, simply never sees the
+-- other three — no error, no gap, just notes that are not there.
+--
+-- THE FIX. A total order — `(created_at, entry_type, entry_id)` — and a cursor
+-- that carries all three, compared as a row. `entry_id` is unique within each
+-- half of the union, and `entry_type` separates the halves (`word`/`phrase`
+-- come from the annotations table, `sentence` from the notes table), so the
+-- triple is unique across the whole view.
+--
+-- WHY A FUNCTION RATHER THAN MORE POSTGREST. A row comparison
+-- `(a, b, c) < (x, y, z)` is one expression that is right by construction.
+-- Expressed through PostgREST it becomes a nested `or=(…,and(…),and(…))` string
+-- with hand-quoted timestamps — three clauses that must agree, in a string no
+-- compiler checks and no test here can execute. The predicate belongs where it
+-- can be proved.
+--
+-- `security invoker` (the default), so the view's own RLS still scopes every
+-- row to its owner; the explicit `user_id = auth.uid()` is belt and braces.
+
+create or replace function public.list_notebook_entries(
+  p_filter            text        default 'all',
+  p_library_item_id   uuid        default null,
+  p_chapter_id        uuid        default null,
+  p_search            text        default null,
+  p_cursor_created_at timestamptz default null,
+  p_cursor_entry_type text        default null,
+  p_cursor_entry_id   bigint      default null,
+  p_limit             int         default 25
+)
+returns setof public.notebook_entries
+language sql
+stable
+set search_path = public
+as $$
+  with bounds as (
+    select
+      -- The learner's text is a LIKE pattern's worth of metacharacters waiting
+      -- to happen: a note containing `100%` must search for a percent sign, not
+      -- for "anything".
+      case
+        when nullif(btrim(p_search), '') is null then null
+        else '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%'
+      end as pattern,
+      -- A cursor is all three or none. A partial one would silently degrade to
+      -- the single-column comparison this migration exists to remove.
+      (p_cursor_created_at is not null
+        and p_cursor_entry_type is not null
+        and p_cursor_entry_id is not null) as has_cursor
+  )
+  select e.*
+  from public.notebook_entries e, bounds b
+  where e.user_id = auth.uid()
+    and (p_library_item_id is null or e.library_item_id = p_library_item_id)
+    and (p_chapter_id is null or e.chapter_id = p_chapter_id)
+    -- An unrecognised filter matches no branch and returns nothing: failing
+    -- closed beats showing a learner someone else's idea of "everything".
+    and (
+      p_filter = 'all'
+      or (p_filter = 'words'     and e.entry_type = 'word')
+      or (p_filter = 'phrases'   and e.entry_type = 'phrase')
+      or (p_filter = 'sentences' and e.has_translation)
+      or (p_filter = 'unclear'   and e.is_unclear)
+    )
+    and (
+      b.pattern is null
+      or e.surface ilike b.pattern
+      or e.lemma   ilike b.pattern
+      or e.meaning ilike b.pattern
+    )
+    and (
+      not b.has_cursor
+      or (e.created_at, e.entry_type, e.entry_id)
+         < (p_cursor_created_at, p_cursor_entry_type, p_cursor_entry_id)
+    )
+  order by e.created_at desc, e.entry_type desc, e.entry_id desc
+  limit least(greatest(coalesce(p_limit, 25), 1), 200);
+$$;
+
+-- The notebook is the learner's own; `anon` has nothing to page through.
+revoke all on function public.list_notebook_entries(
+  text, uuid, uuid, text, timestamptz, text, bigint, int) from public;
+grant execute on function public.list_notebook_entries(
+  text, uuid, uuid, text, timestamptz, text, bigint, int) to authenticated;
+
+-- The order the function asks for, so page 40 costs what page 1 costs. Two
+-- indexes, because the view is a union and each half is scanned on its own.
+create index if not exists user_text_annotations_notebook_page_idx
+  on public.user_text_annotations (user_id, created_at desc, kind desc, id desc);
+
+create index if not exists user_sentence_notes_notebook_page_idx
+  on public.user_sentence_notes (user_id, created_at desc, id desc);
+
+-- === END 20260922140000_notebook_keyset_pagination.sql ===
+
+-- === BEGIN supabase/migrations/20260922160000_reading_progress_receipts.sql ===
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- READING PROGRESS RECEIPTS — a report you can safely send twice.
+-- ═════════════════════════════════════════════════════════════════════════════
+-- THE CONTRACT THIS CHANGES, STATED PLAINLY. Until now a progress report was
+-- fire-and-hope: `active_seconds = p.active_seconds + v_seconds`, an increment
+-- with nothing to recognise it by. That left the reader with two options and no
+-- good one.
+--
+--   * Drop the seconds when a report fails — which is what it did. `drain()`
+--     ran before the request, so a failed write took the time with it. Twenty
+--     minutes of reading over a flaky connection recorded four.
+--   * Or keep them and retry — which double-counts, because a request that
+--     REACHED the database and whose response was lost is indistinguishable,
+--     from the browser, from one that never arrived.
+--
+-- Neither is acceptable and neither can be fixed alone: holding the seconds for
+-- a retry is exactly what makes double-counting possible. So the report gets a
+-- receipt.
+--
+-- `p_report_id` identifies one report. The function applies an id it has
+-- already seen EXACTLY ONCE: a repeat returns the state it already holds and
+-- adds no seconds. Retrying becomes safe, which is what lets the client keep
+-- the seconds instead of dropping them.
+--
+-- `p_report_seq` orders reports within one reading. `furthest_*` never needed
+-- it (`greatest(...)` is monotonic by construction), but `resume_*` is a
+-- BOOKMARK and is written as given — so a slow report landing after a faster
+-- one used to rewind the learner's place. A report whose seq the session has
+-- already passed now leaves `resume_*` alone while still contributing its
+-- seconds and its furthest mark, both of which are true regardless of arrival
+-- order.
+--
+-- BOTH PARAMETERS ARE OPTIONAL. A client that sends neither gets exactly the
+-- old behaviour, so this migration cannot break a tab that is open while it is
+-- being applied.
+--
+-- Deduplication is against the session's LAST report only, which is all the
+-- client needs: it sends one report at a time and retries the most recent one.
+-- A full log of applied ids would grow without bound to buy nothing.
+--
+-- Non-destructive and idempotent: two added columns, and a function replaced.
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 1. THE RECEIPT, ON THE SESSION.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- On `reading_sessions` rather than `reading_progress` because the function
+-- already takes a row lock there (`for update`), so the check costs nothing —
+-- and because a receipt belongs to a sitting, not to a chapter for ever.
+alter table public.reading_sessions
+  add column if not exists last_report_id  uuid,
+  add column if not exists last_report_seq bigint not null default 0;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. THE FUNCTION.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.record_reading_progress(
+  p_session_id                  uuid,
+  p_paragraph_position          int,
+  p_sentence_position           int,
+  p_token_position              int,
+  p_furthest_paragraph_position int,
+  p_furthest_sentence_position  int,
+  p_furthest_token_position     int,
+  p_active_seconds              int,
+  p_max_active_seconds          int,
+  p_report_id                   uuid   default null,
+  p_report_seq                  bigint default null
+)
+returns table (
+  progress_ratio       numeric,
+  furthest_paragraph   int,
+  furthest_word_offset int,
+  reading_word_count   int,
+  active_seconds       int,
+  words_read           int,
+  /** False when this exact report had already been applied. */
+  applied              boolean
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user         uuid := (select auth.uid());
+  v_session      public.reading_sessions%rowtype;
+  v_paragraphs   int;
+  v_words        int;
+  v_total        int;
+  v_resume_par   int;
+  v_furthest_par int;
+  v_resume_off   int;
+  v_reported_off int;
+  v_seconds      int;
+  v_ratio        numeric;
+  v_furthest     int;
+  v_offset       int;
+  v_seconds_total int;
+  v_out_of_order boolean;
+begin
+  if v_user is null then
+    raise exception 'Brak zalogowanego użytkownika.' using errcode = 'FL401';
+  end if;
+
+  select * into v_session
+  from public.reading_sessions s
+  where s.id = p_session_id for update;
+
+  if not found then
+    raise exception 'Sesja czytania nie istnieje.' using errcode = 'FL404';
+  end if;
+  if v_session.user_id <> v_user then
+    raise exception 'Brak dostępu do tej sesji.' using errcode = 'FL403';
+  end if;
+  if v_session.status <> 'in_progress' then
+    raise exception 'Ta sesja czytania została zakończona.' using errcode = 'FL409';
+  end if;
+
+  select greatest(c.paragraph_count, 1), c.word_count, c.reading_word_count
+    into v_paragraphs, v_words, v_total
+  from public.chapters c where c.id = v_session.chapter_id;
+
+  -- ALREADY APPLIED. The request reached us; its response did not reach the
+  -- browser. Return what we hold and add nothing — this is the whole reason the
+  -- client may keep its seconds through a failure.
+  if p_report_id is not null and p_report_id = v_session.last_report_id then
+    select p.progress_ratio, p.furthest_paragraph_position,
+           p.furthest_word_offset, p.active_seconds
+      into v_ratio, v_furthest, v_offset, v_seconds_total
+    from public.reading_progress p
+    where p.user_id = v_user and p.chapter_id = v_session.chapter_id;
+
+    if v_ratio is null then
+      raise exception 'Brak postępu czytania dla tej sesji.' using errcode = 'FL404';
+    end if;
+
+    return query select
+      v_ratio, v_furthest, v_offset, coalesce(v_total, 0), v_seconds_total,
+      round(v_ratio * coalesce(v_words, 0))::int, false;
+    return;
+  end if;
+
+  -- OUT OF ORDER. A report the session has already moved past. Its seconds and
+  -- its furthest mark are still true; its bookmark is not.
+  v_out_of_order :=
+    p_report_seq is not null and p_report_seq <= v_session.last_report_seq;
+
+  v_resume_par := least(greatest(coalesce(p_paragraph_position, 0), 0), v_paragraphs - 1);
+  v_furthest_par := least(
+    greatest(coalesce(p_furthest_paragraph_position, v_resume_par), 0),
+    v_paragraphs - 1
+  );
+  v_seconds := least(
+    greatest(coalesce(p_active_seconds, 0), 0),
+    greatest(coalesce(p_max_active_seconds, 0), 0)
+  );
+
+  v_resume_off := public.reading_word_offset(
+    v_session.chapter_id, v_resume_par, p_sentence_position, p_token_position
+  );
+  v_reported_off := public.reading_word_offset(
+    v_session.chapter_id, v_furthest_par,
+    p_furthest_sentence_position, p_furthest_token_position
+  );
+
+  update public.reading_progress p
+     set resume_paragraph_position   = case
+           when v_out_of_order then p.resume_paragraph_position else v_resume_par end,
+         resume_sentence_position    = case
+           when v_out_of_order then p.resume_sentence_position else p_sentence_position end,
+         resume_token_position       = case
+           when v_out_of_order then p.resume_token_position else p_token_position end,
+         resume_word_offset          = case
+           when v_out_of_order then p.resume_word_offset else v_resume_off end,
+
+         furthest_paragraph_position = greatest(p.furthest_paragraph_position, v_furthest_par),
+         furthest_word_offset        = greatest(p.furthest_word_offset, v_reported_off),
+         -- The anchor is kept only when it is the one that WON, so the stored
+         -- sentence and token always describe the stored offset.
+         furthest_sentence_position  = case
+           when v_reported_off > p.furthest_word_offset then p_furthest_sentence_position
+           else p.furthest_sentence_position
+         end,
+         furthest_token_position     = case
+           when v_reported_off > p.furthest_word_offset then p_furthest_token_position
+           else p.furthest_token_position
+         end,
+
+         progress_ratio = case
+           -- THE WORD SCALE, when the chapter has one.
+           when coalesce(v_total, 0) > 0 then greatest(
+             p.progress_ratio,
+             round(greatest(p.furthest_word_offset, v_reported_off)::numeric / v_total, 4)
+           )
+           -- FALLBACK for a chapter stored before the reading-position engine
+           -- ran and never reprocessed since. Coarse, but it is the same answer
+           -- the reader gave yesterday, which beats dividing by zero.
+           else greatest(
+             p.progress_ratio,
+             round((greatest(p.furthest_paragraph_position, v_furthest_par) + 1)::numeric / v_paragraphs, 4)
+           )
+         end,
+         active_seconds = p.active_seconds + v_seconds,
+         last_read_at   = now()
+   where p.user_id = v_user and p.chapter_id = v_session.chapter_id
+   returning p.progress_ratio, p.furthest_paragraph_position,
+             p.furthest_word_offset, p.active_seconds
+        into v_ratio, v_furthest, v_offset, v_seconds_total;
+
+  if v_ratio is null then
+    raise exception 'Brak postępu czytania dla tej sesji.' using errcode = 'FL404';
+  end if;
+
+  update public.reading_sessions s
+     set active_seconds   = s.active_seconds + v_seconds,
+         last_active_at   = now(),
+         progress_after   = v_ratio,
+         words_progressed = greatest(
+           s.words_progressed,
+           round(greatest(v_ratio - s.progress_before, 0) * coalesce(v_words, 0))::int
+         ),
+         -- The receipt for what we just applied.
+         last_report_id   = coalesce(p_report_id, s.last_report_id),
+         last_report_seq  = greatest(s.last_report_seq, coalesce(p_report_seq, 0))
+   where s.id = p_session_id;
+
+  return query select
+    v_ratio,
+    v_furthest,
+    v_offset,
+    coalesce(v_total, 0),
+    v_seconds_total,
+    round(v_ratio * coalesce(v_words, 0))::int,
+    true;
+end;
+$$;
+
+revoke all on function public.record_reading_progress(
+  uuid, int, int, int, int, int, int, int, int, uuid, bigint) from public;
+revoke all on function public.record_reading_progress(
+  uuid, int, int, int, int, int, int, int, int, uuid, bigint) from anon;
+grant execute on function public.record_reading_progress(
+  uuid, int, int, int, int, int, int, int, int, uuid, bigint) to authenticated;
+
+-- The nine-argument form is gone: every caller is in this repository and moves
+-- with it, and leaving both would mean two functions to keep in step — which is
+-- how one of them quietly stops being the one that gets fixed.
+drop function if exists public.record_reading_progress(
+  uuid, int, int, int, int, int, int, int, int);
+
+-- === END 20260922160000_reading_progress_receipts.sql ===

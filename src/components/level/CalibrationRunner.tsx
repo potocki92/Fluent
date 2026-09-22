@@ -9,6 +9,8 @@ import { answerCalibrationQuestion } from "@/actions/answer-calibration-question
 import { finalizeCalibrationSession } from "@/actions/finalize-calibration-session";
 import { useCalibrationQuestions } from "@/hooks/useCalibrationQuestions";
 import { useAbility } from "@/hooks/useAbility";
+import { useOwnedTimeout } from "@/hooks/useOwnedTimeout";
+import { settleAction } from "@/lib/errors";
 import { updateAbility, type AbilityRating } from "@/lib/elo";
 import {
   INITIAL_RATING,
@@ -24,6 +26,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { AbilityState, CalibrationQuestion } from "@/types";
 
+/**
+ * Longer than a test's reveal: a placement item is the learner's first contact
+ * with the level system, and the on-screen estimate moves at the same moment.
+ * Kept here rather than in `src/lib/session/constants.ts` because it is a
+ * different number for a different reason, not a copy that drifted.
+ */
 const REVEAL_MS = 1200;
 
 interface ItemFeedback {
@@ -71,6 +79,7 @@ export function CalibrationRunner() {
 
   const questionShownAt = useRef<number>(0);
   const startedRef = useRef(false);
+  const reveal = useOwnedTimeout();
 
   // Open the session and seed the first item once the pool has loaded.
   useEffect(() => {
@@ -78,7 +87,10 @@ export function CalibrationRunner() {
     startedRef.current = true;
 
     void (async () => {
-      const started = await startCalibrationSession();
+      const started = await settleAction(
+        startCalibrationSession,
+        "startCalibrationSession",
+      );
       if (!started.ok) {
         setError(started.message);
         return;
@@ -91,7 +103,10 @@ export function CalibrationRunner() {
 
   const finish = useCallback(
     async (session: string) => {
-      const result = await finalizeCalibrationSession(session);
+      const result = await settleAction(
+        () => finalizeCalibrationSession(session),
+        `finalizeCalibrationSession ${session}`,
+      );
       if (!result.ok) {
         setError(result.message);
         return;
@@ -115,12 +130,19 @@ export function CalibrationRunner() {
     setSelected(displayedIdx);
     setPending(true);
 
-    const answered = await answerCalibrationQuestion({
-      sessionId,
-      questionId: current.id,
-      selectedIdx: view.order[displayedIdx],
-      responseMs: Date.now() - questionShownAt.current,
-    });
+    // Settled, so a REJECTED action (a dropped connection, a redacted
+    // production error) becomes Polish copy instead of an unhandled rejection
+    // that leaves `pending` true and every option disabled for good.
+    const answered = await settleAction(
+      () =>
+        answerCalibrationQuestion({
+          sessionId,
+          questionId: current.id,
+          selectedIdx: view.order[displayedIdx],
+          responseMs: Date.now() - questionShownAt.current,
+        }),
+      `answerCalibrationQuestion ${sessionId}`,
+    );
 
     if (!answered.ok) {
       setError(answered.message);
@@ -142,7 +164,9 @@ export function CalibrationRunner() {
     const upcoming = pickNextQuestion(pool, nextRating.ability, new Set(nextAsked));
     const finished = shouldStop(nextAsked.length, nextDeltas) || !upcoming;
 
-    window.setTimeout(() => {
+    // Owned: walking away during the reveal cancels it, rather than going on
+    // to finalize a placement test the learner has left.
+    reveal.schedule(() => {
       setRating(nextRating);
       setAsked(nextAsked);
       setDeltas(nextDeltas);

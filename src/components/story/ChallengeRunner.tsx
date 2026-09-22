@@ -11,6 +11,7 @@ import {
   type ChallengeQuestion,
   type ChallengeResult,
 } from "@/actions/chapter-assessment";
+import { settleAction } from "@/lib/errors";
 import { ChallengeResultCard } from "@/components/story/ChallengeResultCard";
 import { cn } from "@/lib/utils";
 
@@ -108,17 +109,23 @@ export function ChallengeRunner({
     setPending(true);
     setError(null);
 
-    const response = await answerChallengeQuestion({
-      sessionId,
-      questionId: question.questionId,
-      selectedIdx:
-        question.type === "multiple_choice" || question.type === "true_false"
-          ? selected
-          : null,
-      typedAnswer: question.type === "cloze" ? typed : null,
-      sequenceAnswer: question.type === "sequence" ? order : null,
-      responseMs: Date.now() - startedAt.current,
-    });
+    // Settled: `setPending(false)` sits AFTER the await, so a rejected action
+    // used to skip it entirely and leave the challenge frozen mid-question.
+    const response = await settleAction(
+      () =>
+        answerChallengeQuestion({
+          sessionId,
+          questionId: question.questionId,
+          selectedIdx:
+            question.type === "multiple_choice" || question.type === "true_false"
+              ? selected
+              : null,
+          typedAnswer: question.type === "cloze" ? typed : null,
+          sequenceAnswer: question.type === "sequence" ? order : null,
+          responseMs: Date.now() - startedAt.current,
+        }),
+      `answerChallengeQuestion ${sessionId}`,
+    );
 
     setPending(false);
     if (!response.ok) {
@@ -142,7 +149,10 @@ export function ChallengeRunner({
     }
 
     setPending(true);
-    const finalized = await finalizeChapterChallenge(sessionId);
+    const finalized = await settleAction(
+      () => finalizeChapterChallenge(sessionId),
+      `finalizeChapterChallenge ${sessionId}`,
+    );
     setPending(false);
     if (!finalized.ok) {
       setError(finalized.message);
@@ -156,10 +166,14 @@ export function ChallengeRunner({
 
   const report = useCallback(async () => {
     if (!question || reported) return;
-    const response = await reportChallengeQuestion({
-      questionId: question.questionId,
-      reason: "unclear",
-    });
+    const response = await settleAction(
+      () =>
+        reportChallengeQuestion({
+          questionId: question.questionId,
+          reason: "unclear",
+        }),
+      `reportChallengeQuestion ${question.questionId}`,
+    );
     if (response.ok) setReported(true);
   }, [question, reported]);
 

@@ -18,6 +18,7 @@ import {
 import { newInteractionId } from "@/lib/interaction-id";
 import { MAX_TRANSLATION_LENGTH } from "@/lib/notebook/constants";
 import { cn } from "@/lib/utils";
+import { notebookKeys } from "@/lib/query-keys";
 
 /**
  * "Przetłumacz zdanie" — the one translation editor.
@@ -58,7 +59,7 @@ export function SentenceNoteSheet({
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: sentenceNotebookKey(sentenceId) });
-    void queryClient.invalidateQueries({ queryKey: ["notebook"] });
+    void queryClient.invalidateQueries({ queryKey: notebookKeys.all });
   }
 
   const save = useMutation({

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { NotebookEntry } from "@/hooks/useNotebook";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { notebookKeys } from "@/lib/query-keys";
 
 /**
  * One saved span of a sentence, in the terms the prose is marked with.
@@ -37,7 +38,7 @@ const EMPTY: ChapterMarks = {
 };
 
 export function chapterNotebookKey(chapterId: string | null) {
-  return ["notebook", "chapter", chapterId ?? ""] as const;
+  return notebookKeys.chapter(chapterId);
 }
 
 /**

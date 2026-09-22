@@ -3,6 +3,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { NOTEBOOK_PAGE_SIZE } from "@/lib/notebook/constants";
+import { notebookKeys } from "@/lib/query-keys";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database";
 
@@ -33,15 +34,39 @@ export interface NotebookQuery {
   search?: string | null;
 }
 
+/** Kept as a named export for the call sites; the key itself is in one place. */
 export function notebookKey(query: NotebookQuery) {
-  return [
-    "notebook",
-    "entries",
-    query.filter,
-    query.libraryItemId ?? null,
-    query.chapterId ?? null,
-    query.search?.trim() || null,
-  ] as const;
+  return notebookKeys.entries(query);
+}
+
+/**
+ * Where the last page stopped — all three parts, or none.
+ *
+ * `created_at` alone is NOT a cursor here. It defaults to `now()`, which in
+ * PostgreSQL is transaction start time, so every note written by one save
+ * shares it exactly; and `notebook_entries` unions two tables, whose id
+ * sequences are independent. A single-column cursor with a strict `<` therefore
+ * SKIPPED every row sharing the boundary timestamp — silently, with no gap and
+ * no error, just notes the learner could not reach.
+ *
+ * `(created_at, entry_type, entry_id)` is unique across the whole view, which
+ * makes both the ordering and the cursor total.
+ */
+export interface NotebookCursor {
+  createdAt: string;
+  entryType: NotebookEntry["entry_type"];
+  entryId: number;
+}
+
+/** The last row of a page, as the cursor for the next one. */
+function cursorFrom(page: readonly NotebookEntry[]): NotebookCursor | undefined {
+  const last = page.at(-1);
+  if (!last) return undefined;
+  return {
+    createdAt: last.created_at,
+    entryType: last.entry_type,
+    entryId: last.entry_id,
+  };
 }
 
 /**
@@ -50,62 +75,45 @@ export function notebookKey(query: NotebookQuery) {
  * PAGINATED FROM THE FIRST COMMIT (§113). A learner who reads three novels has
  * tens of thousands of notes; "we will add paging when it gets slow" means
  * adding it after the screen has already stopped working for the people who use
- * it most. Keyset on `created_at`, which every listing index is ordered by, so
- * page 40 costs what page 1 costs — unlike an offset, which re-scans everything
- * before it.
+ * it most.
  *
- * NO N+1 (§146). `notebook_entries` has already joined the book and the chapter,
- * so fifty entries are one request and fifty titles, not fifty-one requests.
+ * THE KEYSET LIVES IN SQL. `list_notebook_entries` compares
+ * `(created_at, entry_type, entry_id) < (…)` as a ROW — one expression that is
+ * right by construction. Expressed through PostgREST the same predicate becomes
+ * a nested `or=(…,and(…),and(…))` string with hand-quoted timestamps: three
+ * clauses that must agree, in a string no compiler checks. The function is
+ * `security invoker`, so the view's RLS still scopes every row to its owner.
+ *
+ * NO N+1 (§146). `notebook_entries` has already joined the book and the
+ * chapter, so a page is one request and fifty titles, not fifty-one requests.
  */
 export function useNotebook(query: NotebookQuery) {
   return useInfiniteQuery({
     queryKey: notebookKey(query),
-    initialPageParam: null as string | null,
+    initialPageParam: null as NotebookCursor | null,
     queryFn: async ({ pageParam }): Promise<NotebookEntry[]> => {
       const supabase = createClientSupabaseClient();
-      let request = supabase
-        .from("notebook_entries")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(NOTEBOOK_PAGE_SIZE);
-
-      if (pageParam) request = request.lt("created_at", pageParam);
-      if (query.libraryItemId) {
-        request = request.eq("library_item_id", query.libraryItemId);
-      }
-      if (query.chapterId) request = request.eq("chapter_id", query.chapterId);
-
-      if (query.filter === "words") request = request.eq("entry_type", "word");
-      if (query.filter === "phrases") request = request.eq("entry_type", "phrase");
-      if (query.filter === "sentences") request = request.eq("has_translation", true);
-      if (query.filter === "unclear") request = request.eq("is_unclear", true);
-
-      const search = query.search?.trim();
-      if (search) {
-        // German as written, the learner's own headword, or their Polish — the
-        // three things they would actually remember about a note.
-        const escaped = search.replace(/[%,()]/g, " ");
-        request = request.or(
-          `surface.ilike.%${escaped}%,lemma.ilike.%${escaped}%,meaning.ilike.%${escaped}%`,
-        );
-      }
-
-      const { data, error } = await request;
+      const { data, error } = await supabase.rpc("list_notebook_entries", {
+        p_filter: query.filter,
+        p_library_item_id: query.libraryItemId ?? null,
+        p_chapter_id: query.chapterId ?? null,
+        // The learner's text goes through as text: the function escapes the
+        // LIKE metacharacters, so searching for "100%" finds "100%".
+        p_search: query.search?.trim() || null,
+        p_cursor_created_at: pageParam?.createdAt ?? null,
+        p_cursor_entry_type: pageParam?.entryType ?? null,
+        p_cursor_entry_id: pageParam?.entryId ?? null,
+        p_limit: NOTEBOOK_PAGE_SIZE,
+      });
       if (error) throw error;
       return data ?? [];
     },
-    // The cursor is the last row's timestamp. Two notes written in the same
-    // microsecond would tie; at human pace, across two tables, that does not
-    // happen, and the alternative (a composite cursor through PostgREST) buys
-    // nothing for it.
     getNextPageParam: (lastPage) =>
-      lastPage.length < NOTEBOOK_PAGE_SIZE
-        ? undefined
-        : (lastPage.at(-1)?.created_at ?? undefined),
+      lastPage.length < NOTEBOOK_PAGE_SIZE ? undefined : cursorFrom(lastPage),
   });
 }
 
 /** The books a learner has notes in, for the "filtruj po książce" control. */
 export function notebookBooksKey() {
-  return ["notebook", "books"] as const;
+  return notebookKeys.books();
 }

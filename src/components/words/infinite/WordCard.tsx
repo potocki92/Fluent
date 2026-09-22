@@ -1,6 +1,6 @@
 import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
-import type { Word } from "@/lib/queries/words";
+import type { DictionaryListWord } from "@/lib/dictionary/contracts";
 
 /** Article colour: der → blue, die → pink, das → green. */
 const ARTICLE_COLOR: Record<"der" | "die" | "das", string> = {
@@ -9,7 +9,7 @@ const ARTICLE_COLOR: Record<"der" | "die" | "das", string> = {
   das: "text-green",
 };
 
-export function WordCard({ word }: { word: Word }) {
+export function WordCard({ word }: { word: DictionaryListWord }) {
   return (
     <article className="flex items-center gap-3 rounded-xl bg-card p-4">
       {word.article && (

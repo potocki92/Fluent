@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { isTextTooHard } from "@/lib/cefr";
 import type { Text } from "@/types";
+import { textKeys } from "@/lib/query-keys";
 
 /** Fetch the list of reading passages, ordered by difficulty. */
 export function useTexts() {
   return useQuery({
-    queryKey: ["texts"],
+    queryKey: textKeys.all,
     queryFn: async (): Promise<Text[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
@@ -26,7 +27,7 @@ export function useTexts() {
 /** Fetch a single reading passage by id. */
 export function useText(textId: number) {
   return useQuery({
-    queryKey: ["texts", textId],
+    queryKey: textKeys.detail(textId),
     queryFn: async (): Promise<Text | null> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

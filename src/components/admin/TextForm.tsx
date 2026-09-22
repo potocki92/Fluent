@@ -21,6 +21,7 @@ import { useMaterialCover, type CoverTarget } from "@/hooks/useMaterialCover";
 import { BodyContent } from "@/components/texts/BodyContent";
 import { MaterialCoverField } from "@/components/admin/MaterialCoverField";
 import type { StoredCefrLevel, TextInput, TextStatus } from "@/types";
+import { adminKeys, textKeys } from "@/lib/query-keys";
 
 const CEFR_OPTIONS: StoredCefrLevel[] = ["A1", "A2", "B1", "B2"];
 
@@ -181,8 +182,8 @@ export function TextForm(props: Props) {
    * library are server-rendered and are revalidated by the action itself.
    */
   async function invalidateCover(id: number) {
-    await queryClient.invalidateQueries({ queryKey: ["adminText", id] });
-    await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
+    await queryClient.invalidateQueries({ queryKey: adminKeys.text(id) });
+    await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
   }
 
   async function onSubmit(e: React.FormEvent) {
@@ -211,13 +212,13 @@ export function TextForm(props: Props) {
         }
 
         await invalidateCover(props.textId);
-        await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
-        await queryClient.invalidateQueries({ queryKey: ["texts"] });
+        await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
+        await queryClient.invalidateQueries({ queryKey: textKeys.all });
       } else {
         const created = await createText(input);
 
-        await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
-        await queryClient.invalidateQueries({ queryKey: ["texts"] });
+        await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
+        await queryClient.invalidateQueries({ queryKey: textKeys.all });
 
         // THE TEXT IS SAVED BEFORE THE IMAGE IS, because the image needs an id
         // to belong to. If the upload then fails, the text is NOT rolled back —

@@ -2,7 +2,7 @@
 
 import { useIntersection } from "@/hooks/useIntersection";
 import { useWordsInfinite } from "@/hooks/useWordsInfinite";
-import type { WordsFilter } from "@/lib/queries/words";
+import type { WordFilters } from "@/lib/dictionary/contracts";
 
 import { WordCard } from "./WordCard";
 
@@ -10,7 +10,7 @@ function WordSkeleton() {
   return <div className="h-[72px] animate-pulse rounded-xl bg-card" />;
 }
 
-export function WordList({ filter }: { filter: WordsFilter }) {
+export function WordList({ filter }: { filter: WordFilters }) {
   const {
     data,
     isLoading,
@@ -44,7 +44,7 @@ export function WordList({ filter }: { filter: WordsFilter }) {
     );
   }
 
-  const words = data?.pages.flatMap((page) => page.data) ?? [];
+  const words = data?.pages.flatMap((page) => page.words) ?? [];
 
   if (words.length === 0) {
     return (

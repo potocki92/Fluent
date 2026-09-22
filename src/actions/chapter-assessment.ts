@@ -3,10 +3,9 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  loadTagsForEvidence,
+  prepareEvidence,
+} from "@/lib/learning/commit-evidence";
 import {
   assessmentRetrieval,
   chapterAssessmentEvidence,
@@ -18,7 +17,7 @@ import {
   type ConceptCode,
 } from "@/lib/learning/concepts";
 import { isSkillCode, type SkillCode } from "@/lib/learning/skills";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
+import type { ChallengeResult } from "@/lib/story/contracts";
 import {
   buildBlueprint,
   fitBlueprint,
@@ -40,8 +39,8 @@ import {
   availableByKind,
   selectChallengeQuestions,
 } from "@/lib/story/selection";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Json } from "@/types/database";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
+import { toJson } from "@/lib/json";
 
 /**
  * The Chapter Challenge — the AFTER half of the story lifecycle.
@@ -109,7 +108,16 @@ export async function startChapterChallenge(input: {
   } = await supabase.auth.getUser();
   if (!user) return fail("unauthorized", "startChapterChallenge: no session");
 
-  const chapter = await getChapterFacts(supabase, input.chapterId).catch(() => null);
+  // `getChapterFacts` returns null for "no such chapter" and THROWS when the
+  // read fails. Collapsing the two with `.catch(() => null)` told a learner
+  // whose connection blinked that the chapter did not exist — and offered them
+  // no retry, because the app had decided it was gone.
+  const read = await settleRead(
+    () => getChapterFacts(supabase, input.chapterId),
+    `startChapterChallenge: chapter ${input.chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `startChapterChallenge: ${input.chapterId}`);
 
   let service;
@@ -134,6 +142,11 @@ export async function startChapterChallenge(input: {
   }
 
   const [weakConcepts, interactions, ability] = await Promise.all([
+    // DELIBERATE FALLBACK, and the only kind this file allows. Without the
+    // weakness map the blueprint simply has no pressure to apply, so the
+    // learner gets a GENERIC Challenge instead of a targeted one — a worse
+    // Challenge, never a wrong one. Refusing here would deny them the chapter's
+    // assessment altogether to avoid a mix that is merely less personal.
     getWeakConceptSeverity(supabase, user.id).catch(() => new Map<string, number>()),
     getChapterInteractions(supabase, user.id, input.chapterId),
     getAbility(supabase, user.id),
@@ -167,12 +180,12 @@ export async function startChapterChallenge(input: {
       p_user_id: user.id,
       p_chapter_id: input.chapterId,
       p_question_ids: selection.questions.map((question) => question.id),
-      p_blueprint: {
+      p_blueprint: toJson({
         requested: blueprint,
         fitted,
         story_engine_version: STORY_ENGINE_VERSION,
-      } as unknown as Json,
-      p_signals: {
+      }),
+      p_signals: toJson({
         // WHY THESE QUESTIONS. Developer-facing and never shown to a learner,
         // but an admin asking "why did they get exactly these six?" six months
         // from now needs the answer to still exist.
@@ -182,7 +195,7 @@ export async function startChapterChallenge(input: {
           signals: question.signals,
         })),
         reused_recent: selection.reusedRecent,
-      } as unknown as Json,
+      }),
       p_plan_item_id: input.planItemId ?? null,
     },
   );
@@ -270,19 +283,11 @@ export async function answerChallengeQuestion(input: {
 }
 
 /** What the learner is shown after the Challenge. Real numbers only. */
-export interface ChallengeResult {
-  correct: number;
-  total: number;
-  comprehension: { correct: number; total: number };
-  vocabulary: { correct: number; total: number };
-  grammar: { correct: number; total: number };
-  headlinePl: string;
-  /** One sentence of coaching, or null when the data does not support one. */
-  detailPl: string | null;
-  /** The few things most worth revisiting. May be empty — that is a real result. */
-  reviewTargets: { label: string; kind: "word" | "concept" }[];
-  alreadyFinalized: boolean;
-}
+/**
+ * The SHAPE lives in `@/lib/story/contracts`, so the result card can describe a
+ * Challenge result without importing a Server Action module.
+ */
+export type { ChallengeResult } from "@/lib/story/contracts";
 
 /** A stale knowledge read is recomputed rather than forced through. */
 const MAX_ATTEMPTS = 3;
@@ -346,10 +351,16 @@ export async function finalizeChapterChallenge(
       return fail("session_incomplete", `finalizeChapterChallenge: empty ${sessionId}`);
     }
 
-    const tags = await loadQuestionTags(
-      service,
-      answered.map((row) => row.question_id),
+    const loadedTags = await loadTagsForEvidence(
+      () =>
+        loadQuestionTags(
+          service,
+          answered.map((row) => row.question_id),
+        ),
+      `finalizeChapterChallenge ${sessionId}`,
     );
+    if (!loadedTags.ok) return loadedTags;
+    const tags = loadedTags.tags;
 
     const evidence: LearningEvidence[] = answered.map((row) => {
       const tag = tags.get(row.question_id);
@@ -371,21 +382,21 @@ export async function finalizeChapterChallenge(
       });
     });
 
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      evidence,
+      `finalizeChapterChallenge ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const scores = scoreByKind(answered);
 
     const { data, error } = await service.rpc("finalize_chapter_assessment", {
       p_session_id: sessionId,
       p_user_id: user.id,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
-      p_scores: scores as unknown as Json,
+      p_evidence: prepared.json,
+      p_scores: toJson(scores),
     });
 
     const result = data?.[0];
@@ -554,7 +565,7 @@ async function loadQuestionTags(
 ): Promise<Map<number, QuestionTag>> {
   if (questionIds.length === 0) return new Map();
 
-  const [{ data: questions }, { data: concepts }] = await Promise.all([
+  const [questionRows, conceptRows] = await Promise.all([
     service
       .from("chapter_questions")
       .select("id, skill_code, word_id, source_sentence_ids")
@@ -564,6 +575,13 @@ async function loadQuestionTags(
       .select("question_id, concept_code")
       .in("question_id", [...questionIds]),
   ]);
+
+  // A failed read here is not "this item is untagged" — untagged evidence moves
+  // no state, so swallowing it would seal the challenge and record nothing.
+  if (questionRows.error) throw questionRows.error;
+  if (conceptRows.error) throw conceptRows.error;
+  const questions = questionRows.data;
+  const concepts = conceptRows.data;
 
   const byQuestion = new Map<number, ConceptCode[]>();
   for (const row of concepts ?? []) {

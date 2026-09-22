@@ -33,6 +33,7 @@ import { CEFR_COLORS } from "@/lib/cefr";
 import { WORD_TOPICS, topicLabel } from "@/lib/word-topics";
 import { cn } from "@/lib/utils";
 import type { Word, WordTopic } from "@/types";
+import { adminKeys, wordKeys } from "@/lib/query-keys";
 
 const TOPIC_ALL = "all";
 
@@ -73,8 +74,8 @@ export function AdminWordList() {
     setDeleting(true);
     try {
       await deleteWord(toDelete.id);
-      await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
-      await queryClient.invalidateQueries({ queryKey: ["words"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.words() });
+      await queryClient.invalidateQueries({ queryKey: wordKeys.all });
       setToDelete(null);
     } catch {
       // Keep the dialog open so the admin can retry.

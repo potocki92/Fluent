@@ -8,6 +8,7 @@ import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { useAbility } from "@/hooks/useAbility";
 import { isAccountUser } from "@/lib/auth/identity";
 import type { Profile } from "@/types";
+import { learnerKeys } from "@/lib/query-keys";
 
 /**
  * Fetch the current user's profile and hydrate the ability store so the rest
@@ -24,7 +25,7 @@ export function useProfile() {
   const setAbility = useAbility((s) => s.setAbility);
 
   const query = useQuery({
-    queryKey: ["profile"],
+    queryKey: learnerKeys.profile(),
     enabled: !!userId,
     queryFn: async (): Promise<Profile | null> => {
       if (!userId) return null;

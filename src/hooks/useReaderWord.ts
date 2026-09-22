@@ -2,13 +2,15 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { resolveReaderWord, type ReaderDictionaryWord } from "@/actions/reading";
+import { resolveReaderWord } from "@/actions/reading";
+import type { ReaderDictionaryWord } from "@/lib/reading/contracts";
 import {
   resolveGlossWordId,
   type GlossTarget,
 } from "@/components/reader/reader-interaction";
 import { normalizeToken } from "@/lib/content/tokenize";
 import { GLOSS_DICTIONARY_STALE_MS } from "@/lib/reading/constants";
+import { wordKeys } from "@/lib/query-keys";
 
 /**
  * "What does Fluent's dictionary say about the word under this finger?" —
@@ -48,7 +50,7 @@ export function useReaderWord(target: GlossTarget | null): ReaderWordState {
     // Keyed on the SURFACE, not on the stored `word_id`: the surface is what is
     // actually being resolved, and two occurrences of *zog* — one stored with an
     // id and one without — are the same question with the same answer.
-    queryKey: ["reader-word", target ? normalizeToken(target.surface) : ""],
+    queryKey: wordKeys.readerWord(target ? normalizeToken(target.surface) : ""),
     enabled: target !== null,
     staleTime: (query) => (query.state.data?.word ? GLOSS_DICTIONARY_STALE_MS : 0),
     queryFn: async (): Promise<{ word: ReaderDictionaryWord | null }> => {

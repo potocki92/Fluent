@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import {
   nextPlanItem,
   planItemHref,

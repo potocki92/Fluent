@@ -14,7 +14,7 @@
  * from this module has to be worded as one.
  */
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import { PLAN_ITEM_TITLE_PL } from "@/lib/learning/planner/reasons";
 
 /**

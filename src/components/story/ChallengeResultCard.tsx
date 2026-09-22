@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { BookOpenCheck } from "lucide-react";
 
-import type { ChallengeResult } from "@/actions/chapter-assessment";
+import type { ChallengeResult } from "@/lib/story/contracts";
 
 /**
  * What a learner sees when a Chapter Challenge ends.

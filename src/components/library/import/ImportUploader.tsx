@@ -6,6 +6,7 @@ import { useCallback, useRef, useState, type DragEvent } from "react";
 import { BookUp, FileText, Loader2, Lock, Upload } from "lucide-react";
 
 import { startBookImport } from "@/actions/book-import";
+import { settleAction } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { MAX_BOOK_IMPORT_BYTES, MAX_BOOK_IMPORT_MB } from "@/lib/import/constants";
@@ -132,12 +133,18 @@ export function ImportUploader() {
       const fileHash = await sha256Hex(bytes);
 
       setPhase("starting");
-      const started = await startBookImport({
-        fileName: file.name,
-        fileType: check.identity.format,
-        fileSize: file.size,
-        fileHash,
-      });
+      // Settled: a rejected action left `phase` on "starting" for good — a
+      // picker the learner could not use and a spinner that never resolved.
+      const started = await settleAction(
+        () =>
+          startBookImport({
+            fileName: file.name,
+            fileType: check.identity.format,
+            fileSize: file.size,
+            fileHash,
+          }),
+        `startBookImport ${file.name}`,
+      );
       if (!started.ok) {
         setPhase("idle");
         setError(started.message);

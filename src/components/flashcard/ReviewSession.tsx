@@ -11,7 +11,9 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { Check, Frown, Lightbulb, Rocket, Volume2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { updateSrs, type ReviewGrade } from "@/actions/update-srs";
+import { updateSrs } from "@/actions/update-srs";
+import type { ReviewGrade } from "@/lib/sm2";
+import { settleAction } from "@/lib/errors";
 import { ensureInteractionId, newInteractionId } from "@/lib/interaction-id";
 import { WORD_GOAL_KEY } from "@/lib/word-goal";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
@@ -169,41 +171,45 @@ export function ReviewSession({
       setBusy(true);
       setExitDir(grade === "again" ? -1 : 1);
       setError(null);
-      try {
-        const result = await updateSrs({
-          wordId: current.word_id,
-          grade,
-          // Stable for as long as this card is on screen, so a double tap or a
-          // retried request settles the same review instead of a second one.
-          interactionId: ensureInteractionId(interactionId),
-          mode: "flashcard",
-          // The learner reads the German and recalls the Polish: recognition,
-          // and therefore receptive evidence only.
-          direction: "de_to_pl",
-          responseMs: Date.now() - shownAt.current,
-        });
-        if (!result.ok) {
-          setError(result.message);
-          return;
-        }
-        setResults((r) => [
-          ...r,
-          { wordId: current.word_id, grade, mastered: result.isMastered },
-        ]);
-        // The action bumped today's review count and the vocabulary streak in
-        // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
-        // update live instead of staying frozen until the next page load.
-        void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
-        // Only advance once the schedule is persisted — otherwise the card stays
-        // so the user can retry instead of silently losing progress.
-        setFlipped(false);
-        setIndex((i) => i + 1);
-      } catch (err) {
-        console.error("Failed to update SRS:", err);
-        setError("Coś poszło nie tak. Spróbuj ponownie za chwilę.");
-      } finally {
-        setBusy(false);
+      // Settled rather than caught: a rejected action arrives as a classified
+      // failure carrying copy from the taxonomy, so the one branch below covers
+      // both shapes and no `catch` has to guess at a sentence.
+      const result = await settleAction(
+        () =>
+          updateSrs({
+            wordId: current.word_id,
+            grade,
+            // Stable for as long as this card is on screen, so a double tap or
+            // a retried request settles the same review instead of a second one.
+            interactionId: ensureInteractionId(interactionId),
+            mode: "flashcard",
+            // The learner reads the German and recalls the Polish: recognition,
+            // and therefore receptive evidence only.
+            direction: "de_to_pl",
+            responseMs: Date.now() - shownAt.current,
+          }),
+        `updateSrs ${current.word_id}`,
+      );
+      setBusy(false);
+
+      if (!result.ok) {
+        // The card stays put. The interaction id is untouched, so tapping the
+        // same grade again settles the SAME review rather than a second one.
+        setError(result.message);
+        return;
       }
+      setResults((r) => [
+        ...r,
+        { wordId: current.word_id, grade, mastered: result.isMastered },
+      ]);
+      // The action bumped today's review count and the vocabulary streak in
+      // the DB; refresh the daily-goal ring so its count + "passa słówkowa"
+      // update live instead of staying frozen until the next page load.
+      void queryClient.invalidateQueries({ queryKey: WORD_GOAL_KEY });
+      // Only advance once the schedule is persisted — otherwise the card stays
+      // so the user can retry instead of silently losing progress.
+      setFlipped(false);
+      setIndex((i) => i + 1);
     },
     [current, busy, queryClient],
   );

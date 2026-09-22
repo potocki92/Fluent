@@ -19,14 +19,22 @@ export interface Sm2State {
  */
 export type Sm2Quality = 0 | 1 | 2 | 3 | 4 | 5;
 
+/**
+ * What the learner tapped.
+ *
+ * Defined here rather than in a `"use server"` module, which is where it used
+ * to live: five client components import it to type a button, and none of them
+ * should be pulling a Server Action into their graph to describe four strings.
+ */
+export type ReviewGrade = "again" | "hard" | "good" | "easy";
+
 /** Flashcard buttons mapped to SM-2 quality scores. */
-export const GRADE_QUALITY: Record<"again" | "hard" | "good" | "easy", Sm2Quality> =
-  {
-    again: 1,
-    hard: 3,
-    good: 4,
-    easy: 5,
-  };
+export const GRADE_QUALITY: Record<ReviewGrade, Sm2Quality> = {
+  again: 1,
+  hard: 3,
+  good: 4,
+  easy: 5,
+};
 
 export const MIN_EASE_FACTOR = 1.3;
 export const DEFAULT_EASE_FACTOR = 2.5;

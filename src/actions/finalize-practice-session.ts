@@ -3,13 +3,11 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  loadTagsForEvidence,
+  prepareEvidence,
+} from "@/lib/learning/commit-evidence";
 import { practiceAnswerEvidence, type LearningEvidence } from "@/lib/learning/evidence";
 import { loadQuestionTags } from "@/lib/learning/item-tags";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { isConceptCode, type ConceptCode } from "@/lib/learning/concepts";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 
@@ -104,26 +102,28 @@ export async function finalizePracticeSession(
       );
     }
 
-    const evidence = await buildPracticeEvidence(
+    const built = await buildPracticeEvidence(
       supabase,
       sessionId,
       session.concept_code,
       answered,
     );
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        // Reported, never swallowed: knowledge that quietly stopped being
-        // written looks exactly like a learner who stopped practising.
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    // Nothing below this point runs on a half-read knowledge state: the drill
+    // stays `in_progress` and the same finalization can be retried in full.
+    if (!built.ok) return built;
+
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      built.evidence,
+      `finalizePracticeSession ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const { data, error } = await service.rpc("finalize_practice_session", {
       p_session_id: sessionId,
       p_user_id: user.id,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
     });
 
     const result = data?.[0];
@@ -170,18 +170,24 @@ async function buildPracticeEvidence(
   sessionId: string,
   conceptCode: string,
   answered: readonly AnsweredItem[],
-): Promise<LearningEvidence[]> {
-  const tags = await loadQuestionTags(
-    supabase,
-    answered.map((row) => row.question_id),
-  ).catch((error) => {
-    console.error("[fluent:knowledge] question tags unavailable", error);
-    return new Map<number, never>();
-  });
+): Promise<ActionResult<{ evidence: LearningEvidence[] }>> {
+  // A failed tag read is NOT "no tags". Untagged evidence moves no state, so
+  // swallowing this sealed the drill and recorded nothing — see
+  // `src/lib/learning/commit-evidence.ts`.
+  const loaded = await loadTagsForEvidence(
+    () =>
+      loadQuestionTags(
+        supabase,
+        answered.map((row) => row.question_id),
+      ),
+    `finalizePracticeSession ${sessionId}`,
+  );
+  if (!loaded.ok) return loaded;
+  const tags = loaded.tags;
 
   const drilled: ConceptCode[] = isConceptCode(conceptCode) ? [conceptCode] : [];
 
-  return answered.map((row) => {
+  const evidence = answered.map((row) => {
     const itemTags = tags.get(row.question_id);
     const conceptCodes = new Set<ConceptCode>([
       ...drilled,
@@ -200,4 +206,6 @@ async function buildPracticeEvidence(
       occurredAt: row.answered_at as string,
     });
   });
+
+  return { ok: true, evidence };
 }

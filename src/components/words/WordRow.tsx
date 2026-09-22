@@ -6,7 +6,7 @@ import { Check, Plus } from "lucide-react";
 
 import { CEFR_COLORS } from "@/lib/cefr";
 import { cn } from "@/lib/utils";
-import type { Word } from "@/types";
+import type { DictionaryListWord } from "@/lib/dictionary/contracts";
 
 /** Learning status of a dictionary word for the current user. */
 export type WordStatus = "none" | "saved" | "review" | "mastered";
@@ -41,7 +41,7 @@ export function WordRow({
   onSave,
   onOpen,
 }: {
-  word: Word;
+  word: DictionaryListWord;
   isSaved: boolean;
   status: WordStatus;
   /** 0–1 progress toward mastery; shown for saved, not-yet-mastered words. */

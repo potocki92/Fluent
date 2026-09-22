@@ -5,7 +5,7 @@ import { useState } from "react";
 import { BookOpenCheck, Loader2 } from "lucide-react";
 
 import { deferChapterChallenge } from "@/actions/chapter-assessment";
-import type { ChapterSummary } from "@/actions/reading";
+import type { ChapterSummary } from "@/lib/reading/contracts";
 
 /**
  * What a finished chapter is worth saying.

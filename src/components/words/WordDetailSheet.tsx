@@ -12,9 +12,14 @@ import {
 import { MnemonicDialog } from "@/components/words/MnemonicDialog";
 import { WordSuggestDialog } from "@/components/words/WordSuggestDialog";
 import { CEFR_COLORS } from "@/lib/cefr";
+import type {
+  DictionaryListWord,
+  DictionaryWordDetail,
+} from "@/lib/dictionary/contracts";
+import { speakGerman } from "@/lib/speech";
 import { topicLabel } from "@/lib/word-topics";
 import { cn } from "@/lib/utils";
-import type { Word, WordType } from "@/types";
+import type { WordType } from "@/types";
 
 /** Polish labels for each grammatical word type. */
 const TYPE_LABEL: Record<WordType, string> = {
@@ -34,15 +39,27 @@ const ARTICLE_TEXT: Record<"der" | "die" | "das", string> = {
  * A bottom sheet with the full details of a dictionary word: pronunciation,
  * German example, its Polish translation, word type, article and the save
  * toggle. Rendered once by {@link WordList} for the currently selected word.
+ *
+ * TWO INPUTS, ON PURPOSE. `word` is the list row that was tapped, so the header
+ * paints immediately; `detail` is the fuller record fetched when the sheet
+ * opens, and only it carries IPA, plural, auxiliary, topic, synonyms, examples
+ * and the mnemonic. Those used to be read off the list row, which never
+ * selected them — so every one of the blocks below was dead code on
+ * `undefined`. Splitting the two shapes is what makes that impossible to
+ * reintroduce: the list row's type does not have the fields to read.
  */
 export function WordDetailSheet({
   word,
+  detail,
+  isLoadingDetail,
   isSaved,
   onSave,
   open,
   onOpenChange,
 }: {
-  word: Word | null;
+  word: DictionaryListWord | null;
+  detail: DictionaryWordDetail | null | undefined;
+  isLoadingDetail: boolean;
   isSaved: boolean;
   onSave: () => void;
   open: boolean;
@@ -57,18 +74,12 @@ export function WordDetailSheet({
   const mnemonic =
     override && word && override.id === word.id
       ? override.value
-      : (word?.mnemonic ?? null);
+      : (detail?.mnemonic ?? null);
 
-  function speak() {
-    if (!word || typeof window === "undefined" || !window.speechSynthesis) {
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(word.display);
-    utterance.lang = "de-DE";
-    utterance.rate = 0.8;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
+  // The detail belongs to this word only while the ids agree — the sheet is
+  // reused, so a stale response for the previously tapped word must not paint
+  // its plural under the new headword.
+  const facts = detail && word && detail.id === word.id ? detail : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -107,40 +118,45 @@ export function WordDetailSheet({
               {word.translation_pl && (
                 <p className="text-base text-foreground">{word.translation_pl}</p>
               )}
-              {word.ipa && (
-                <p className="text-sm text-muted-foreground">[{word.ipa}]</p>
+              {facts?.ipa && (
+                <p className="text-sm text-muted-foreground">[{facts.ipa}]</p>
               )}
             </SheetHeader>
 
             <div className="space-y-4 px-4 pb-4">
-              {(word.plural ||
-                word.aux ||
-                word.topic ||
-                (word.synonyms && word.synonyms.length > 0)) && (
+              {isLoadingDetail && !facts && (
+                <p className="text-sm text-muted-foreground">Ładowanie szczegółów…</p>
+              )}
+
+              {facts &&
+                (facts.plural ||
+                  facts.aux ||
+                  facts.topic ||
+                  (facts.synonyms && facts.synonyms.length > 0)) && (
                 <dl className="space-y-2 rounded-xl bg-card p-3 text-sm">
-                  {word.plural && (
+                  {facts.plural && (
                     <div className="flex gap-2">
                       <dt className="text-muted-foreground">Liczba mnoga:</dt>
-                      <dd className="text-foreground">{word.plural}</dd>
+                      <dd className="text-foreground">{facts.plural}</dd>
                     </div>
                   )}
-                  {word.aux && (
+                  {facts.aux && (
                     <div className="flex gap-2">
                       <dt className="text-muted-foreground">Posiłkowy:</dt>
-                      <dd className="text-foreground">{word.aux}</dd>
+                      <dd className="text-foreground">{facts.aux}</dd>
                     </div>
                   )}
-                  {word.topic && (
+                  {facts.topic && (
                     <div className="flex gap-2">
                       <dt className="text-muted-foreground">Temat:</dt>
-                      <dd className="text-foreground">{topicLabel(word.topic)}</dd>
+                      <dd className="text-foreground">{topicLabel(facts.topic)}</dd>
                     </div>
                   )}
-                  {word.synonyms && word.synonyms.length > 0 && (
+                  {facts.synonyms && facts.synonyms.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       <dt className="text-muted-foreground">Synonimy:</dt>
                       <dd className="flex flex-wrap gap-1.5">
-                        {word.synonyms.map((syn) => (
+                        {facts.synonyms.map((syn) => (
                           <span
                             key={syn}
                             className="rounded-md bg-secondary px-1.5 py-0.5 text-xs text-foreground"
@@ -154,12 +170,12 @@ export function WordDetailSheet({
                 </dl>
               )}
 
-              {word.example_de && (
+              {facts?.example_de && (
                 <div className="rounded-xl bg-card p-3">
-                  <p className="text-foreground">{word.example_de}</p>
-                  {word.example_pl && (
+                  <p className="text-foreground">{facts.example_de}</p>
+                  {facts.example_pl && (
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {word.example_pl}
+                      {facts.example_pl}
                     </p>
                   )}
                 </div>
@@ -168,7 +184,7 @@ export function WordDetailSheet({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={speak}
+                  onClick={() => speakGerman(word.display)}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
                 >
                   <Volume2 className="size-4" />
@@ -206,12 +222,17 @@ export function WordDetailSheet({
                     <p className="text-sm text-foreground">{mnemonic}</p>
                   </div>
                 )}
-                <MnemonicDialog
-                  wordId={word.id}
-                  display={word.display}
-                  mnemonic={mnemonic}
-                  onSaved={(value) => setOverride({ id: word.id, value })}
-                />
+                {/* Gated on the detail: the dialog opens pre-filled with the
+                    stored mnemonic, and offering "add one" before it has
+                    arrived invites a learner to overwrite their own. */}
+                {facts && (
+                  <MnemonicDialog
+                    wordId={word.id}
+                    display={word.display}
+                    mnemonic={mnemonic}
+                    onSaved={(value) => setOverride({ id: word.id, value })}
+                  />
+                )}
               </div>
 
               <WordSuggestDialog wordId={word.id} />

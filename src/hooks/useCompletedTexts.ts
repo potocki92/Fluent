@@ -3,6 +3,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { TextCompletion } from "@/types";
+import { learnerKeys } from "@/lib/query-keys";
 
 /**
  * Fetch the learner's per-text results (one row per finished text, latest result
@@ -12,7 +13,7 @@ import type { TextCompletion } from "@/types";
  */
 export function useCompletedTexts(): UseQueryResult<TextCompletion[]> {
   return useQuery({
-    queryKey: ["completedTexts"],
+    queryKey: learnerKeys.completedTexts(),
     queryFn: async (): Promise<TextCompletion[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

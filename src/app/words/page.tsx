@@ -3,7 +3,10 @@ import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 
 import { WordList } from "@/components/words/infinite/WordList";
 import { getQueryClient } from "@/lib/query-client";
-import { fetchWordsPage, type WordsFilter } from "@/lib/queries/words";
+import type { WordFilters } from "@/lib/dictionary/contracts";
+import { fetchWordsCursorPage } from "@/lib/dictionary/queries";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { wordKeys } from "@/lib/query-keys";
 
 export const metadata: Metadata = {
   title: "Słowa — Fluent",
@@ -14,14 +17,15 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function WordsPage() {
-  const filter: WordsFilter = {};
+  const filter: WordFilters = {};
   const queryClient = getQueryClient();
+  const supabase = await createServerSupabaseClient();
 
   // Prefetch only the first page so the initial 20 words render instantly with
   // no client loading state. `pages: 1` keeps the SSR payload to one page.
   await queryClient.prefetchInfiniteQuery({
-    queryKey: ["words", "cursor", filter],
-    queryFn: ({ pageParam }) => fetchWordsPage(pageParam, filter),
+    queryKey: wordKeys.cursor(filter),
+    queryFn: ({ pageParam }) => fetchWordsCursorPage(supabase, pageParam, filter),
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     pages: 1,

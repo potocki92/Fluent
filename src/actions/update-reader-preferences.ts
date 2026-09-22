@@ -6,7 +6,7 @@ import {
 } from "@/lib/reading/preferences";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * Persist the reader's typography and theme.
@@ -42,7 +42,7 @@ export async function updateReaderPreferences(
 
   const { error } = await supabase
     .from("profiles")
-    .update({ reader_preferences: next as unknown as Json })
+    .update({ reader_preferences: toJson(next) })
     .eq("id", user.id);
   if (error) return failFrom(error, `updateReaderPreferences: save ${user.id}`);
 

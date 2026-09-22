@@ -3,22 +3,18 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { reconcileChapterFully } from "@/lib/content/reconciler";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+import { prepareEvidence } from "@/lib/learning/commit-evidence";
 import {
   chapterPreparationEvidence,
   type LearningEvidence,
 } from "@/lib/learning/evidence";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { shuffleWithOrder } from "@/lib/shuffle";
 import { PRETEACH_DISTRACTORS, STORY_ENGINE_VERSION } from "@/lib/story/constants";
 import { getChapterFacts, getSentenceIdsByPosition } from "@/lib/story/queries";
 import { getChapterStoryState, type PreparationWord } from "@/actions/chapter-analysis";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * Chapter preparation — the BEFORE step, and the one most at risk of ruining the
@@ -122,16 +118,27 @@ export async function startChapterPreparation(input: {
     return fail("config_error", "startChapterPreparation: service role unavailable", error);
   }
 
-  const chapter = await getChapterFacts(supabase, input.chapterId).catch(() => null);
+  // `getChapterFacts` returns null for "no such chapter" and THROWS when the
+  // read fails. Collapsing the two with `.catch(() => null)` told a learner
+  // whose connection blinked that the chapter did not exist — and offered them
+  // no retry, because the app had decided it was gone.
+  const read = await settleRead(
+    () => getChapterFacts(supabase, input.chapterId),
+    `startChapterPreparation: chapter ${input.chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `startChapterPreparation: ${input.chapterId}`);
 
   let items: Json;
   try {
-    items = (await buildPreparationItems(
-      supabase,
-      input.chapterId,
-      state.state.preparation.words,
-    )) as unknown as Json;
+    items = toJson(
+      await buildPreparationItems(
+        supabase,
+        input.chapterId,
+        state.state.preparation.words,
+      ),
+    );
   } catch (error) {
     return fail("database_error", "startChapterPreparation: build items", error);
   }
@@ -143,7 +150,7 @@ export async function startChapterPreparation(input: {
       p_chapter_id: input.chapterId,
       p_items: items,
       p_plan_item_id: input.planItemId ?? null,
-      p_signals: { story_engine_version: STORY_ENGINE_VERSION } as unknown as Json,
+      p_signals: toJson({ story_engine_version: STORY_ENGINE_VERSION }),
     },
   );
   if (startError || !sessionId) {
@@ -306,20 +313,21 @@ export async function finalizeChapterPreparation(
       }),
     );
 
-    const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-      (snapshotError) => {
-        // Reported, never swallowed: knowledge that quietly stopped being
-        // written looks exactly like a learner who stopped practising.
-        console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-        return null;
-      },
+    // A preparation with nothing to pre-teach legitimately carries no evidence
+    // and still seals; a preparation whose knowledge state cannot be READ does
+    // not seal at all, so the same finalization can be retried in full.
+    const prepared = await prepareEvidence(
+      supabase,
+      user.id,
+      evidence,
+      `finalizeChapterPreparation ${sessionId}`,
     );
-    const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+    if (!prepared.ok) return prepared;
 
     const { data, error } = await service.rpc("finalize_chapter_preparation", {
       p_session_id: sessionId,
       p_user_id: user.id,
-      p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+      p_evidence: prepared.json,
     });
 
     const result = data?.[0];
@@ -384,6 +392,9 @@ async function buildPreparationItems(
     words
       .filter((word) => word.contextSource === "chapter_opening")
       .map((word) => word.firstSentencePosition),
+    // DELIBERATE FALLBACK. Without the sentence ids a pre-teach card loses its
+    // example sentence and still teaches the word — degraded, never wrong.
+    // Refusing here would withhold the preparation to avoid a plainer card.
   ).catch(() => new Map<number, number>());
 
   const { data: pool } = await supabase

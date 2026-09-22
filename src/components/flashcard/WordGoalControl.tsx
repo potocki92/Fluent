@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { updateWordGoal } from "@/actions/update-word-goal";
 import { useWordGoal } from "@/hooks/useWordGoal";
 import { Card } from "@/components/ui/card";
+import { learnerKeys } from "@/lib/query-keys";
 
 const PRESETS = [5, 10, 15, 20, 30, 50] as const;
 
@@ -24,7 +25,7 @@ export function WordGoalControl() {
     setSaved(false);
     try {
       await updateWordGoal(goal);
-      await queryClient.invalidateQueries({ queryKey: ["word-goal"] });
+      await queryClient.invalidateQueries({ queryKey: learnerKeys.wordGoal() });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2000);
     } finally {

@@ -21,7 +21,7 @@
  * touch Supabase.
  */
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import type { PlanItemType } from "@/lib/learning/planner/types";
 
 /**

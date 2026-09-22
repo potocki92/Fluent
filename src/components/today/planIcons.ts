@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 
 /**
  * One icon per activity kind, so the plan is scannable without reading it.

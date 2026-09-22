@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 
-import type { TodayPlanItem } from "@/actions/today-plan";
+import type { TodayPlanItem } from "@/lib/learning/planner/contracts";
 import { PLAN_ITEM_TITLE_PL, renderMinutes } from "@/lib/learning/planner/reasons";
 import { planProgress } from "@/lib/learning/planner/routes";
 import { cn } from "@/lib/utils";

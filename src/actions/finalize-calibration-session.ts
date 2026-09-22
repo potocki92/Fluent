@@ -5,13 +5,11 @@ import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
 import { replayCalibration } from "@/lib/calibration-test";
 import { abilityToCefr } from "@/lib/cefr";
 import {
-  evidenceJson,
-  foldEvidence,
-  EMPTY_EVIDENCE_PAYLOAD,
-} from "@/lib/learning/aggregate";
+  loadTagsForEvidence,
+  prepareEvidence,
+} from "@/lib/learning/commit-evidence";
 import { calibrationAnswerEvidence, type LearningEvidence } from "@/lib/learning/evidence";
 import { loadCalibrationTags, UNTAGGED } from "@/lib/learning/item-tags";
-import { loadKnowledgeSnapshot } from "@/lib/learning/snapshot";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import type { AbilityState } from "@/types";
 
@@ -64,14 +62,16 @@ export async function finalizeCalibrationSession(
   // placement. What does NOT change is what the placement test is FOR — it still
   // sets the learner's level exactly as before. This only stops its answers from
   // being thrown away afterwards.
-  const evidence = await buildCalibrationEvidence(supabase, sessionId, answers);
-  const snapshot = await loadKnowledgeSnapshot(supabase, user.id, evidence).catch(
-    (snapshotError) => {
-      console.error("[fluent:knowledge] snapshot load failed", snapshotError);
-      return null;
-    },
+  const built = await buildCalibrationEvidence(supabase, sessionId, answers);
+  if (!built.ok) return built;
+
+  const prepared = await prepareEvidence(
+    supabase,
+    user.id,
+    built.evidence,
+    `finalizeCalibrationSession ${sessionId}`,
   );
-  const folded = snapshot ? foldEvidence(snapshot, evidence) : null;
+  if (!prepared.ok) return prepared;
 
   let service;
   try {
@@ -90,7 +90,7 @@ export async function finalizeCalibrationSession(
     p_ability: replayed.ability,
     p_rd: replayed.rd,
     p_cefr_estimate: cefrEstimate,
-    p_evidence: evidenceJson(folded?.payload ?? EMPTY_EVIDENCE_PAYLOAD),
+    p_evidence: prepared.json,
   });
 
   const result = data?.[0];
@@ -127,18 +127,21 @@ async function buildCalibrationEvidence(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   sessionId: string,
   answers: readonly StoredCalibrationAnswer[],
-): Promise<LearningEvidence[]> {
-  if (answers.length === 0) return [];
+): Promise<ActionResult<{ evidence: LearningEvidence[] }>> {
+  if (answers.length === 0) return { ok: true, evidence: [] };
 
-  const tags = await loadCalibrationTags(
-    supabase,
-    answers.map((answer) => answer.question_id),
-  ).catch((error) => {
-    console.error("[fluent:knowledge] calibration tags unavailable", error);
-    return new Map<number, never>();
-  });
+  const loaded = await loadTagsForEvidence(
+    () =>
+      loadCalibrationTags(
+        supabase,
+        answers.map((answer) => answer.question_id),
+      ),
+    `finalizeCalibrationSession ${sessionId}`,
+  );
+  if (!loaded.ok) return loaded;
+  const tags = loaded.tags;
 
-  return answers.map((answer) => {
+  const evidence = answers.map((answer) => {
     const itemTags = tags.get(answer.question_id) ?? UNTAGGED;
     return calibrationAnswerEvidence({
       sessionId,
@@ -151,4 +154,6 @@ async function buildCalibrationEvidence(
       occurredAt: answer.answered_at,
     });
   });
+
+  return { ok: true, evidence };
 }

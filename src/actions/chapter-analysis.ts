@@ -32,8 +32,12 @@ import {
   type RankedPreteachWord,
 } from "@/lib/story/preparation";
 import type { WordEvidence } from "@/lib/story/knowledge";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Json } from "@/types/database";
+import type {
+  ChapterStoryState,
+  PreparationOffer,
+  PreparationWord,
+} from "@/lib/story/contracts";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 
 /**
  * "What is this chapter, for me?" — the BEFORE half of the story lifecycle.
@@ -57,58 +61,17 @@ import type { Json } from "@/types/database";
  * coverage behind it.
  */
 
-/** The preparation offer, when there is one worth making. */
-export interface PreparationOffer {
-  /** How many words would be pre-taught. */
-  wordCount: number;
-  estimatedMinutes: number;
-  /** The words themselves, for the preparation screen. */
-  words: PreparationWord[];
-}
-
-export interface PreparationWord {
-  wordId: number;
-  lemma: string;
-  display: string;
-  translation: string;
-  contextSentence: string | null;
-  contextSource: "chapter_opening" | "dictionary" | "none";
-  firstSentencePosition: number;
-}
-
-export interface ChapterStoryState {
-  chapterId: string;
-  libraryItemId: string;
-  slug: string;
-  position: number;
-  title: string | null;
-  itemTitle: string;
-  wordCount: number;
-  estimatedMinutes: number;
-
-  /** Whole percent, or null when there is no honest figure to show. */
-  coveragePercent: number | null;
-  coverageConfidence: EstimateConfidence;
-  /** Polish, ready to render: "pewność: wysoka" or "za mało danych". */
-  coverageConfidenceLabel: string;
-
-  difficultyLabel: DifficultyLabel;
-  /** Polish: "Wymagający". NOT a statement about the learner's level. */
-  difficultyLabelPl: string;
-  difficultyConfidence: EstimateConfidence;
-
-  preparation: PreparationOffer | null;
-  /** True when a validated bank can fill a Challenge for this chapter. */
-  hasChallenge: boolean;
-  /** Where the learner is in the chapter's LEARNING lifecycle. */
-  lifecycle:
-    | "not_started"
-    | "prepared"
-    | "reading"
-    | "read"
-    | "assessment_pending"
-    | "completed";
-}
+/**
+ * The SHAPES live in `@/lib/story/contracts` — a module with no `"use server"`
+ * on it — so a chapter card can describe a chapter without pulling a Server
+ * Action into its graph. Re-exported for callers that want both.
+ */
+export type {
+  ChapterStoryState,
+  PreparationOffer,
+  PreparationWord,
+} from "@/lib/story/contracts";
+import { toJson } from "@/lib/json";
 
 export async function getChapterStoryState(
   chapterId: string,
@@ -222,9 +185,18 @@ export async function getChapterStoryState(
         )
       : null;
 
-    const candidates = user
-      ? await getChapterQuestionCandidates(supabase, chapterId).catch(() => [])
-      : [];
+    // `hasChallenge` is a CLAIM ABOUT THE CHAPTER, not about this request:
+    // `.catch(() => [])` turned an unreachable database into "this chapter has
+    // no Challenge", which the card then stated as fact and the learner had no
+    // way to question. A failed read is a failed read.
+    const candidateRead = user
+      ? await settleRead(
+          () => getChapterQuestionCandidates(supabase, chapterId),
+          `getChapterStoryState: question bank ${chapterId}`,
+        )
+      : ({ ok: true, value: [] } as const);
+    if (!candidateRead.ok) return candidateRead;
+    const candidates = candidateRead.value;
 
     const lifecycle = user
       ? ((
@@ -356,7 +328,7 @@ async function persistAnalysis(
     await service.rpc("upsert_chapter_analysis", {
       p_user_id: userId,
       p_chapter_id: chapter.id,
-      p_analysis: analysis as unknown as Json,
+      p_analysis: toJson(analysis),
     });
   } catch (error) {
     // A cache that did not write is a slower page, not a wrong one — and in a
