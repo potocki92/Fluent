@@ -12,7 +12,7 @@ import { shuffleWithOrder } from "@/lib/shuffle";
 import { PRETEACH_DISTRACTORS, STORY_ENGINE_VERSION } from "@/lib/story/constants";
 import { getChapterFacts, getSentenceIdsByPosition } from "@/lib/story/queries";
 import { getChapterStoryState, type PreparationWord } from "@/actions/chapter-analysis";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 import type { Json } from "@/types/database";
 import { toJson } from "@/lib/json";
 
@@ -118,7 +118,16 @@ export async function startChapterPreparation(input: {
     return fail("config_error", "startChapterPreparation: service role unavailable", error);
   }
 
-  const chapter = await getChapterFacts(supabase, input.chapterId).catch(() => null);
+  // `getChapterFacts` returns null for "no such chapter" and THROWS when the
+  // read fails. Collapsing the two with `.catch(() => null)` told a learner
+  // whose connection blinked that the chapter did not exist — and offered them
+  // no retry, because the app had decided it was gone.
+  const read = await settleRead(
+    () => getChapterFacts(supabase, input.chapterId),
+    `startChapterPreparation: chapter ${input.chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `startChapterPreparation: ${input.chapterId}`);
 
   let items: Json;
@@ -383,6 +392,9 @@ async function buildPreparationItems(
     words
       .filter((word) => word.contextSource === "chapter_opening")
       .map((word) => word.firstSentencePosition),
+    // DELIBERATE FALLBACK. Without the sentence ids a pre-teach card loses its
+    // example sentence and still teaches the word — degraded, never wrong.
+    // Refusing here would withhold the preparation to avoid a plainer card.
   ).catch(() => new Map<number, number>());
 
   const { data: pool } = await supabase

@@ -133,3 +133,27 @@ export async function settleAction<T>(
     return fail("database_error", `${context}: action threw`, error);
   }
 }
+
+/**
+ * Await a READ that a decision depends on, and keep its two failures apart.
+ *
+ * An adapter like `getChapterFacts` already distinguishes them: it returns
+ * `null` for "no such row" and THROWS for "the read failed". Call sites kept
+ * collapsing the two with `.catch(() => null)`, and then reported the result as
+ * `not_found` — so a learner whose connection blinked was told "Nie
+ * znaleźliśmy tego rozdziału" about a chapter that exists, and offered no
+ * retry, because the app had decided the chapter was gone.
+ *
+ * With this, an unreachable database is `database_error` ("spróbuj ponownie za
+ * chwilę") and a missing row is still the caller's own `not_found`.
+ */
+export async function settleRead<T>(
+  read: () => Promise<T>,
+  context: string,
+): Promise<ActionResult<{ value: T }>> {
+  try {
+    return { ok: true, value: await read() };
+  } catch (error) {
+    return fail("database_error", context, error);
+  }
+}

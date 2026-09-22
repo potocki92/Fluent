@@ -29,7 +29,7 @@ import {
 } from "@/lib/story/generation/provider";
 import type { QuestionCandidate, ValidatedQuestion } from "@/lib/story/questions";
 import { getChapterFacts } from "@/lib/story/queries";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 import { toJson } from "@/lib/json";
 
 /**
@@ -101,7 +101,14 @@ export async function generateChapterQuestions(
     return fail("config_error", "generateChapterQuestions: service role unavailable", error);
   }
 
-  const chapter = await getChapterFacts(supabase, chapterId).catch(() => null);
+  // `null` is "no such chapter"; a THROW is "the read failed". Collapsing them
+  // told an admin the chapter did not exist when the database was merely down.
+  const read = await settleRead(
+    () => getChapterFacts(supabase, chapterId),
+    `generateChapterQuestions: chapter ${chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `generateChapterQuestions: ${chapterId}`);
   if (chapter.status !== "ready") {
     return fail("invalid_input", `generateChapterQuestions: chapter not processed ${chapterId}`);
@@ -300,7 +307,12 @@ export async function importChapterQuestions(input: {
   }
 
   const supabase = await createServerSupabaseClient();
-  const chapter = await getChapterFacts(supabase, input.chapterId).catch(() => null);
+  const read = await settleRead(
+    () => getChapterFacts(supabase, input.chapterId),
+    `importChapterQuestions: chapter ${input.chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `importChapterQuestions: ${input.chapterId}`);
 
   let service;

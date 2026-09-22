@@ -39,7 +39,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { fail, type ActionResult } from "@/lib/errors";
+import { fail, settleRead, type ActionResult } from "@/lib/errors";
 import {
   EMPTY_EVIDENCE_PAYLOAD,
   evidenceJson,
@@ -125,9 +125,6 @@ export async function loadTagsForEvidence<T>(
   load: () => Promise<T>,
   context: string,
 ): Promise<ActionResult<{ tags: T }>> {
-  try {
-    return { ok: true, tags: await load() };
-  } catch (error) {
-    return fail("database_error", `${context}: item tags unavailable`, error);
-  }
+  const read = await settleRead(load, `${context}: item tags unavailable`);
+  return read.ok ? { ok: true, tags: read.value } : read;
 }

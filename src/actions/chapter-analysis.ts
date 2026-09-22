@@ -37,7 +37,7 @@ import type {
   PreparationOffer,
   PreparationWord,
 } from "@/lib/story/contracts";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 
 /**
  * "What is this chapter, for me?" — the BEFORE half of the story lifecycle.
@@ -185,9 +185,18 @@ export async function getChapterStoryState(
         )
       : null;
 
-    const candidates = user
-      ? await getChapterQuestionCandidates(supabase, chapterId).catch(() => [])
-      : [];
+    // `hasChallenge` is a CLAIM ABOUT THE CHAPTER, not about this request:
+    // `.catch(() => [])` turned an unreachable database into "this chapter has
+    // no Challenge", which the card then stated as fact and the learner had no
+    // way to question. A failed read is a failed read.
+    const candidateRead = user
+      ? await settleRead(
+          () => getChapterQuestionCandidates(supabase, chapterId),
+          `getChapterStoryState: question bank ${chapterId}`,
+        )
+      : ({ ok: true, value: [] } as const);
+    if (!candidateRead.ok) return candidateRead;
+    const candidates = candidateRead.value;
 
     const lifecycle = user
       ? ((

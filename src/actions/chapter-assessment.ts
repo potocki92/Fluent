@@ -39,7 +39,7 @@ import {
   availableByKind,
   selectChallengeQuestions,
 } from "@/lib/story/selection";
-import { fail, failFrom, type ActionResult } from "@/lib/errors";
+import { fail, failFrom, settleRead, type ActionResult } from "@/lib/errors";
 import { toJson } from "@/lib/json";
 
 /**
@@ -108,7 +108,16 @@ export async function startChapterChallenge(input: {
   } = await supabase.auth.getUser();
   if (!user) return fail("unauthorized", "startChapterChallenge: no session");
 
-  const chapter = await getChapterFacts(supabase, input.chapterId).catch(() => null);
+  // `getChapterFacts` returns null for "no such chapter" and THROWS when the
+  // read fails. Collapsing the two with `.catch(() => null)` told a learner
+  // whose connection blinked that the chapter did not exist — and offered them
+  // no retry, because the app had decided it was gone.
+  const read = await settleRead(
+    () => getChapterFacts(supabase, input.chapterId),
+    `startChapterChallenge: chapter ${input.chapterId}`,
+  );
+  if (!read.ok) return read;
+  const chapter = read.value;
   if (!chapter) return fail("not_found", `startChapterChallenge: ${input.chapterId}`);
 
   let service;
@@ -133,6 +142,11 @@ export async function startChapterChallenge(input: {
   }
 
   const [weakConcepts, interactions, ability] = await Promise.all([
+    // DELIBERATE FALLBACK, and the only kind this file allows. Without the
+    // weakness map the blueprint simply has no pressure to apply, so the
+    // learner gets a GENERIC Challenge instead of a targeted one — a worse
+    // Challenge, never a wrong one. Refusing here would deny them the chapter's
+    // assessment altogether to avoid a mix that is merely less personal.
     getWeakConceptSeverity(supabase, user.id).catch(() => new Map<string, number>()),
     getChapterInteractions(supabase, user.id, input.chapterId),
     getAbility(supabase, user.id),
