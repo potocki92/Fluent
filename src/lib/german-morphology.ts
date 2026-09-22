@@ -188,6 +188,30 @@ const IRREGULAR_VERB_FORMS = new Map<string, string>([
   ["mied", "meiden"],
   ["wies", "weisen"],
   ["vergaß", "vergessen"], ["vergass", "vergessen"],
+  // PRESENT TENSE, e → i/ie. The 3rd person singular of these verbs changes its
+  // stem vowel, and no suffix rule gets back from *gilt* to *gelten* — the same
+  // wall the preterite forms above hit. They are ordinary narrative German
+  // ("es gibt", "sie nimmt", "das gilt"), so without these rows the commonest
+  // verbs in the language are dead text. *lässt* was worse than dead: folded to
+  // *lasst* and stripped of `-st` it reached *las*, and answered "to read".
+  //
+  // The umlaut-only verbs (*fährt*, *läuft*, *trägt*, *schläft*) need no row —
+  // folding plus suffix stripping already reaches their infinitive.
+  //
+  // 3rd person singular only. The `du` forms (*gibst*, *nimmst*) would double
+  // the block for forms that narrative prose rarely uses; *isst*, *liest* and
+  // *lässt* happen to serve both persons.
+  ["gilt", "gelten"],
+  ["gibt", "geben"],
+  ["nimmt", "nehmen"],
+  ["spricht", "sprechen"],
+  ["hilft", "helfen"],
+  ["isst", "essen"], ["ißt", "essen"],
+  ["sieht", "sehen"],
+  ["liest", "lesen"],
+  ["trifft", "treffen"],
+  ["hält", "halten"],
+  ["lässt", "lassen"], ["lasst", "lassen"],
   // mixed (weak verbs with a vowel change) — the full form, never the stem
   ["dachte", "denken"], ["dacht", "denken"],
   ["brachte", "bringen"], ["bracht", "bringen"],
