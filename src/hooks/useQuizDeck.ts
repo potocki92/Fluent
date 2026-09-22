@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { SavedWordWithWord } from "@/hooks/useSavedWords";
 import type { Word } from "@/types";
+import { wordKeys } from "@/lib/query-keys";
 
 export interface QuizCard {
   word: Word;
@@ -57,7 +58,7 @@ export function useQuizDeck(cards: SavedWordWithWord[]): {
   );
 
   const { data: pool = [], isLoading } = useQuery({
-    queryKey: ["quiz-distractors", cefrs],
+    queryKey: wordKeys.quizDistractors(cefrs),
     enabled: ids.length > 0,
     queryFn: async (): Promise<string[]> => {
       const supabase = createClientSupabaseClient();

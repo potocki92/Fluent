@@ -17,6 +17,7 @@ import {
   MAX_MEANING_LENGTH,
 } from "@/lib/notebook/constants";
 import { cn } from "@/lib/utils";
+import { notebookKeys } from "@/lib/query-keys";
 
 /** The span a meaning is being written for. */
 export interface AnnotationTarget {
@@ -67,7 +68,7 @@ export function AnnotationSheet({
     void queryClient.invalidateQueries({
       queryKey: sentenceNotebookKey(target?.sentenceId ?? null),
     });
-    void queryClient.invalidateQueries({ queryKey: ["notebook"] });
+    void queryClient.invalidateQueries({ queryKey: notebookKeys.all });
   }
 
   const save = useMutation({

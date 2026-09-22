@@ -10,6 +10,7 @@ import { WordDetailSheet } from "@/components/words/WordDetailSheet";
 import { WordRow, type WordStatus } from "@/components/words/WordRow";
 import type { DictionaryListWord } from "@/lib/dictionary/contracts";
 import { masteryProgress } from "@/lib/sm2";
+import { savedWordKeys } from "@/lib/query-keys";
 
 /**
  * Compact, scannable list view of the dictionary. Replaces the card grid: each
@@ -80,7 +81,7 @@ export function WordList({
       try {
         if (next) await saveWord(word.id);
         else await unsaveWord(word.id);
-        await queryClient.invalidateQueries({ queryKey: ["saved_words"] });
+        await queryClient.invalidateQueries({ queryKey: savedWordKeys.all });
       } catch {
         // Revert the optimistic toggle on failure.
         setOverrides((o) => ({ ...o, [word.id]: !next }));

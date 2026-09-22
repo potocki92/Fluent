@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useMaterialCover, type CoverTarget } from "@/hooks/useMaterialCover";
 import { cn } from "@/lib/utils";
+import { adminKeys } from "@/lib/query-keys";
 
 /**
  * The library content inspector.
@@ -147,8 +148,8 @@ function ItemCard({
   const queryClient = useQueryClient();
   async function invalidateTextList() {
     if (item.legacyTextId === null) return;
-    await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
-    await queryClient.invalidateQueries({ queryKey: ["adminText", item.legacyTextId] });
+    await queryClient.invalidateQueries({ queryKey: adminKeys.texts() });
+    await queryClient.invalidateQueries({ queryKey: adminKeys.text(item.legacyTextId) });
   }
 
   async function pickCover(file: File | null) {

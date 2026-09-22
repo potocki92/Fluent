@@ -3,6 +3,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { NOTEBOOK_PAGE_SIZE } from "@/lib/notebook/constants";
+import { notebookKeys } from "@/lib/query-keys";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database";
 
@@ -33,15 +34,9 @@ export interface NotebookQuery {
   search?: string | null;
 }
 
+/** Kept as a named export for the call sites; the key itself is in one place. */
 export function notebookKey(query: NotebookQuery) {
-  return [
-    "notebook",
-    "entries",
-    query.filter,
-    query.libraryItemId ?? null,
-    query.chapterId ?? null,
-    query.search?.trim() || null,
-  ] as const;
+  return notebookKeys.entries(query);
 }
 
 /**
@@ -120,5 +115,5 @@ export function useNotebook(query: NotebookQuery) {
 
 /** The books a learner has notes in, for the "filtruj po książce" control. */
 export function notebookBooksKey() {
-  return ["notebook", "books"] as const;
+  return notebookKeys.books();
 }

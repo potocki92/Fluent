@@ -12,6 +12,7 @@ import {
   type AdminSuggestionRow,
 } from "@/hooks/useAdminSuggestions";
 import type { SuggestionField } from "@/types";
+import { adminKeys, wordKeys } from "@/lib/query-keys";
 
 /** Polish label for the word field a suggestion targets. */
 const FIELD_LABEL: Record<SuggestionField, string> = {
@@ -42,13 +43,13 @@ export function SuggestionList() {
     setFailure(null);
     try {
       const result = await reviewSuggestion(suggestion.id, decision);
-      await queryClient.invalidateQueries({ queryKey: ["adminSuggestions"] });
+      await queryClient.invalidateQueries({ queryKey: adminKeys.suggestions() });
       // Only a review that actually wrote to `words` changes the dictionary.
       // An already-decided suggestion — a second tab, a retried request —
       // reports `applied: false` and leaves the word exactly as it is.
       if (result.applied && decision === "approved") {
-        await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
-        await queryClient.invalidateQueries({ queryKey: ["words"] });
+        await queryClient.invalidateQueries({ queryKey: adminKeys.words() });
+        await queryClient.invalidateQueries({ queryKey: wordKeys.all });
       }
     } catch {
       // Never silent: an empty catch here stopped the spinner and left the row

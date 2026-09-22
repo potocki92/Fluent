@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import type { WordFilters } from "@/lib/dictionary/contracts";
 import { fetchWordsCursorPage } from "@/lib/dictionary/queries";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { wordKeys } from "@/lib/query-keys";
 
 /**
  * Cursor-based infinite list of dictionary words for the `/words` route.
@@ -14,7 +15,7 @@ import { createClientSupabaseClient } from "@/lib/supabase/client";
  */
 export function useWordsInfinite(filters: WordFilters = {}) {
   return useInfiniteQuery({
-    queryKey: ["words", "cursor", filters] as const,
+    queryKey: wordKeys.cursor(filters),
     queryFn: ({ pageParam }) =>
       fetchWordsCursorPage(createClientSupabaseClient(), pageParam, filters),
     initialPageParam: null as number | null,

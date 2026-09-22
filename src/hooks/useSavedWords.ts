@@ -2,11 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { SavedWord, Word } from "@/types";
+import { savedWordKeys } from "@/lib/query-keys";
 
 export type SavedWordWithWord = SavedWord & { word: Word };
 
 /** TanStack key for the user's saved words — shared so the server can prime it. */
-export const SAVED_WORDS_KEY = ["saved_words"] as const;
+export const SAVED_WORDS_KEY = savedWordKeys.all;
 
 /**
  * Columns the dictionary UI needs from `saved_words`. The list only derives the
@@ -37,7 +38,7 @@ export function useSavedWords() {
 /** Saved words that are due for review now (filtered server-side by due_at). */
 export function useDueWords() {
   const query = useQuery({
-    queryKey: ["saved_words", "due"],
+    queryKey: savedWordKeys.due(),
     queryFn: async (): Promise<SavedWordWithWord[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

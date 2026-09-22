@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { QuestionWithAnswer } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 /**
  * Fetch the questions for a text in the admin panel. Unlike the learner
@@ -10,7 +11,7 @@ import type { QuestionWithAnswer } from "@/types";
  */
 export function useAdminQuestions(textId: number) {
   return useQuery({
-    queryKey: ["adminQuestions", textId],
+    queryKey: adminKeys.questions(textId),
     queryFn: async (): Promise<QuestionWithAnswer[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

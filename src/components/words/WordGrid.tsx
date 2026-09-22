@@ -9,6 +9,7 @@ import { useSavedWords } from "@/hooks/useSavedWords";
 import { WordCard } from "@/components/words/WordCard";
 import type { DictionaryListWord } from "@/lib/dictionary/contracts";
 import type { CefrLevel, WordType } from "@/types";
+import { savedWordKeys } from "@/lib/query-keys";
 
 const CEFR_VALUES = new Set<Exclude<CefrLevel, "A1+">>(["A1", "A2", "B1", "B2"]);
 const TYPE_VALUES = new Set<WordType>(["noun", "verb", "other"]);
@@ -68,7 +69,7 @@ export function WordGrid({
       try {
         if (next) await saveWord(word.id);
         else await unsaveWord(word.id);
-        await queryClient.invalidateQueries({ queryKey: ["saved_words"] });
+        await queryClient.invalidateQueries({ queryKey: savedWordKeys.all });
       } catch {
         // Revert the optimistic toggle on failure.
         setOverrides((o) => ({ ...o, [word.id]: !next }));

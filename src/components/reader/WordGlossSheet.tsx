@@ -28,6 +28,7 @@ import type { ReaderWordState } from "@/hooks/useReaderWord";
 import { newInteractionId } from "@/lib/interaction-id";
 import { speakGerman } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import { notebookKeys } from "@/lib/query-keys";
 
 export type { GlossTarget };
 
@@ -153,7 +154,7 @@ export function WordGlossSheet({
       void queryClient.invalidateQueries({
         queryKey: sentenceNotebookKey(target?.sentenceId ?? null),
       });
-      void queryClient.invalidateQueries({ queryKey: ["notebook"] });
+      void queryClient.invalidateQueries({ queryKey: notebookKeys.all });
     },
   });
 

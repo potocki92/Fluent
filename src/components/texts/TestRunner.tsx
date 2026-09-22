@@ -27,6 +27,7 @@ import { abilityToCefr } from "@/lib/cefr";
 import { REVEAL_MS } from "@/lib/session/constants";
 import { displayedIndex, isBusy } from "@/lib/session/question-session";
 import type { Profile } from "@/types";
+import { learnerKeys } from "@/lib/query-keys";
 
 /**
  * Runs one comprehension test from start to result.
@@ -55,7 +56,7 @@ export function TestRunner({ textId }: { textId: number }) {
       });
       // This text now has a fresh completion row — refetch so the learn page
       // moves it to the right section (passed → "read & passed", failed → retry).
-      queryClient.invalidateQueries({ queryKey: ["completedTexts"] });
+      queryClient.invalidateQueries({ queryKey: learnerKeys.completedTexts() });
       // Keep the ["profile"] cache in step with the authoritative result, so a
       // later remount of useProfile re-hydrates the store from fresh data
       // instead of clobbering it with the pre-test profile.

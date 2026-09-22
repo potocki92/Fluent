@@ -4,6 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import type { NotebookEntry } from "@/hooks/useNotebook";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
+import { notebookKeys } from "@/lib/query-keys";
 
 /**
  * Everything this learner has written about ONE sentence.
@@ -37,7 +38,7 @@ export interface SentenceNotebook {
 const EMPTY: SentenceNotebook = { note: null, annotations: [] };
 
 export function sentenceNotebookKey(sentenceId: number | null) {
-  return ["notebook", "sentence", sentenceId ?? 0] as const;
+  return notebookKeys.sentence(sentenceId);
 }
 
 export function useSentenceNotebook(

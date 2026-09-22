@@ -6,6 +6,7 @@ import { getQueryClient } from "@/lib/query-client";
 import type { WordFilters } from "@/lib/dictionary/contracts";
 import { fetchWordsCursorPage } from "@/lib/dictionary/queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { wordKeys } from "@/lib/query-keys";
 
 export const metadata: Metadata = {
   title: "Słowa — Fluent",
@@ -23,7 +24,7 @@ export default async function WordsPage() {
   // Prefetch only the first page so the initial 20 words render instantly with
   // no client loading state. `pages: 1` keeps the SSR payload to one page.
   await queryClient.prefetchInfiniteQuery({
-    queryKey: ["words", "cursor", filter] as const,
+    queryKey: wordKeys.cursor(filter),
     queryFn: ({ pageParam }) => fetchWordsCursorPage(supabase, pageParam, filter),
     initialPageParam: null as number | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Word, WordTopic } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 /** Filter expression matching entries with any missing translation/example. */
 const MISSING_OR = "translation_pl.is.null,example_de.is.null,example_pl.is.null";
@@ -29,7 +30,7 @@ export interface AdminWordsResult {
  */
 export function useAdminWords(filters: AdminWordFilters = {}) {
   return useQuery({
-    queryKey: ["adminWords", filters],
+    queryKey: adminKeys.words(filters),
     queryFn: async (): Promise<AdminWordsResult> => {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -65,7 +66,7 @@ export function useAdminWords(filters: AdminWordFilters = {}) {
  */
 export function useMissingWordsCount() {
   return useQuery({
-    queryKey: ["adminWords", "missingCount"],
+    queryKey: adminKeys.wordsMissingCount(),
     queryFn: async (): Promise<number> => {
       const supabase = createClientSupabaseClient();
       const { count, error } = await supabase

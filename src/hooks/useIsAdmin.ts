@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthUser } from "@/components/auth/AuthProvider";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import { isAccountUser } from "@/lib/auth/identity";
+import { learnerKeys } from "@/lib/query-keys";
 
 /**
  * Whether the current user is an admin. Drives UI affordances only (e.g. the
@@ -19,7 +20,7 @@ export function useIsAdmin() {
   const userId = isAccountUser(user) ? user.id : null;
 
   const query = useQuery({
-    queryKey: ["isAdmin"],
+    queryKey: learnerKeys.isAdmin(),
     enabled: !!userId,
     queryFn: async (): Promise<boolean> => {
       if (!userId) return false;

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Text } from "@/types";
+import { adminKeys } from "@/lib/query-keys";
 
 /**
  * A text row for the admin list: the row, its question count, and the artwork of
@@ -28,7 +29,7 @@ export type AdminTextRow = Text & {
  */
 export function useAdminTexts() {
   return useQuery({
-    queryKey: ["adminTexts"],
+    queryKey: adminKeys.texts(),
     queryFn: async (): Promise<AdminTextRow[]> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
@@ -71,7 +72,7 @@ export type AdminTextDetail = Text & {
 /** Fetch a single passage by id for the edit form (drafts included). */
 export function useAdminText(textId: number) {
   return useQuery({
-    queryKey: ["adminText", textId],
+    queryKey: adminKeys.text(textId),
     queryFn: async (): Promise<AdminTextDetail | null> => {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
