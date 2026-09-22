@@ -3,13 +3,28 @@ import { useQuery } from "@tanstack/react-query";
 import { createClientSupabaseClient } from "@/lib/supabase/client";
 import type { Text } from "@/types";
 
-/** A text row for the admin list, with its question count attached. */
-export type AdminTextRow = Text & { questionCount: number };
+/**
+ * A text row for the admin list: the row, its question count, and the artwork of
+ * the library item it maps to.
+ *
+ * The cover is part of the LIST and not just the edit form, because "which texts
+ * still have no picture?" is a question about the whole shelf. Answering it one
+ * text at a time means opening twelve edit screens to find the three that are
+ * missing one. `coverUrl` is `null` both for a passage whose library item has no
+ * artwork and for one the library has not caught up with yet — from this list's
+ * point of view those are the same fact: there is nothing to show.
+ */
+export type AdminTextRow = Text & {
+  questionCount: number;
+  coverUrl: string | null;
+};
 
 /**
  * Fetch all reading passages for the admin list (drafts included — admin RLS
  * returns them), newest first, with each text's question count via an embedded
- * aggregate. Distinct query key from the learner `["texts"]` cache.
+ * aggregate and its cover through the same `legacy_text_id` foreign key
+ * {@link useAdminText} uses. Distinct query key from the learner `["texts"]`
+ * cache.
  */
 export function useAdminTexts() {
   return useQuery({
@@ -18,17 +33,21 @@ export function useAdminTexts() {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from("texts")
-        .select("*, questions(count)")
+        .select("*, questions(count), library_items(cover_url)")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
       const rows = (data ?? []) as unknown as (Text & {
         questions: { count: number }[];
+        library_items: { cover_url: string | null }[] | null;
       })[];
-      return rows.map(({ questions, ...text }) => ({
+      return rows.map(({ questions, library_items: items, ...text }) => ({
         ...text,
         questionCount: questions[0]?.count ?? 0,
+        // `legacy_text_id` is unique, so the embed is a one-element array at
+        // most — and empty for a passage with no library item behind it.
+        coverUrl: items?.[0]?.cover_url ?? null,
       }));
     },
   });

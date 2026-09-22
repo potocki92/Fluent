@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -137,6 +138,19 @@ function ItemCard({
   const cover = useMaterialCover(item.coverUrl);
   const target: CoverTarget = { kind: "material", libraryItemId: item.id };
 
+  /**
+   * A legacy passage's artwork is shown on TWO admin screens, and this one is
+   * server-rendered while the other is a cached query. `router.refresh()` alone
+   * would leave `/admin`'s thumbnails and its „Bez obrazu (N)" count showing the
+   * picture this card just replaced, for as long as the query stays fresh.
+   */
+  const queryClient = useQueryClient();
+  async function invalidateTextList() {
+    if (item.legacyTextId === null) return;
+    await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
+    await queryClient.invalidateQueries({ queryKey: ["adminText", item.legacyTextId] });
+  }
+
   async function pickCover(file: File | null) {
     cover.setStatus(null);
     cover.choose(file);
@@ -155,6 +169,7 @@ function ItemCard({
     cover.setCoverUrl(saved);
     cover.choose(null);
     cover.setStatus("Obraz zapisany.");
+    await invalidateTextList();
     run(async () => `„${item.title}" — obraz zapisany.`);
   }
 
@@ -170,6 +185,7 @@ function ItemCard({
 
     cover.setCoverUrl(null);
     cover.setStatus("Obraz usunięty.");
+    await invalidateTextList();
     run(async () => `„${item.title}" — obraz usunięty.`);
   }
 

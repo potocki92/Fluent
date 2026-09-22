@@ -174,12 +174,15 @@ export function TextForm(props: Props) {
   /**
    * What a cover change actually invalidates on the client.
    *
-   * The one query that renders it. Not the whole cache: Today and the library
-   * are server-rendered and are revalidated by the action itself, and the admin
-   * list does not show artwork at all.
+   * The two queries that render it: this form, and the admin list — which shows
+   * every passage's thumbnail and counts the ones still missing a picture, so
+   * leaving it stale would have „Bez obrazu (3)" still claiming three the moment
+   * after the third one was given artwork. Not the whole cache: Today and the
+   * library are server-rendered and are revalidated by the action itself.
    */
   async function invalidateCover(id: number) {
     await queryClient.invalidateQueries({ queryKey: ["adminText", id] });
+    await queryClient.invalidateQueries({ queryKey: ["adminTexts"] });
   }
 
   async function onSubmit(e: React.FormEvent) {
