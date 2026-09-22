@@ -43,7 +43,8 @@ import {
   type StoredSentence,
 } from "@/lib/content/dictionary-sync";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Database, Json } from "@/types/database";
+import type { Database } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 type Client = SupabaseClient<Database>;
 
@@ -170,8 +171,8 @@ export async function reconcileChapterDictionary(
           "sync_chapter_dictionary",
           {
             p_chapter_id: chapter.id,
-            p_occurrences: rows as unknown as Json,
-            p_resolutions: (chunkIndex === 0 ? plan.resolutions : []) as unknown as Json,
+            p_occurrences: toJson(rows),
+            p_resolutions: toJson(chunkIndex === 0 ? plan.resolutions : []),
             p_revision: null,
             p_finalize: false,
           },
@@ -194,8 +195,8 @@ export async function reconcileChapterDictionary(
     // redone rather than silently half-finished.
     const { error: finalError } = await input.service.rpc("sync_chapter_dictionary", {
       p_chapter_id: chapter.id,
-      p_occurrences: [] as unknown as Json,
-      p_resolutions: [] as unknown as Json,
+      p_occurrences: toJson([]),
+      p_resolutions: toJson([]),
       p_revision: snapshot.revision,
       p_finalize: true,
     });

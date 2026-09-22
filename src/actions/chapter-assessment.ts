@@ -40,7 +40,7 @@ import {
   selectChallengeQuestions,
 } from "@/lib/story/selection";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * The Chapter Challenge — the AFTER half of the story lifecycle.
@@ -166,12 +166,12 @@ export async function startChapterChallenge(input: {
       p_user_id: user.id,
       p_chapter_id: input.chapterId,
       p_question_ids: selection.questions.map((question) => question.id),
-      p_blueprint: {
+      p_blueprint: toJson({
         requested: blueprint,
         fitted,
         story_engine_version: STORY_ENGINE_VERSION,
-      } as unknown as Json,
-      p_signals: {
+      }),
+      p_signals: toJson({
         // WHY THESE QUESTIONS. Developer-facing and never shown to a learner,
         // but an admin asking "why did they get exactly these six?" six months
         // from now needs the answer to still exist.
@@ -181,7 +181,7 @@ export async function startChapterChallenge(input: {
           signals: question.signals,
         })),
         reused_recent: selection.reusedRecent,
-      } as unknown as Json,
+      }),
       p_plan_item_id: input.planItemId ?? null,
     },
   );
@@ -382,7 +382,7 @@ export async function finalizeChapterChallenge(
       p_session_id: sessionId,
       p_user_id: user.id,
       p_evidence: prepared.json,
-      p_scores: scores as unknown as Json,
+      p_scores: toJson(scores),
     });
 
     const result = data?.[0];

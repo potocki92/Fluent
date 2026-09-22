@@ -33,6 +33,7 @@ export type {
   TodayPlan,
   TodayPlanItem,
 } from "@/lib/learning/planner/contracts";
+import { toJson } from "@/lib/json";
 
 const PLAN_COLUMNS =
   "id, learning_date, timezone, status, target_minutes, estimated_minutes, algorithm_version, evidence_level";
@@ -124,7 +125,7 @@ export async function getOrCreateTodayPlan(): Promise<ActionResult<TodayPlan>> {
     p_target_minutes: targetMinutes,
     p_algorithm_version: draft.algorithmVersion,
     p_evidence_level: draft.evidenceLevel,
-    p_items: draftItemRows(draft) as unknown as Json,
+    p_items: toJson(draftItemRows(draft)),
     p_replace_onboarding: replaceOnboarding,
   });
   if (createError) {

@@ -19,6 +19,7 @@
  * optimistic-concurrency guard `finalize_test_session` uses for the profile.
  */
 
+import { toJson } from "@/lib/json";
 import type { ConceptCode } from "@/lib/learning/concepts";
 import type { LearningEvidence, SourceKind } from "@/lib/learning/evidence";
 import {
@@ -101,13 +102,14 @@ export const EMPTY_EVIDENCE_PAYLOAD: EvidencePayload = {
 /**
  * Hand the payload to an RPC parameter typed as `Json`.
  *
- * Every value in it is a string, number, boolean, null or an array of those — it
- * is JSON by construction — but TypeScript cannot see that through
- * `Record<string, unknown>`. The single cast lives here so no call site has to
- * repeat it, and so changing the payload shape breaks one place, not five.
+ * Every value in it is a string, number, boolean, null or an array of those —
+ * it is JSON by construction — but TypeScript cannot see that through
+ * `Record<string, unknown>`. Kept as its own named function, over the shared
+ * {@link toJson}, because "this payload is the evidence contract" is worth
+ * saying at each of the seven commit sites that pass it.
  */
 export function evidenceJson(payload: EvidencePayload): Json {
-  return payload as unknown as Json;
+  return toJson(payload);
 }
 
 /** The next states, plus the payload that persists them. */

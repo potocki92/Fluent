@@ -30,7 +30,7 @@ import {
 import type { QuestionCandidate, ValidatedQuestion } from "@/lib/story/questions";
 import { getChapterFacts } from "@/lib/story/queries";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * Generating and curating a chapter's question bank.
@@ -230,8 +230,8 @@ export async function generateChapterQuestions(
   if (result.accepted.length > 0) {
     const { error: writeError } = await service.rpc("upsert_chapter_questions", {
       p_chapter_id: chapterId,
-      p_questions: result.accepted.map(toRow) as unknown as Json,
-      p_meta: {
+      p_questions: toJson(result.accepted.map(toRow)),
+      p_meta: toJson({
         generation_source: "ai",
         generator_version: QUESTION_GENERATOR_VERSION,
         provider: provider.capabilities.name,
@@ -241,7 +241,7 @@ export async function generateChapterQuestions(
         // approve their own questions would be theatre. Validated questions are
         // the floor in both cases.
         status: isPrivateContent ? "published" : "needs_review",
-      } as unknown as Json,
+      }),
     });
     if (writeError) {
       await finishJob(service, jobId, "failed", {
@@ -330,13 +330,13 @@ export async function importChapterQuestions(input: {
   if (result.accepted.length > 0) {
     const { error } = await service.rpc("upsert_chapter_questions", {
       p_chapter_id: input.chapterId,
-      p_questions: result.accepted.map(toRow) as unknown as Json,
-      p_meta: {
+      p_questions: toJson(result.accepted.map(toRow)),
+      p_meta: toJson({
         generation_source: "manual",
         generator_version: QUESTION_GENERATOR_VERSION,
         // An admin writing a question by hand has already reviewed it.
         status: "published",
-      } as unknown as Json,
+      }),
     });
     if (error) return failFrom(error, `importChapterQuestions: ${input.chapterId}`);
   }
@@ -498,6 +498,6 @@ async function finishJob(
   await service.rpc("finish_chapter_generation_job", {
     p_job_id: jobId,
     p_status: status,
-    p_result: result as unknown as Json,
+    p_result: toJson(result),
   });
 }

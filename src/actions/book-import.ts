@@ -18,7 +18,7 @@ import { findDuplicateImport } from "@/lib/import/queries";
 import type { ImportErrorCode } from "@/lib/import/types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service";
-import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * The private book importer's write paths.
@@ -241,7 +241,7 @@ export async function analyzeBookImport(
   const { book } = analysis;
   const { error: applyError } = await service.rpc("apply_book_import_analysis", {
     p_import_id: importId,
-    p_payload: {
+    p_payload: toJson({
       file_hash: await sha256Hex(bytes),
       detected_title: book.metadata.title,
       detected_author: book.metadata.author,
@@ -265,7 +265,7 @@ export async function analyzeBookImport(
         signals: chapter.signals,
         is_front_matter: chapter.isFrontMatter,
       })),
-    } as unknown as Json,
+    }),
   });
   if (applyError) {
     // FL423 — manual corrections exist. That is not a failed import, it is a
@@ -345,7 +345,7 @@ export async function editImportChapter(
   const { error } = await supabase.rpc("edit_book_import_chapters", {
     p_import_id: importId,
     p_op: edit.op,
-    p_payload: payload as unknown as Json,
+    p_payload: toJson(payload),
   });
   if (error) return failFrom(error, `editImportChapter: ${edit.op}`);
 

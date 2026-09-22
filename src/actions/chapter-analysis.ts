@@ -38,7 +38,6 @@ import type {
   PreparationWord,
 } from "@/lib/story/contracts";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Json } from "@/types/database";
 
 /**
  * "What is this chapter, for me?" — the BEFORE half of the story lifecycle.
@@ -72,6 +71,7 @@ export type {
   PreparationOffer,
   PreparationWord,
 } from "@/lib/story/contracts";
+import { toJson } from "@/lib/json";
 
 export async function getChapterStoryState(
   chapterId: string,
@@ -319,7 +319,7 @@ async function persistAnalysis(
     await service.rpc("upsert_chapter_analysis", {
       p_user_id: userId,
       p_chapter_id: chapter.id,
-      p_analysis: analysis as unknown as Json,
+      p_analysis: toJson(analysis),
     });
   } catch (error) {
     // A cache that did not write is a slower page, not a wrong one — and in a

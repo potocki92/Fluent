@@ -43,7 +43,8 @@ import { contentHash, processWithIndex, type ProcessedChapter } from "@/lib/cont
 import { CONTENT_PROCESSOR_VERSION } from "@/lib/content/version";
 import { estimatedChapterMinutes } from "@/lib/reading/progress";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
-import type { Database, Json } from "@/types/database";
+import type { Database } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 type Client = SupabaseClient<Database>;
 
@@ -131,7 +132,7 @@ export async function processChapterById(
 
   const { error: writeError } = await input.service.rpc("replace_chapter_content", {
     p_chapter_id: input.chapterId,
-    p_payload: chapterPayload(processed, hash, snapshot.revision) as unknown as Json,
+    p_payload: toJson(chapterPayload(processed, hash, snapshot.revision)),
   });
   if (writeError) {
     await recordFailure(input.service, input.chapterId, writeError);

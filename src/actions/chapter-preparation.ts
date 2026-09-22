@@ -14,6 +14,7 @@ import { getChapterFacts, getSentenceIdsByPosition } from "@/lib/story/queries";
 import { getChapterStoryState, type PreparationWord } from "@/actions/chapter-analysis";
 import { fail, failFrom, type ActionResult } from "@/lib/errors";
 import type { Json } from "@/types/database";
+import { toJson } from "@/lib/json";
 
 /**
  * Chapter preparation — the BEFORE step, and the one most at risk of ruining the
@@ -122,11 +123,13 @@ export async function startChapterPreparation(input: {
 
   let items: Json;
   try {
-    items = (await buildPreparationItems(
-      supabase,
-      input.chapterId,
-      state.state.preparation.words,
-    )) as unknown as Json;
+    items = toJson(
+      await buildPreparationItems(
+        supabase,
+        input.chapterId,
+        state.state.preparation.words,
+      ),
+    );
   } catch (error) {
     return fail("database_error", "startChapterPreparation: build items", error);
   }
@@ -138,7 +141,7 @@ export async function startChapterPreparation(input: {
       p_chapter_id: input.chapterId,
       p_items: items,
       p_plan_item_id: input.planItemId ?? null,
-      p_signals: { story_engine_version: STORY_ENGINE_VERSION } as unknown as Json,
+      p_signals: toJson({ story_engine_version: STORY_ENGINE_VERSION }),
     },
   );
   if (startError || !sessionId) {
