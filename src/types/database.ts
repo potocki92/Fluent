@@ -41,7 +41,12 @@ export type Database = {
           created_at: string;
         };
         Insert: {
-          id: number;
+          // Optional since `20260922120000_dictionary_write_integrity.sql`:
+          // the column defaults to `nextval('words_id_seq')`, so a new entry
+          // lets the database allocate rather than racing `max(id) + 1`. The
+          // seeds and the wordlist import still name their own ids, and a
+          // trigger keeps the sequence ahead of them.
+          id?: number;
           lemma: string;
           display: string;
           article?: "der" | "die" | "das" | null;
@@ -2442,6 +2447,17 @@ export type Database = {
       };
     };
     Functions: {
+      review_word_suggestion: {
+        Args: { p_suggestion_id: number; p_decision: "approved" | "rejected" };
+        Returns: {
+          suggestion_id: number;
+          status: "pending" | "approved" | "rejected";
+          /** True when THIS call was the one that decided it. */
+          applied: boolean;
+          /** The word the edit landed on, or null when nothing was written. */
+          updated_word_id: number | null;
+        }[];
+      };
       bump_word_review: {
         Args: Record<string, never>;
         Returns: number;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, X } from "lucide-react";
 
@@ -25,23 +25,37 @@ export function SuggestionList() {
   const { data: suggestions, isLoading, error } = useAdminSuggestions();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [failure, setFailure] = useState<number | null>(null);
+  const gate = useRef(false);
 
   async function review(
     suggestion: AdminSuggestionRow,
     decision: "approved" | "rejected",
   ) {
-    if (busyId) return;
+    // A ref, not the state above: two clicks in the same frame both read
+    // `busyId` as null. The RPC is idempotent either way, so the worst case is
+    // a wasted round trip rather than a double-applied edit — but the second
+    // click should still do nothing.
+    if (gate.current) return;
+    gate.current = true;
     setBusyId(suggestion.id);
+    setFailure(null);
     try {
-      await reviewSuggestion(suggestion.id, decision);
+      const result = await reviewSuggestion(suggestion.id, decision);
       await queryClient.invalidateQueries({ queryKey: ["adminSuggestions"] });
-      if (decision === "approved") {
+      // Only a review that actually wrote to `words` changes the dictionary.
+      // An already-decided suggestion — a second tab, a retried request —
+      // reports `applied: false` and leaves the word exactly as it is.
+      if (result.applied && decision === "approved") {
         await queryClient.invalidateQueries({ queryKey: ["adminWords"] });
         await queryClient.invalidateQueries({ queryKey: ["words"] });
       }
     } catch {
-      // Leave the row in place; the next refetch reflects the true state.
+      // Never silent: an empty catch here stopped the spinner and left the row
+      // in place, which reads as "the button is broken".
+      setFailure(suggestion.id);
     } finally {
+      gate.current = false;
       setBusyId(null);
     }
   }
@@ -84,6 +98,11 @@ export function SuggestionList() {
                 <p className="text-sm text-foreground">{s.suggestion}</p>
                 {s.note && (
                   <p className="text-xs text-muted2">Uwaga: {s.note}</p>
+                )}
+                {failure === s.id && (
+                  <p className="text-xs text-red">
+                    Nie udało się zapisać decyzji. Spróbuj ponownie.
+                  </p>
                 )}
               </div>
 

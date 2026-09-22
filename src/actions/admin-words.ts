@@ -85,8 +85,17 @@ function normaliseWord(input: WordInput) {
 }
 
 /**
- * Create a new dictionary entry. Admin only. `words.id` is a plain bigint (not
- * an identity column), so we derive the next id from the current maximum.
+ * Create a new dictionary entry. Admin only.
+ *
+ * THE ID IS THE DATABASE'S TO HAND OUT. This used to read `max(id)`, add one
+ * and insert that — so two admins adding a word in the same moment both read
+ * the same maximum, both tried the same id, and one lost to a primary-key
+ * violation surfaced as a raw Postgres message. `words.id` is still a plain
+ * bigint rather than an identity column, because the seeds and the wordlist
+ * import name their own ids and those ids are referenced from half the schema;
+ * what changed is that the column now DEFAULTS to a sequence, and a trigger
+ * keeps that sequence ahead of every explicit id. See
+ * `supabase/migrations/20260922120000_dictionary_write_integrity.sql`.
  */
 export async function createWord(
   input: WordInput,
@@ -94,19 +103,9 @@ export async function createWord(
   try {
     const { supabase } = await requireAdmin();
 
-    const { data: top, error: maxError } = await supabase
-      .from("words")
-      .select("id")
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (maxError) throw maxError;
-
-    const nextId = (top?.id ?? 0) + 1;
-
     const { data, error } = await supabase
       .from("words")
-      .insert({ id: nextId, ...normaliseWord(input) })
+      .insert(normaliseWord(input))
       .select()
       .single();
     if (error) throw error;
@@ -177,48 +176,25 @@ export async function deleteWord(id: number): Promise<{ id: number }> {
 export async function reviewSuggestion(
   id: number,
   decision: Exclude<SuggestionStatus, "pending">,
-): Promise<{ id: number; status: SuggestionStatus }> {
-  const { supabase, user } = await requireAdmin();
+): Promise<{ id: number; status: SuggestionStatus; applied: boolean }> {
+  // The admin check stays here so an unauthorised caller never reaches the
+  // database at all; the RPC checks `is_admin()` again from `auth.uid()`,
+  // because a check in the application is a convenience and a check in the
+  // function is the boundary.
+  const { supabase } = await requireAdmin();
 
-  const { data: suggestion, error: loadError } = await supabase
-    .from("word_suggestions")
-    .select("word_id, field, suggestion, status")
-    .eq("id", id)
-    .single();
-  if (loadError) throw loadError;
-  if (suggestion.status !== "pending") {
-    throw new Error("To zgłoszenie zostało już rozpatrzone.");
-  }
+  const { data, error } = await supabase.rpc("review_word_suggestion", {
+    p_suggestion_id: id,
+    p_decision: decision,
+  });
+  if (error) throw error;
 
-  if (decision === "approved" && suggestion.field !== "other") {
-    const value = suggestion.suggestion.trim();
-    // Explicit per-field mapping keeps the update strongly typed (a computed
-    // key would widen to a string index signature Supabase rejects).
-    const patch: Partial<Word> =
-      suggestion.field === "translation_pl"
-        ? { translation_pl: value }
-        : suggestion.field === "example_de"
-          ? { example_de: value }
-          : { example_pl: value };
+  const result = data?.[0];
+  if (!result) throw new Error("Nie znaleźliśmy tego zgłoszenia.");
 
-    const { error: applyError } = await supabase
-      .from("words")
-      .update(patch)
-      .eq("id", suggestion.word_id);
-    if (applyError) throw applyError;
+  // Only a call that actually wrote to `words` can have changed what the reader
+  // resolves. An already-decided suggestion wrote nothing.
+  if (result.updated_word_id !== null) invalidateDictionarySnapshot();
 
-    invalidateDictionarySnapshot();
-  }
-
-  const { error: markError } = await supabase
-    .from("word_suggestions")
-    .update({
-      status: decision,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.id,
-    })
-    .eq("id", id);
-  if (markError) throw markError;
-
-  return { id, status: decision };
+  return { id, status: result.status, applied: result.applied };
 }
