@@ -18,6 +18,7 @@ import {
   chapterSegmentMinutes,
   chapterTargetSeconds,
   evidenceLevelFor,
+  pickFreshBook,
   readingMinutes,
   reviewBatchSize,
   reviewMinutes,
@@ -158,5 +159,58 @@ describe("reading a chapter", () => {
     expect(chapterLevelSignal("B2", 1100)).toBe(CHAPTER_LEVEL_FAR);
     // No estimate is not the same as a bad one.
     expect(chapterLevelSignal(null, 1350)).toBe(CHAPTER_LEVEL_NEAR);
+  });
+});
+
+describe("pickFreshBook", () => {
+  const chapters = new Map([
+    ["schluessel", [{ id: "schluessel-1" }]],
+    ["andere", [{ id: "andere-1" }]],
+  ]);
+
+  it("never offers a finished book again from chapter 1", () => {
+    // Every chapter of "Der Schlüssel" is done, so the learner's only history is
+    // with it — and the best level fit must not bring it back.
+    const pick = pickFreshBook(
+      [
+        { id: "schluessel", cefr_estimate: "A2" },
+        { id: "andere", cefr_estimate: "B2" },
+      ],
+      chapters,
+      new Set(["schluessel"]),
+      1350,
+    );
+    expect(pick?.item.id).toBe("andere");
+  });
+
+  it("suggests nothing when every book has been read", () => {
+    expect(
+      pickFreshBook(
+        [{ id: "schluessel", cefr_estimate: "A2" }],
+        chapters,
+        new Set(["schluessel"]),
+        1350,
+      ),
+    ).toBeNull();
+  });
+
+  it("prefers the best level fit among unread books", () => {
+    const pick = pickFreshBook(
+      [
+        { id: "andere", cefr_estimate: "B2" },
+        { id: "schluessel", cefr_estimate: "A2" },
+      ],
+      chapters,
+      new Set(),
+      1350,
+    );
+    expect(pick?.item.id).toBe("schluessel");
+    expect(pick?.chapter.id).toBe("schluessel-1");
+  });
+
+  it("skips a book with no ready chapter", () => {
+    expect(
+      pickFreshBook([{ id: "leer", cefr_estimate: "A2" }], chapters, new Set(), 1350),
+    ).toBeNull();
   });
 });
