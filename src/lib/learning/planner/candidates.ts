@@ -50,6 +50,7 @@ import {
   MIN_REVIEW_BATCH,
   PLACEMENT_MINUTES,
   PRACTICE_SECONDS_PER_QUESTION,
+  READING_PROGRESS_SCAN_LIMIT,
   READING_WORDS_PER_MINUTE,
   REVIEW_BUDGET_SHARE,
   REVIEW_CARDS_PER_MINUTE,
@@ -545,7 +546,7 @@ export async function chapterCandidates(
     .select("chapter_id, library_item_id, progress_ratio, completed_at, last_read_at")
     .eq("user_id", ctx.userId)
     .order("last_read_at", { ascending: false })
-    .limit(30);
+    .limit(READING_PROGRESS_SCAN_LIMIT);
 
   const rows = progress ?? [];
   const openChapterIds = rows
@@ -660,17 +661,18 @@ export async function chapterCandidates(
 
   if (candidates.length > 0) return candidates;
 
-  // 3. Nothing started at all: the best-fitting first chapter in the library.
-  const fresh = [...itemById.values()]
-    .map((item) => ({
-      item,
-      chapter: byItem.get(item.id)?.[0],
-      fit: chapterLevelSignal(item.cefr_estimate, ctx.ability),
-    }))
-    .filter((entry) => entry.chapter !== undefined)
-    .sort((a, b) => b.fit - a.fit)[0];
+  // 3. Nothing in progress: the best-fitting first chapter of a book the learner
+  // has not started. A book they have touched and still land here for is one
+  // they have FINISHED — steps 1 and 2 would otherwise have produced something —
+  // and "zacznij czytać" for a finished book is exactly the wrong suggestion.
+  const fresh = pickFreshBook(
+    [...itemById.values()],
+    byItem,
+    new Set(readItemIds),
+    ctx.ability,
+  );
 
-  if (!fresh?.chapter) return [];
+  if (!fresh) return [];
 
   const minutes = chapterSegmentMinutes(
     fresh.chapter.estimated_reading_minutes,
@@ -689,6 +691,33 @@ export async function chapterCandidates(
       payload: chapterPayload(fresh.item, fresh.chapter, 0),
     },
   ];
+}
+
+/**
+ * The book to suggest starting when nothing is in progress: the best level fit
+ * among published books the learner has never opened a chapter of.
+ *
+ * `startedItemIds` must cover the WHOLE reading history. An item missing from it
+ * is treated as unread, so a finished book would be offered again from chapter 1.
+ */
+export function pickFreshBook<
+  Item extends { id: string; cefr_estimate: string | null },
+  Chapter,
+>(
+  items: readonly Item[],
+  chaptersByItem: ReadonlyMap<string, readonly Chapter[]>,
+  startedItemIds: ReadonlySet<string>,
+  ability: number,
+): { item: Item; chapter: Chapter; fit: number } | null {
+  let best: { item: Item; chapter: Chapter; fit: number } | null = null;
+  for (const item of items) {
+    if (startedItemIds.has(item.id)) continue;
+    const chapter = chaptersByItem.get(item.id)?.[0];
+    if (chapter === undefined) continue;
+    const fit = chapterLevelSignal(item.cefr_estimate, ability);
+    if (!best || fit > best.fit) best = { item, chapter, fit };
+  }
+  return best;
 }
 
 /**

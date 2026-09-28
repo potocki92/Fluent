@@ -940,8 +940,11 @@ generator, two item types, one completion rule.
 
 - **`chapterCandidates`** (`planner/candidates.ts`) emits `continue_chapter` for
   the chapter already begun and `new_chapter` for the next one of something
-  already being read — or, failing both, the best-fitting first chapter in the
-  library. It excludes items with a `legacy_text_id`, because a migrated passage
+  already being read — or, failing both, the best-fitting first chapter of a
+  book the learner has never opened. A book with any reading history that still
+  reaches that fallback is a FINISHED book, so it is never offered again from
+  chapter 1; this is also why the generator reads the whole `reading_progress`
+  history (`READING_PROGRESS_SCAN_LIMIT`) rather than a recent slice. It excludes items with a `legacy_text_id`, because a migrated passage
   would otherwise produce two candidates for the same content (one from the
   passage generator, one from here) and a plan with the same task twice is a bug
   the learner can see.

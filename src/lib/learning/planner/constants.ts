@@ -104,6 +104,15 @@ export const MAX_CHAPTER_SEGMENT_MINUTES = 15;
 export const MIN_CHAPTER_SEGMENT_MINUTES = 4;
 /** Share of the daily budget a single reading activity may claim. */
 export const CHAPTER_BUDGET_SHARE = 0.6;
+/**
+ * How many `reading_progress` rows the chapter generator reads.
+ *
+ * One row per chapter ever opened, so this is the whole reading history rather
+ * than a recent slice — and it has to be: a chapter finished three weeks ago
+ * that fell out of a short window would look unread, and the plan would send
+ * the learner back to the start of a book they have already finished.
+ */
+export const READING_PROGRESS_SCAN_LIMIT = 2000;
 
 /**
  * How well a chapter's level matches the learner's, by CEFR band.
